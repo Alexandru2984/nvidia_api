@@ -1,0 +1,58 @@
+# Secrets / env
+.env
+*.env.local
+backend/.env
+.credentials
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+venv/
+.venv/
+env/
+
+# Django
+backend/staticfiles/
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+media/
+
+# Node / Vite
+node_modules/
+frontend/dist/
+frontend/.vite/
+.vite/
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Probe artifacts
+/tmp/probe_*.json
