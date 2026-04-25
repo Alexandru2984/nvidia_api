@@ -92,7 +92,12 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET | `/conversations/` | — | session | Scoped to `request.user`. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |
 | GET/PATCH/DELETE | `/conversations/<id>/` | — | session | 404 if not owned. |
-| POST | `/conversations/<id>/messages/` | `{content, model_id?}` | session | Proxies to NVIDIA, persists both messages. |
+| POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA, persists both messages. Vision images allowed only on vision-capable models. |
+| GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
+| POST | `/attachments/upload/` | `multipart` field `file` | session | Whitelist: jpg/png/webp/gif, pdf, txt, md, docx. 10 MB/file, 100 MB/user. Document text is extracted on upload. |
+| DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
+| GET | `/images/models/` | — | session | List image-generation catalog (Flux schnell/dev, SDXL, SD3 medium). |
+| POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Saves the generated image to local media storage. |
 
 ## Model catalog
 
@@ -109,9 +114,13 @@ To resync after NVIDIA adds or removes models, rerun `/tmp/probe_models.py` (or 
 The VPS pattern matches every other `*.micutu.com` app on this host:
 
 - **systemd unit** `/etc/systemd/system/nvidia-chat.service` runs `gunicorn` as user `micu`, binds `127.0.0.1:8500`, reads `EnvironmentFile=/home/micu/nvidia/backend/.env`.
-- **nginx** vhost `/etc/nginx/sites-available/nvidia.micutu.com` serves the built SPA from `/var/www/nvidia.micutu.com/` with `try_files $uri $uri/ /index.html;` for client-side routing, and proxies `/api/`, `/admin/`, `/static/` to gunicorn.
+- **nginx** vhost `/etc/nginx/sites-available/nvidia.micutu.com` serves the built SPA from `/var/www/nvidia.micutu.com/` with `try_files $uri $uri/ /index.html;` for client-side routing, and proxies `/api/`, `/admin/`, `/static/` and `/media/` to gunicorn (or, for `/media/`, you can serve directly from `/home/micu/nvidia/backend/media/` for lower overhead).
 - **SSL** via certbot: `sudo certbot --nginx -d nvidia.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
 - **PostgreSQL** runs on `127.0.0.1:5432`. Per-app DB and user as documented in the VPS pattern.
+- **Cron** for orphan-attachment cleanup (daily at 03:00):
+  ```cron
+  0 3 * * *  cd /home/micu/nvidia/backend && /home/micu/nvidia/backend/venv/bin/python manage.py cleanup_attachments
+  ```
 
 Deploy steps after a code change:
 

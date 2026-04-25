@@ -425,3 +425,60 @@ NVIDIA_MODELS = [
 
 DEFAULT_MODEL_ID = "meta/llama-3.1-8b-instruct"
 MODEL_IDS = {m["id"] for m in NVIDIA_MODELS}
+
+
+# Vision-capable chat models (can accept image_url content blocks).
+VISION_MODEL_IDS = {
+    'meta/llama-3.2-11b-vision-instruct',
+    'meta/llama-3.2-90b-vision-instruct',
+    'meta/llama-4-maverick-17b-128e-instruct',
+    'meta/llama-4-scout-17b-16e-instruct',
+    'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
+    'google/gemma-3-4b-it',
+    'google/gemma-3-12b-it',
+    'google/gemma-3-27b-it',
+}
+
+# Mark vision capability inline so the frontend can disable image upload
+# when the user picks a text-only model.
+for _m in NVIDIA_MODELS:
+    _m['vision'] = _m['id'] in VISION_MODEL_IDS
+
+
+# Image generation catalog — separate endpoint at NVIDIA_GENAI_BASE/{id}.
+IMAGE_GEN_MODELS = [
+    {
+        'id': 'black-forest-labs/flux.1-schnell',
+        'name': 'FLUX.1 schnell',
+        'vendor': 'Black Forest Labs',
+        'description': 'Fast 4-step distilled FLUX. Best for quick drafts.',
+        'default_steps': 4,
+        'max_steps': 8,
+    },
+    {
+        'id': 'black-forest-labs/flux.1-dev',
+        'name': 'FLUX.1 dev',
+        'vendor': 'Black Forest Labs',
+        'description': 'Higher-quality FLUX. Slower but more faithful.',
+        'default_steps': 28,
+        'max_steps': 50,
+    },
+    {
+        'id': 'stabilityai/stable-diffusion-3-medium',
+        'name': 'Stable Diffusion 3 Medium',
+        'vendor': 'Stability AI',
+        'description': 'Stable Diffusion 3 — strong on photorealism.',
+        'default_steps': 28,
+        'max_steps': 50,
+    },
+    {
+        'id': 'stabilityai/sdxl-turbo',
+        'name': 'SDXL Turbo',
+        'vendor': 'Stability AI',
+        'description': 'One-step SDXL distillation. Fastest option.',
+        'default_steps': 1,
+        'max_steps': 4,
+    },
+]
+IMAGE_GEN_MODEL_IDS = {m['id'] for m in IMAGE_GEN_MODELS}
+DEFAULT_IMAGE_GEN_MODEL_ID = 'black-forest-labs/flux.1-schnell'

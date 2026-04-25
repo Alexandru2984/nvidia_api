@@ -14,4 +14,9 @@ urlpatterns = [
     path('conversations/', views.conversations),
     path('conversations/<int:pk>/', views.conversation_detail),
     path('conversations/<int:pk>/messages/', views.send_message),
+    path('attachments/', views.list_attachments),
+    path('attachments/upload/', views.upload_attachment),
+    path('attachments/<int:pk>/', views.delete_attachment),
+    path('images/generate/', views.generate_image),
+    path('images/models/', views.list_image_models),
 ]

@@ -1,5 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api } from './api'
+import ReactMarkdown from 'react-markdown'
+import rehypeHighlight from 'rehype-highlight'
+import remarkGfm from 'remark-gfm'
+import 'highlight.js/styles/github-dark.css'
+import { api, mediaUrl } from './api'
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+const ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'txt', 'md', 'docx']
+
+function fileExt(name) {
+  const i = (name || '').lastIndexOf('.')
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : ''
+}
+
+function humanSize(bytes) {
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 const SUGGESTIONS = [
   'Write a haiku about GPUs warming up at night',
@@ -237,6 +256,86 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
   )
 }
 
+function CopyButton({ text, label = 'Copy' }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {}
+  }
+  return (
+    <button type="button" className="copy-btn" onClick={copy} title="Copy to clipboard">
+      {copied ? '✓ Copied' : label}
+    </button>
+  )
+}
+
+function MessageBody({ role, content }) {
+  if (role === 'user') {
+    return <div className="bubble user-bubble">{content}</div>
+  }
+  return (
+    <div className="bubble assistant-bubble">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{
+          pre({ children, ...rest }) {
+            const codeText = (() => {
+              try {
+                const c = Array.isArray(children) ? children[0] : children
+                return c?.props?.children?.toString() || ''
+              } catch { return '' }
+            })()
+            return (
+              <div className="code-block">
+                <CopyButton text={codeText} label="Copy code" />
+                <pre {...rest}>{children}</pre>
+              </div>
+            )
+          },
+          a({ children, ...props }) {
+            return <a {...props} target="_blank" rel="noreferrer">{children}</a>
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+function AttachmentTile({ att, onRemove, compact }) {
+  const isImage = att.kind === 'image' || att.kind === 'generated_image'
+  const url = mediaUrl(att.url)
+  if (isImage) {
+    return (
+      <div className={`att-tile image ${compact ? 'compact' : ''}`}>
+        <a href={url} target="_blank" rel="noreferrer">
+          <img src={url} alt={att.original_name} />
+        </a>
+        {onRemove && (
+          <button type="button" className="att-remove" onClick={() => onRemove(att.id)} title="Remove">×</button>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div className={`att-tile doc ${compact ? 'compact' : ''}`}>
+      <div className="att-doc-icon">{(fileExt(att.original_name) || 'DOC').toUpperCase()}</div>
+      <div className="att-doc-meta">
+        <div className="att-doc-name" title={att.original_name}>{att.original_name}</div>
+        <div className="att-doc-size">{humanSize(att.size)}{att.has_text ? ' · text extracted' : ''}</div>
+      </div>
+      {onRemove && (
+        <button type="button" className="att-remove" onClick={() => onRemove(att.id)} title="Remove">×</button>
+      )}
+    </div>
+  )
+}
+
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false)
   const [user, setUser] = useState(null)
@@ -250,8 +349,18 @@ export default function App() {
   const [error, setError] = useState(null)
   const [bootError, setBootError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [mode, setMode] = useState('chat')
+  const [pendingAttachments, setPendingAttachments] = useState([])
+  const [uploadingCount, setUploadingCount] = useState(0)
+  const [imageModels, setImageModels] = useState([])
+  const [imageModel, setImageModel] = useState('')
+  const [imagePrompt, setImagePrompt] = useState('')
+  const [imageBusy, setImageBusy] = useState(false)
+  const [imageParams, setImageParams] = useState({ width: 1024, height: 1024, steps: 4, seed: 0 })
+  const [imageGallery, setImageGallery] = useState([])
   const chatEndRef = useRef(null)
   const textareaRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -272,12 +381,20 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     let cancelled = false
-    Promise.all([api.listModels(), api.listConversations()])
-      .then(([m, c]) => {
+    Promise.all([
+      api.listModels(),
+      api.listConversations(),
+      api.listImageModels().catch(() => ({ models: [], default: '' })),
+      api.listAttachments('generated_image').catch(() => []),
+    ])
+      .then(([m, c, im, gallery]) => {
         if (cancelled) return
         setModels(m.models)
         setDefaultModel(m.default)
         setConversations(c)
+        setImageModels(im.models || [])
+        setImageModel(im.default || (im.models?.[0]?.id) || '')
+        setImageGallery(gallery || [])
       })
       .catch((e) => {
         if (cancelled) return
@@ -309,10 +426,21 @@ export default function App() {
 
   const currentModelId = active?.model_id || defaultModel
 
-  const modelLabel = useMemo(() => {
-    const m = models.find((x) => x.id === currentModelId)
-    return m ? `${m.name} · ${m.vendor}` : currentModelId
-  }, [models, currentModelId])
+  const currentModel = useMemo(
+    () => models.find((x) => x.id === currentModelId),
+    [models, currentModelId],
+  )
+
+  const modelLabel = currentModel ? `${currentModel.name} · ${currentModel.vendor}` : currentModelId
+  const supportsVision = !!currentModel?.vision
+
+  const hasPendingImages = pendingAttachments.some((a) => a.kind === 'image')
+  const imageBlocked = hasPendingImages && !supportsVision
+
+  const currentImageSpec = useMemo(
+    () => imageModels.find((m) => m.id === imageModel),
+    [imageModels, imageModel],
+  )
 
   async function startNewChat(modelId = defaultModel) {
     try {
@@ -327,10 +455,63 @@ export default function App() {
     }
   }
 
+  async function handlePickFiles(e) {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length) return
+    setError(null)
+    for (const f of files) {
+      const ext = fileExt(f.name)
+      if (!ALLOWED_EXT.includes(ext)) {
+        setError(`Unsupported file type: .${ext}. Allowed: ${ALLOWED_EXT.join(', ')}`)
+        continue
+      }
+      if (f.size > MAX_FILE_BYTES) {
+        setError(`${f.name} is larger than 10 MB.`)
+        continue
+      }
+      setUploadingCount((n) => n + 1)
+      try {
+        const att = await api.uploadAttachment(f)
+        setPendingAttachments((prev) => [...prev, att])
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setUploadingCount((n) => n - 1)
+      }
+    }
+  }
+
+  async function removePending(id) {
+    try { await api.deleteAttachment(id) } catch {}
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id))
+  }
+
+  async function handleGenerate(e) {
+    e?.preventDefault?.()
+    const prompt = imagePrompt.trim()
+    if (!prompt || imageBusy) return
+    setImageBusy(true)
+    setError(null)
+    try {
+      const r = await api.generateImage({
+        prompt,
+        model_id: imageModel,
+        ...imageParams,
+      })
+      setImageGallery((prev) => [r.attachment, ...prev])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setImageBusy(false)
+    }
+  }
+
   async function handleSend(e) {
     e?.preventDefault?.()
     const text = draft.trim()
-    if (!text || sending) return
+    if (sending || imageBlocked) return
+    if (!text && pendingAttachments.length === 0) return
 
     let convo = active
     if (!convo) {
@@ -346,13 +527,21 @@ export default function App() {
     setSending(true)
     setDraft('')
 
+    const sendingAttachments = pendingAttachments
+    setPendingAttachments([])
+
     setActive((c) => ({
       ...c,
-      messages: [...(c?.messages || []), { id: `tmp-${Date.now()}`, role: 'user', content: text }],
+      messages: [...(c?.messages || []), {
+        id: `tmp-${Date.now()}`,
+        role: 'user',
+        content: text,
+        attachments: sendingAttachments,
+      }],
     }))
 
     try {
-      const res = await api.sendMessage(convo.id, text)
+      const res = await api.sendMessage(convo.id, text, undefined, sendingAttachments.map((a) => a.id))
       setActive((c) => {
         const base = c?.messages?.filter((m) => !String(m.id).startsWith('tmp-')) || []
         return {
@@ -366,6 +555,7 @@ export default function App() {
       })
     } catch (err) {
       setError(err.message)
+      setPendingAttachments(sendingAttachments)
       setActive((c) => ({
         ...c,
         messages: (c?.messages || []).filter((m) => !String(m.id).startsWith('tmp-')),
@@ -489,23 +679,51 @@ export default function App() {
       <main className="main">
         <div className="topbar">
           <button className="icon menu-btn" onClick={() => setSidebarOpen(true)} title="Menu">☰</button>
-          <div className="title">{active?.title || 'New conversation'}</div>
+          <div className="mode-toggle" role="tablist">
+            <button
+              type="button"
+              className={mode === 'chat' ? 'active' : ''}
+              onClick={() => setMode('chat')}
+            >Chat</button>
+            <button
+              type="button"
+              className={mode === 'image' ? 'active' : ''}
+              onClick={() => setMode('image')}
+              disabled={imageModels.length === 0}
+            >Image</button>
+          </div>
+          <div className="title">
+            {mode === 'chat' ? (active?.title || 'New conversation') : 'Image generation'}
+          </div>
           <div className="model-select-wrap">
-            <select
-              value={currentModelId}
-              onChange={(e) => handleSwitchModel(e.target.value)}
-              disabled={sending}
-              title={modelLabel}
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} · {m.vendor}
-                </option>
-              ))}
-            </select>
+            {mode === 'chat' ? (
+              <select
+                value={currentModelId}
+                onChange={(e) => handleSwitchModel(e.target.value)}
+                disabled={sending}
+                title={modelLabel}
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}{m.vision ? ' · 👁' : ''} · {m.vendor}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={imageModel}
+                onChange={(e) => setImageModel(e.target.value)}
+                disabled={imageBusy}
+              >
+                {imageModels.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name} · {m.vendor}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
+        {mode === 'chat' && (<>
         <div className="chat-area">
           {!active || (active.messages?.length || 0) === 0 ? (
             <div className="welcome">
@@ -525,8 +743,18 @@ export default function App() {
                 <div key={m.id} className={`msg ${m.role}`}>
                   <div className="avatar">{m.role === 'user' ? 'U' : 'AI'}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="role">{m.role === 'user' ? 'You' : modelLabel}</div>
-                    <div className="bubble">{m.content}</div>
+                    <div className="role">
+                      <span>{m.role === 'user' ? 'You' : modelLabel}</span>
+                      {m.role === 'assistant' && m.content && (
+                        <CopyButton text={m.content} />
+                      )}
+                    </div>
+                    {(m.attachments || []).length > 0 && (
+                      <div className="msg-attachments">
+                        {m.attachments.map((a) => <AttachmentTile key={a.id} att={a} />)}
+                      </div>
+                    )}
+                    {m.content && <MessageBody role={m.role} content={m.content} />}
                   </div>
                 </div>
               ))}
@@ -549,22 +777,133 @@ export default function App() {
         {error && <div className="error-banner">{error}</div>}
 
         <form className="composer-wrap" onSubmit={handleSend}>
+          {(pendingAttachments.length > 0 || uploadingCount > 0) && (
+            <div className="pending-row">
+              {pendingAttachments.map((a) => (
+                <AttachmentTile key={a.id} att={a} onRemove={removePending} compact />
+              ))}
+              {uploadingCount > 0 && (
+                <div className="att-tile uploading">Uploading…</div>
+              )}
+            </div>
+          )}
+          {imageBlocked && (
+            <div className="vision-warn">
+              The selected model can't read images. Pick a vision model (look for 👁) or remove the images.
+            </div>
+          )}
           <div className="composer">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.md,.docx,image/*,application/pdf,text/plain,text/markdown"
+              onChange={handlePickFiles}
+              style={{ display: 'none' }}
+            />
+            <button
+              type="button"
+              className="icon attach-btn"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach files (images, PDF, txt, md, docx)"
+              disabled={sending}
+            >📎</button>
             <textarea
               ref={textareaRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={active ? 'Reply…' : 'Ask anything…'}
+              placeholder={active ? 'Reply…' : 'Ask anything, or attach a file…'}
               rows={1}
               disabled={sending}
             />
-            <button type="submit" className="primary send" disabled={!draft.trim() || sending} title="Send">
+            <button
+              type="submit"
+              className="primary send"
+              disabled={(!draft.trim() && pendingAttachments.length === 0) || sending || imageBlocked || uploadingCount > 0}
+              title="Send"
+            >
               {sending ? '…' : '↑'}
             </button>
           </div>
           <div className="hint">Enter to send · Shift+Enter for newline · Powered by NVIDIA NIM API</div>
         </form>
+        </>)}
+
+        {mode === 'image' && (
+          <div className="image-mode">
+            <form className="image-form" onSubmit={handleGenerate}>
+              <label className="image-prompt-label">
+                <span>Prompt</span>
+                <textarea
+                  value={imagePrompt}
+                  onChange={(e) => setImagePrompt(e.target.value)}
+                  placeholder="Describe the image you want to generate…"
+                  rows={3}
+                  maxLength={2000}
+                  disabled={imageBusy}
+                />
+              </label>
+              <div className="image-params">
+                <label>
+                  <span>Width</span>
+                  <input
+                    type="number" min={256} max={1536} step={64}
+                    value={imageParams.width}
+                    onChange={(e) => setImageParams((p) => ({ ...p, width: Number(e.target.value) }))}
+                    disabled={imageBusy}
+                  />
+                </label>
+                <label>
+                  <span>Height</span>
+                  <input
+                    type="number" min={256} max={1536} step={64}
+                    value={imageParams.height}
+                    onChange={(e) => setImageParams((p) => ({ ...p, height: Number(e.target.value) }))}
+                    disabled={imageBusy}
+                  />
+                </label>
+                <label>
+                  <span>Steps</span>
+                  <input
+                    type="number" min={1} max={currentImageSpec?.max_steps || 50}
+                    value={imageParams.steps}
+                    onChange={(e) => setImageParams((p) => ({ ...p, steps: Number(e.target.value) }))}
+                    disabled={imageBusy}
+                  />
+                </label>
+                <label>
+                  <span>Seed</span>
+                  <input
+                    type="number" min={0}
+                    value={imageParams.seed}
+                    onChange={(e) => setImageParams((p) => ({ ...p, seed: Number(e.target.value) }))}
+                    disabled={imageBusy}
+                  />
+                </label>
+              </div>
+              {error && <div className="error-banner inline">{error}</div>}
+              <button
+                type="submit"
+                className="primary"
+                disabled={!imagePrompt.trim() || imageBusy || !imageModel}
+              >
+                {imageBusy ? 'Generating…' : 'Generate'}
+              </button>
+            </form>
+            <div className="gallery">
+              {imageGallery.length === 0 ? (
+                <div className="empty-list">No generations yet. Describe an image above.</div>
+              ) : (
+                imageGallery.map((a) => (
+                  <a key={a.id} href={mediaUrl(a.url)} target="_blank" rel="noreferrer" className="gallery-tile">
+                    <img src={mediaUrl(a.url)} alt={a.original_name} loading="lazy" />
+                  </a>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   )

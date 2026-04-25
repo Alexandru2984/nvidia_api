@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.db import models
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
 
 class EmailVerification(models.Model):
@@ -50,3 +52,55 @@ class Message(models.Model):
 
     def __str__(self):
         return f'{self.role}: {self.content[:40]}'
+
+
+def _attachment_path(instance, filename):
+    return f'attachments/{instance.user_id}/{instance.created_at:%Y/%m}/{filename}' if instance.created_at else f'attachments/{instance.user_id}/{filename}'
+
+
+class Attachment(models.Model):
+    KIND_IMAGE = 'image'
+    KIND_DOCUMENT = 'document'
+    KIND_GENERATED = 'generated_image'
+    KIND_CHOICES = [
+        (KIND_IMAGE, 'Image'),
+        (KIND_DOCUMENT, 'Document'),
+        (KIND_GENERATED, 'Generated Image'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='attachments',
+        on_delete=models.CASCADE,
+    )
+    message = models.ForeignKey(
+        Message,
+        related_name='attachments',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    file = models.FileField(upload_to='attachments/%Y/%m/')
+    original_name = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=120)
+    size = models.PositiveIntegerField()
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    extracted_text = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['user', 'created_at'])]
+
+    def __str__(self):
+        return f'{self.kind}:{self.original_name} ({self.size}B)'
+
+    @property
+    def url(self):
+        return self.file.url if self.file else ''
+
+
+@receiver(pre_delete, sender=Attachment)
+def _attachment_pre_delete(sender, instance, **kwargs):
+    if instance.file:
+        instance.file.delete(save=False)

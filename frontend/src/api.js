@@ -7,7 +7,11 @@ function getCookie(name) {
 
 async function request(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase()
-  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  const isForm = opts.body instanceof FormData
+  const headers = { ...(opts.headers || {}) }
+  if (!isForm && opts.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json'
+  }
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     const csrf = getCookie('csrftoken')
     if (csrf) headers['X-CSRFToken'] = csrf
@@ -38,6 +42,13 @@ async function request(path, opts = {}) {
   return res.json()
 }
 
+export const MEDIA_BASE = import.meta.env.DEV ? 'http://127.0.0.1:8500' : ''
+export function mediaUrl(url) {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  return MEDIA_BASE + url
+}
+
 export const api = {
   me: () => request('/auth/me/'),
   login: (username, password) =>
@@ -59,9 +70,23 @@ export const api = {
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ title }) }),
   switchModel: (id, model_id) =>
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ model_id }) }),
-  sendMessage: (id, content, model_id) =>
+  sendMessage: (id, content, model_id, attachment_ids) =>
     request(`/conversations/${id}/messages/`, {
       method: 'POST',
-      body: JSON.stringify({ content, ...(model_id ? { model_id } : {}) }),
+      body: JSON.stringify({
+        content,
+        ...(model_id ? { model_id } : {}),
+        ...(attachment_ids && attachment_ids.length ? { attachment_ids } : {}),
+      }),
     }),
+  listAttachments: (kind) => request(`/attachments/${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
+  uploadAttachment: (file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return request('/attachments/upload/', { method: 'POST', body: fd })
+  },
+  deleteAttachment: (id) => request(`/attachments/${id}/`, { method: 'DELETE' }),
+  listImageModels: () => request('/images/models/'),
+  generateImage: (params) =>
+    request('/images/generate/', { method: 'POST', body: JSON.stringify(params) }),
 }

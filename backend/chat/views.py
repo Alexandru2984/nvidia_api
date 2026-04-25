@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import logging
@@ -11,23 +12,40 @@ from django.contrib.auth import authenticate, get_user_model, login as django_lo
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
+from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django_ratelimit.decorators import ratelimit
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .models import Conversation, EmailVerification, Message
-from .models_catalog import DEFAULT_MODEL_ID, MODEL_IDS, NVIDIA_MODELS
+from .attachments import detect_mime, extract_text, kind_for_mime
+from .models import Attachment, Conversation, EmailVerification, Message
+from .models_catalog import (
+    DEFAULT_IMAGE_GEN_MODEL_ID,
+    DEFAULT_MODEL_ID,
+    IMAGE_GEN_MODEL_IDS,
+    IMAGE_GEN_MODELS,
+    MODEL_IDS,
+    NVIDIA_MODELS,
+    VISION_MODEL_IDS,
+)
 from .serializers import (
+    AttachmentSerializer,
     ConversationDetailSerializer,
     ConversationListSerializer,
     MessageSerializer,
 )
 
 log = logging.getLogger(__name__)
+
+
+def _rate_limited(request):
+    return Response({'error': 'Too many requests. Slow down and try again.'}, status=429) if getattr(request, 'limited', False) else None
 
 
 @api_view(['GET'])
@@ -41,7 +59,9 @@ def auth_me(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', block=False)
 def auth_login(request):
+    if (r := _rate_limited(request)): return r
     username = (request.data.get('username') or '').strip()
     password = request.data.get('password') or ''
     if not username or not password:
@@ -146,7 +166,9 @@ def _issue_new_code(user):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='5/h', block=False)
 def auth_register(request):
+    if (r := _rate_limited(request)): return r
     username = (request.data.get('username') or '').strip()
     email = (request.data.get('email') or '').strip().lower()
     password = request.data.get('password') or ''
@@ -186,7 +208,9 @@ def auth_register(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', block=False)
 def auth_verify(request):
+    if (r := _rate_limited(request)): return r
     email = (request.data.get('email') or '').strip().lower()
     code = (request.data.get('code') or '').strip()
     if not email or not code:
@@ -224,7 +248,9 @@ def auth_verify(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='5/h', block=False)
 def auth_resend(request):
+    if (r := _rate_limited(request)): return r
     email = (request.data.get('email') or '').strip().lower()
     if not email:
         return Response({'error': 'Email required.'}, status=400)
@@ -298,6 +324,61 @@ def conversation_detail(request, pk):
     return Response(ConversationDetailSerializer(convo).data)
 
 
+@api_view(['GET'])
+def list_attachments(request):
+    qs = Attachment.objects.filter(user=request.user)
+    kind = request.query_params.get('kind')
+    if kind:
+        qs = qs.filter(kind=kind)
+    return Response(AttachmentSerializer(qs, many=True).data)
+
+
+@api_view(['POST'])
+@parser_classes([MultiPartParser])
+@ratelimit(key='user', rate='30/m', block=False)
+def upload_attachment(request):
+    if (r := _rate_limited(request)): return r
+    f = request.FILES.get('file')
+    if not f:
+        return Response({'error': 'file is required'}, status=400)
+    if f.size > settings.MAX_ATTACHMENT_SIZE:
+        return Response({'error': f'File too large. Max {settings.MAX_ATTACHMENT_SIZE // (1024 * 1024)}MB.'}, status=413)
+
+    mime = detect_mime(f)
+    kind = kind_for_mime(mime)
+    if kind is None:
+        return Response({'error': f'Unsupported file type: {mime}. Allowed: images (jpg/png/webp/gif), pdf, txt, md, docx.'}, status=415)
+
+    used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
+    if used + f.size > settings.MAX_USER_STORAGE:
+        return Response({
+            'error': f'Storage quota exceeded. Limit {settings.MAX_USER_STORAGE // (1024 * 1024)}MB per user.',
+            'used': used, 'limit': settings.MAX_USER_STORAGE,
+        }, status=413)
+
+    extracted = extract_text(f, mime) if kind == 'document' else ''
+
+    att = Attachment.objects.create(
+        user=request.user,
+        file=f,
+        original_name=(f.name or 'file')[:255],
+        mime_type=mime,
+        size=f.size,
+        kind=kind,
+        extracted_text=extracted,
+    )
+    return Response(AttachmentSerializer(att).data, status=201)
+
+
+@api_view(['DELETE'])
+def delete_attachment(request, pk):
+    att = get_object_or_404(Attachment, pk=pk, user=request.user)
+    if att.message_id is not None:
+        return Response({'error': 'Cannot delete an attachment already linked to a message.'}, status=409)
+    att.delete()
+    return Response(status=204)
+
+
 def _call_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
     payload = {
         'model': model_id,
@@ -320,12 +401,65 @@ def _call_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
     return text, usage
 
 
+def _attachment_data_url(att):
+    with att.file.open('rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    mime = att.mime_type or 'image/jpeg'
+    return f'data:{mime};base64,{b64}'
+
+
+def _build_api_message(role, text, attachments):
+    """Render a message in OpenAI-compatible multimodal format."""
+    doc_blocks = [
+        f'[Document: {a.original_name}]\n{a.extracted_text}\n[/Document]'
+        for a in attachments if a.kind == Attachment.KIND_DOCUMENT and a.extracted_text
+    ]
+    full_text = '\n\n'.join(doc_blocks + ([text] if text else [])) if doc_blocks else text
+
+    images = [a for a in attachments if a.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED)]
+    if not images:
+        return {'role': role, 'content': full_text or ''}
+
+    parts = []
+    if full_text:
+        parts.append({'type': 'text', 'text': full_text})
+    for a in images:
+        parts.append({'type': 'image_url', 'image_url': {'url': _attachment_data_url(a)}})
+    return {'role': role, 'content': parts}
+
+
+def _resolve_attachments(user, ids):
+    if not ids:
+        return []
+    if not isinstance(ids, list):
+        return None
+    if any(not isinstance(i, int) for i in ids):
+        return None
+    qs = list(Attachment.objects.filter(id__in=ids, user=user, message__isnull=True))
+    if len(qs) != len(set(ids)):
+        return None
+    return qs
+
+
 @api_view(['POST'])
+@ratelimit(key='user', rate='30/m', block=False)
 def send_message(request, pk):
+    if (r := _rate_limited(request)): return r
     convo = get_object_or_404(Conversation, pk=pk, user=request.user)
     user_text = (request.data.get('content') or '').strip()
-    if not user_text:
-        return Response({'error': 'content is required'}, status=status.HTTP_400_BAD_REQUEST)
+    if len(user_text) > settings.CHAT_MAX_MESSAGE_CHARS:
+        return Response(
+            {'error': f'Message too long. Max {settings.CHAT_MAX_MESSAGE_CHARS} characters.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    attachment_ids = request.data.get('attachment_ids') or []
+
+    attachments = _resolve_attachments(request.user, attachment_ids)
+    if attachments is None:
+        return Response({'error': 'Invalid attachment_ids — must be your own unlinked attachments.'}, status=400)
+
+    if not user_text and not attachments:
+        return Response({'error': 'content or attachments required'}, status=status.HTTP_400_BAD_REQUEST)
 
     override_model = request.data.get('model_id')
     if override_model:
@@ -334,15 +468,37 @@ def send_message(request, pk):
         if override_model != convo.model_id:
             convo.model_id = override_model
 
-    user_msg = Message.objects.create(conversation=convo, role='user', content=user_text)
+    has_images = any(a.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED) for a in attachments)
+    if has_images and convo.model_id not in VISION_MODEL_IDS:
+        return Response(
+            {'error': 'This model does not accept images. Pick a vision model (e.g. Llama 3.2 Vision, Llama 4 Maverick, Nemotron Nano VL).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
-    history = list(convo.messages.order_by('created_at').values('role', 'content'))
+    user_msg = Message.objects.create(conversation=convo, role='user', content=user_text)
+    for a in attachments:
+        a.message = user_msg
+        a.save(update_fields=['message'])
+
+    all_msgs = list(convo.messages.order_by('created_at').prefetch_related('attachments'))
+    recent = all_msgs[-settings.CHAT_HISTORY_MAX_MESSAGES:]
+    budget = settings.CHAT_HISTORY_MAX_CHARS
+    keep = []
+    used = 0
+    for m in reversed(recent):
+        used += len(m.content or '')
+        if used > budget and keep:
+            break
+        keep.append(m)
+    keep.reverse()
+    history = [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
 
     try:
         reply_text, usage = _call_nvidia(convo.model_id, history)
     except requests.HTTPError as e:
         body = e.response.text if e.response is not None else ''
         log.warning('NVIDIA API HTTP error: %s — %s', e, body[:500])
+        Attachment.objects.filter(message=user_msg).update(message=None)
         user_msg.delete()
         return Response(
             {'error': f'NVIDIA API error ({e.response.status_code if e.response is not None else "?"})', 'detail': body[:1000]},
@@ -350,13 +506,15 @@ def send_message(request, pk):
         )
     except requests.RequestException as e:
         log.exception('NVIDIA API request failed')
+        Attachment.objects.filter(message=user_msg).update(message=None)
         user_msg.delete()
         return Response({'error': 'NVIDIA API request failed', 'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
     assistant_msg = Message.objects.create(conversation=convo, role='assistant', content=reply_text)
 
     if convo.title == 'New Chat':
-        convo.title = user_text[:60] + ('…' if len(user_text) > 60 else '')
+        snippet = user_text or (attachments[0].original_name if attachments else 'New Chat')
+        convo.title = snippet[:60] + ('…' if len(snippet) > 60 else '')
     convo.save()
 
     return Response({
@@ -365,3 +523,125 @@ def send_message(request, pk):
         'conversation': ConversationListSerializer(convo).data,
         'usage': usage,
     })
+
+
+@api_view(['GET'])
+def list_image_models(request):
+    return Response({'models': IMAGE_GEN_MODELS, 'default': DEFAULT_IMAGE_GEN_MODEL_ID})
+
+
+@api_view(['POST'])
+@ratelimit(key='user', rate='10/m', block=False)
+def generate_image(request):
+    if (r := _rate_limited(request)): return r
+    prompt = (request.data.get('prompt') or '').strip()
+    if not prompt:
+        return Response({'error': 'prompt is required'}, status=400)
+    if len(prompt) > 2000:
+        return Response({'error': 'prompt too long (max 2000 chars)'}, status=400)
+
+    model_id = request.data.get('model_id') or DEFAULT_IMAGE_GEN_MODEL_ID
+    if model_id not in IMAGE_GEN_MODEL_IDS:
+        return Response({'error': f'Unknown image model: {model_id}'}, status=400)
+    spec = next(m for m in IMAGE_GEN_MODELS if m['id'] == model_id)
+
+    try:
+        width = int(request.data.get('width') or 1024)
+        height = int(request.data.get('height') or 1024)
+        steps = int(request.data.get('steps') or spec['default_steps'])
+        seed = int(request.data.get('seed') or 0)
+    except (TypeError, ValueError):
+        return Response({'error': 'width/height/steps/seed must be integers'}, status=400)
+
+    if not (256 <= width <= 1536 and 256 <= height <= 1536):
+        return Response({'error': 'width and height must be between 256 and 1536'}, status=400)
+    if not (1 <= steps <= spec['max_steps']):
+        return Response({'error': f'steps must be 1..{spec["max_steps"]} for {spec["name"]}'}, status=400)
+
+    used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
+    if used >= settings.MAX_USER_STORAGE:
+        return Response({'error': 'Storage quota exceeded; delete some attachments first.'}, status=413)
+
+    payload = {
+        'prompt': prompt,
+        'width': width,
+        'height': height,
+        'seed': seed,
+        'steps': steps,
+    }
+    headers = {
+        'Authorization': f'Bearer {settings.NVIDIA_API_KEY}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    }
+    url = f'{settings.NVIDIA_GENAI_BASE}/{model_id}'
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=180)
+        resp.raise_for_status()
+    except requests.HTTPError as e:
+        body = e.response.text if e.response is not None else ''
+        log.warning('NVIDIA genai HTTP error: %s — %s', e, body[:500])
+        return Response(
+            {'error': f'NVIDIA image API error ({e.response.status_code if e.response is not None else "?"})',
+             'detail': body[:1000]},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except requests.RequestException as e:
+        log.exception('NVIDIA genai request failed')
+        return Response({'error': 'NVIDIA image API request failed', 'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    data = resp.json()
+    b64 = _extract_image_b64(data)
+    if not b64:
+        log.warning('NVIDIA genai returned no image: %s', str(data)[:500])
+        return Response({'error': 'NVIDIA image API returned no image data', 'detail': str(data)[:1000]}, status=status.HTTP_502_BAD_GATEWAY)
+
+    try:
+        raw = base64.b64decode(b64)
+    except Exception:
+        return Response({'error': 'Failed to decode generated image'}, status=502)
+
+    if len(raw) > settings.MAX_ATTACHMENT_SIZE:
+        return Response({'error': 'Generated image exceeds storage limit'}, status=502)
+
+    from django.core.files.base import ContentFile
+    safe_slug = re.sub(r'[^a-z0-9]+', '-', prompt.lower())[:32].strip('-') or 'image'
+    filename = f'{safe_slug}-{secrets.token_hex(4)}.png'
+    att = Attachment(
+        user=request.user,
+        original_name=filename,
+        mime_type='image/png',
+        size=len(raw),
+        kind=Attachment.KIND_GENERATED,
+    )
+    att.file.save(filename, ContentFile(raw), save=True)
+
+    return Response({
+        'attachment': AttachmentSerializer(att).data,
+        'model_id': model_id,
+        'prompt': prompt,
+        'params': {'width': width, 'height': height, 'steps': steps, 'seed': seed},
+    }, status=201)
+
+
+def _extract_image_b64(data):
+    """NVIDIA genai responses come in a few shapes — try all."""
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get('image'), str):
+        return data['image']
+    artifacts = data.get('artifacts')
+    if isinstance(artifacts, list) and artifacts:
+        for a in artifacts:
+            if isinstance(a, dict) and isinstance(a.get('base64'), str):
+                return a['base64']
+    images = data.get('images')
+    if isinstance(images, list) and images:
+        first = images[0]
+        if isinstance(first, str):
+            return first
+        if isinstance(first, dict) and isinstance(first.get('b64_json'), str):
+            return first['b64_json']
+    if isinstance(data.get('b64_json'), str):
+        return data['b64_json']
+    return None

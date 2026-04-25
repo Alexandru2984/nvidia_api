@@ -81,7 +81,24 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024
+MAX_USER_STORAGE = 100 * 1024 * 1024
+ATTACHMENT_TTL_DAYS = 30
+DOC_EXTRACT_MAX_CHARS = 50_000
+
+ALLOWED_IMAGE_MIMES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+ALLOWED_DOC_MIMES = {
+    'application/pdf',
+    'text/plain',
+    'text/markdown',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+ALLOWED_UPLOAD_MIMES = ALLOWED_IMAGE_MIMES | ALLOWED_DOC_MIMES
 
 CORS_ALLOWED_ORIGINS = [
     'https://nvidia.micutu.com',
@@ -99,6 +116,22 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'same-origin'
+X_FRAME_OPTIONS = 'DENY'
+if not DEBUG:
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = False
+    SECURE_SSL_REDIRECT = False  # nginx already redirects http→https
+    SESSION_COOKIE_HTTPONLY = True
+
+RATELIMIT_ENABLE = not DEBUG
+
+CHAT_MAX_MESSAGE_CHARS = 8000
+CHAT_HISTORY_MAX_MESSAGES = 30
+CHAT_HISTORY_MAX_CHARS = 25_000
+
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
     'DEFAULT_PARSER_CLASSES': ['rest_framework.parsers.JSONParser'],
@@ -112,6 +145,7 @@ REST_FRAMEWORK = {
 
 NVIDIA_API_KEY = os.environ['NVIDIA_API_KEY']
 NVIDIA_API_URL = os.environ.get('NVIDIA_API_URL', 'https://integrate.api.nvidia.com/v1/chat/completions')
+NVIDIA_GENAI_BASE = os.environ.get('NVIDIA_GENAI_BASE', 'https://ai.api.nvidia.com/v1/genai')
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
