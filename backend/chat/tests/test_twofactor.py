@@ -1,9 +1,17 @@
 """Tests for optional TOTP 2FA: enroll, verify, login flow, disable, recovery."""
 import pyotp
 import pytest
+from django.utils import timezone
 
 from chat.models import TwoFactor
 from chat.twofactor import _hash_recovery
+
+
+def _reset_replay(user):
+    """Simulate enough time passing that the next TOTP code lives in a new
+    step. Without this, a test that calls verify-enroll then immediately tries
+    to login uses the same step and trips replay protection."""
+    TwoFactor.objects.filter(user=user).update(last_totp_step=0)
 
 
 @pytest.mark.django_db
@@ -90,6 +98,7 @@ class TestLoginWith2FA:
 
     def test_login_with_valid_code_succeeds(self, auth_client, client, user):
         secret = self._enable(auth_client)
+        _reset_replay(user)
         auth_client.logout()
         code = pyotp.TOTP(secret).now()
         r = client.post('/api/auth/login/', {
@@ -140,8 +149,9 @@ class TestDisable:
     def test_disable_requires_password_and_code(self, auth_client, user):
         secret = auth_client.post('/api/auth/2fa/enroll/').json()['secret']
         auth_client.post('/api/auth/2fa/verify-enroll/', {'code': pyotp.TOTP(secret).now()}, format='json')
+        _reset_replay(user)
 
-        # Wrong password
+        # Wrong password (code irrelevant — fails before code check)
         r = auth_client.post('/api/auth/2fa/disable/', {
             'password': 'wrong', 'code': pyotp.TOTP(secret).now(),
         }, format='json')
@@ -153,6 +163,7 @@ class TestDisable:
         }, format='json')
         assert r.status_code == 401
 
+        _reset_replay(user)
         # Right password + correct code
         r = auth_client.post('/api/auth/2fa/disable/', {
             'password': 'Hunter2pass', 'code': pyotp.TOTP(secret).now(),
@@ -170,10 +181,12 @@ class TestRegenerateRecoveryCodes:
             {'code': pyotp.TOTP(secret).now()}, format='json',
         ).json()['recovery_codes']
 
+        _reset_replay(user)
         # Wrong code blocked
         r = auth_client.post('/api/auth/2fa/recovery-codes/', {'code': '000000'}, format='json')
         assert r.status_code == 401
 
+        _reset_replay(user)
         # With valid TOTP, returns 10 new codes
         r = auth_client.post(
             '/api/auth/2fa/recovery-codes/',

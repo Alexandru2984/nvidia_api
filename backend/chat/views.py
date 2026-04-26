@@ -31,7 +31,7 @@ from rest_framework.response import Response
 from .attachments import detect_mime, extract_text, kind_for_mime
 from .models import Attachment, Conversation, EmailVerification, Message, PasswordReset
 from .sessions import stamp_session
-from .twofactor import login_requires_2fa, verify_for_login
+from .twofactor import _revoke_user_sessions, login_requires_2fa, verify_for_login
 from .models_catalog import (
     DEFAULT_IMAGE_GEN_MODEL_ID,
     DEFAULT_MODEL_ID,
@@ -187,21 +187,14 @@ def _issue_new_code(user):
 @ratelimit(key='ip', rate='5/h', block=False)
 def auth_register(request):
     if (r := _rate_limited(request)): return r
-    # Honeypot: hidden form field that real users never fill in. Bots that
-    # blindly fill every input will trip it and get the same generic 201 a
-    # real signup gets, but no account is created.
-    if (request.data.get('website') or '').strip():
-        log.info('Honeypot tripped on register from %s', request.META.get('REMOTE_ADDR'))
-        return Response({
-            'message': 'Account created. Check your email for the 6-digit code.',
-            'email': (request.data.get('email') or '').strip().lower(),
-            'resend_available_in': RESEND_COOLDOWN_SECONDS,
-        }, status=201)
-
     username = (request.data.get('username') or '').strip()
     email = (request.data.get('email') or '').strip().lower()
     password = request.data.get('password') or ''
+    honeypot = (request.data.get('website') or '').strip()
 
+    # Validation runs *before* the honeypot check so the response shape for
+    # malformed input is identical with or without the honeypot field. That
+    # makes the honeypot harder to fingerprint by submitting bad data twice.
     if not USERNAME_RE.match(username):
         return Response({'error': 'Username must be 3-30 chars, letters/digits/underscore only.'}, status=400)
     try:
@@ -216,6 +209,17 @@ def auth_register(request):
         return Response({'error': 'Username already taken.'}, status=409)
     if User.objects.filter(email__iexact=email).exists():
         return Response({'error': 'An account with this email already exists.'}, status=409)
+
+    # Honeypot fires only after the request would have succeeded. Bots that
+    # fill every field still get the same 201 a real user gets, but no row
+    # is written and no email goes out.
+    if honeypot:
+        log.info('Honeypot tripped on register from %s', request.META.get('REMOTE_ADDR'))
+        return Response({
+            'message': 'Account created. Check your email for the 6-digit code.',
+            'email': email,
+            'resend_available_in': RESEND_COOLDOWN_SECONDS,
+        }, status=201)
 
     user = User(username=username, email=email, is_active=False)
     user.set_password(password)
@@ -454,9 +458,26 @@ def auth_reset(request):
     user.set_password(password)
     user.save(update_fields=['password'])
     pr.delete()
+
+    # Killing every session of this user is the right behaviour after a
+    # password change: anything signed in with the old password is potentially
+    # the attacker. The frontend will need to re-login fresh.
+    revoked = _revoke_user_sessions(user)
+
+    # If the account has 2FA enabled, password alone isn't enough — refuse to
+    # auto-login. The user must complete /auth/login/ with their TOTP code,
+    # which closes the email-controls-account → 2FA-bypass hole.
+    if login_requires_2fa(user):
+        return Response({
+            'reset': True,
+            'username': user.username,
+            'two_factor_required': True,
+            'sessions_revoked': revoked,
+        })
+
     django_login(request, user)
     stamp_session(request)
-    return Response({'reset': True, 'username': user.username})
+    return Response({'reset': True, 'username': user.username, 'sessions_revoked': revoked})
 
 
 @api_view(['GET'])
@@ -801,7 +822,9 @@ def _build_history_for(convo, upto_msg_id=None):
 
 
 @api_view(['PATCH'])
+@ratelimit(key='user', rate='30/m', block=False)
 def message_detail(request, pk):
+    if (r := _rate_limited(request)): return r
     """Edit a user message's content. Does not regenerate — the frontend
     follows up with POST /messages/<pk>/regenerate/ if it wants a new reply."""
     msg = get_object_or_404(Message, pk=pk, conversation__user=request.user)
