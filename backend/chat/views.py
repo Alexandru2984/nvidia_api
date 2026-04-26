@@ -30,6 +30,8 @@ from rest_framework.response import Response
 
 from .attachments import detect_mime, extract_text, kind_for_mime
 from .models import Attachment, Conversation, EmailVerification, Message, PasswordReset
+from .sessions import stamp_session
+from .twofactor import login_requires_2fa, verify_for_login
 from .models_catalog import (
     DEFAULT_IMAGE_GEN_MODEL_ID,
     DEFAULT_MODEL_ID,
@@ -76,7 +78,16 @@ def auth_login(request):
     user = authenticate(request, username=username, password=password)
     if user is None:
         return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+    if login_requires_2fa(user):
+        code = (request.data.get('code') or '').strip()
+        if not code:
+            return Response({'error': 'Two-factor code required.', 'two_factor_required': True},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        if not verify_for_login(user, code):
+            return Response({'error': 'Invalid 2FA code.', 'two_factor_required': True},
+                            status=status.HTTP_401_UNAUTHORIZED)
     django_login(request, user)
+    stamp_session(request)
     return Response({'username': user.username})
 
 
@@ -261,6 +272,7 @@ def auth_verify(request):
     user.save(update_fields=['is_active'])
     ev.delete()
     django_login(request, user)
+    stamp_session(request)
     return Response({'verified': True, 'username': user.username})
 
 
@@ -443,6 +455,7 @@ def auth_reset(request):
     user.save(update_fields=['password'])
     pr.delete()
     django_login(request, user)
+    stamp_session(request)
     return Response({'reset': True, 'username': user.username})
 
 
@@ -761,6 +774,173 @@ def send_message(request, pk):
     response['Cache-Control'] = 'no-cache, no-transform'
     response['X-Accel-Buffering'] = 'no'
     return response
+
+
+def _build_history_for(convo, upto_msg_id=None):
+    """Return the OpenAI-format message list for `convo`, capped by the same
+    rules send_message uses. If `upto_msg_id` is given, only messages up to
+    and including that id are considered (useful for regenerate)."""
+    msgs = convo.messages.order_by('created_at').prefetch_related('attachments')
+    all_msgs = list(msgs)
+    if upto_msg_id is not None:
+        cutoff = next((i for i, m in enumerate(all_msgs) if m.id == upto_msg_id), None)
+        if cutoff is None:
+            return []
+        all_msgs = all_msgs[:cutoff + 1]
+    recent = all_msgs[-settings.CHAT_HISTORY_MAX_MESSAGES:]
+    budget = settings.CHAT_HISTORY_MAX_CHARS
+    keep = []
+    used = 0
+    for m in reversed(recent):
+        used += len(m.content or '')
+        if used > budget and keep:
+            break
+        keep.append(m)
+    keep.reverse()
+    return [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
+
+
+@api_view(['PATCH'])
+def message_detail(request, pk):
+    """Edit a user message's content. Does not regenerate — the frontend
+    follows up with POST /messages/<pk>/regenerate/ if it wants a new reply."""
+    msg = get_object_or_404(Message, pk=pk, conversation__user=request.user)
+    if msg.role != 'user':
+        return Response({'error': 'Only user messages can be edited.'}, status=400)
+    new_content = (request.data.get('content') or '').strip()
+    if not new_content:
+        return Response({'error': 'content is required'}, status=400)
+    if len(new_content) > settings.CHAT_MAX_MESSAGE_CHARS:
+        return Response(
+            {'error': f'Message too long. Max {settings.CHAT_MAX_MESSAGE_CHARS} characters.'},
+            status=400,
+        )
+    msg.content = new_content
+    msg.save(update_fields=['content'])
+    return Response(MessageSerializer(msg).data)
+
+
+@api_view(['POST'])
+@ratelimit(key='user', rate='30/m', block=False)
+def regenerate_message(request, pk):
+    """Re-roll the assistant reply for a message.
+
+    - If `pk` is an assistant message: delete it and any later messages,
+      regenerate from the preceding user message.
+    - If `pk` is a user message: delete every message after it, regenerate.
+    """
+    if (r := _rate_limited(request)): return r
+    target = get_object_or_404(Message, pk=pk, conversation__user=request.user)
+    convo = target.conversation
+
+    msgs = list(convo.messages.order_by('created_at'))
+    idx = next(i for i, m in enumerate(msgs) if m.id == target.id)
+
+    if target.role == 'assistant':
+        # Find preceding user message
+        prev_user = None
+        for m in reversed(msgs[:idx]):
+            if m.role == 'user':
+                prev_user = m
+                break
+        if prev_user is None:
+            return Response({'error': 'No preceding user message to regenerate from.'}, status=400)
+        # Delete target and everything after it.
+        Message.objects.filter(conversation=convo, id__gte=target.id).delete()
+        anchor = prev_user
+    else:  # user
+        # Delete everything strictly after the user message.
+        Message.objects.filter(conversation=convo, id__gt=target.id).delete()
+        anchor = target
+
+    history = _build_history_for(convo, upto_msg_id=anchor.id)
+    if not history:
+        return Response({'error': 'Nothing to send.'}, status=400)
+
+    convo_id = convo.id
+    model_id = convo.model_id
+
+    def event_stream():
+        full_text = []
+        last_usage = None
+        errored = None
+        for kind, value in _stream_nvidia(model_id, history):
+            if kind == 'chunk':
+                full_text.append(value)
+                yield _sse({'chunk': value})
+            elif kind == 'usage':
+                last_usage = value
+            elif kind == 'error':
+                errored = value
+                break
+
+        if errored is not None:
+            log.warning('NVIDIA regenerate error for convo=%s: %s', convo_id, errored)
+            yield _sse({'error': errored})
+            return
+
+        reply_text = ''.join(full_text)
+        if not reply_text:
+            yield _sse({'error': 'NVIDIA returned an empty response.'})
+            return
+
+        assistant_msg = Message.objects.create(conversation_id=convo_id, role='assistant', content=reply_text)
+        convo_obj = Conversation.objects.get(id=convo_id)
+        convo_obj.save()  # touch updated_at
+        yield _sse({
+            'done': True,
+            'assistant_message': MessageSerializer(assistant_msg).data,
+            'conversation': ConversationListSerializer(convo_obj).data,
+            'usage': last_usage or {},
+        })
+
+    response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+    response['Cache-Control'] = 'no-cache, no-transform'
+    response['X-Accel-Buffering'] = 'no'
+    return response
+
+
+def _slugify(text):
+    s = re.sub(r'[^A-Za-z0-9._-]+', '-', text).strip('-')
+    return (s or 'conversation')[:60]
+
+
+@api_view(['GET'])
+def export_conversation(request, pk):
+    """Return the conversation as Markdown for download."""
+    from django.http import HttpResponse
+    convo = get_object_or_404(Conversation, pk=pk, user=request.user)
+    msgs = convo.messages.order_by('created_at').prefetch_related('attachments')
+
+    lines = [
+        f'# {convo.title}',
+        '',
+        f'- Model: `{convo.model_id}`',
+        f'- Created: {convo.created_at:%Y-%m-%d %H:%M UTC}',
+        f'- Exported by: {request.user.username}',
+        '',
+        '---',
+        '',
+    ]
+    for m in msgs:
+        label = 'User' if m.role == 'user' else 'Assistant'
+        lines.append(f'## {label} — {m.created_at:%Y-%m-%d %H:%M:%S}')
+        lines.append('')
+        if m.content:
+            lines.append(m.content)
+            lines.append('')
+        atts = list(m.attachments.all())
+        if atts:
+            lines.append('**Attachments:**')
+            for a in atts:
+                lines.append(f'- `{a.original_name}` ({a.kind}, {a.size} bytes)')
+            lines.append('')
+        lines.append('')
+
+    body = '\n'.join(lines)
+    resp = HttpResponse(body, content_type='text/markdown; charset=utf-8')
+    resp['Content-Disposition'] = f'attachment; filename="{_slugify(convo.title)}.md"'
+    return resp
 
 
 @api_view(['GET'])

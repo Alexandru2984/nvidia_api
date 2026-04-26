@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import sessions as sessions_views, twofactor, views
 
 urlpatterns = [
     path('health/', views.health),
@@ -12,10 +12,21 @@ urlpatterns = [
     path('auth/resend/', views.auth_resend),
     path('auth/forgot/', views.auth_forgot),
     path('auth/reset/', views.auth_reset),
+    path('auth/2fa/status/', twofactor.status),
+    path('auth/2fa/enroll/', twofactor.enroll),
+    path('auth/2fa/verify-enroll/', twofactor.verify_enroll),
+    path('auth/2fa/disable/', twofactor.disable),
+    path('auth/2fa/recovery-codes/', twofactor.regenerate_recovery_codes),
+    path('auth/sessions/', sessions_views.list_sessions),
+    path('auth/sessions/revoke-others/', sessions_views.revoke_other_sessions),
+    path('auth/sessions/<str:key>/', sessions_views.revoke_session),
     path('models/', views.list_models),
     path('conversations/', views.conversations),
     path('conversations/<int:pk>/', views.conversation_detail),
+    path('conversations/<int:pk>/export/', views.export_conversation),
     path('conversations/<int:pk>/messages/', views.send_message),
+    path('messages/<int:pk>/', views.message_detail),
+    path('messages/<int:pk>/regenerate/', views.regenerate_message),
     path('attachments/', views.list_attachments),
     path('attachments/upload/', views.upload_attachment),
     path('attachments/<int:pk>/', views.delete_attachment),

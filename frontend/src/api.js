@@ -22,8 +22,11 @@ async function request(path, opts = {}) {
     ...opts,
   })
   if (res.status === 401 || res.status === 403) {
-    const err = new Error('Unauthorized')
+    let body = null
+    try { body = await res.json() } catch {}
+    const err = new Error(body?.error || 'Unauthorized')
     err.status = res.status
+    err.body = body
     throw err
   }
   if (!res.ok) {
@@ -51,8 +54,8 @@ export function mediaUrl(url) {
 
 export const api = {
   me: () => request('/auth/me/'),
-  login: (username, password) =>
-    request('/auth/login/', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  login: (username, password, code) =>
+    request('/auth/login/', { method: 'POST', body: JSON.stringify({ username, password, ...(code ? { code } : {}) }) }),
   logout: () => request('/auth/logout/', { method: 'POST' }),
   register: (username, email, password) =>
     request('/auth/register/', { method: 'POST', body: JSON.stringify({ username, email, password }) }),
@@ -126,4 +129,59 @@ export const api = {
   listImageModels: () => request('/images/models/'),
   generateImage: (params) =>
     request('/images/generate/', { method: 'POST', body: JSON.stringify(params) }),
+
+  // Export
+  exportConversationUrl: (id) => `${BASE}/conversations/${id}/export/`,
+
+  // Edit / regenerate
+  editMessage: (id, content) =>
+    request(`/messages/${id}/`, { method: 'PATCH', body: JSON.stringify({ content }) }),
+  regenerateMessageStream: async (id, handlers) => {
+    const headers = {}
+    const csrf = getCookie('csrftoken')
+    if (csrf) headers['X-CSRFToken'] = csrf
+    const res = await fetch(`${BASE}/messages/${id}/regenerate/`, {
+      method: 'POST', credentials: 'include', headers,
+    })
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
+      handlers.onError?.(detail, res.status); return
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const event = buffer.slice(0, idx).trim()
+        buffer = buffer.slice(idx + 2)
+        if (!event.startsWith('data:')) continue
+        try {
+          const obj = JSON.parse(event.slice(5).trim())
+          if (obj.error) { handlers.onError?.(obj.error); return }
+          if (obj.done) { handlers.onDone?.(obj); return }
+          if (obj.chunk) handlers.onChunk?.(obj.chunk)
+        } catch { /* skip malformed */ }
+      }
+    }
+  },
+
+  // 2FA
+  twoFactorStatus: () => request('/auth/2fa/status/'),
+  twoFactorEnroll: () => request('/auth/2fa/enroll/', { method: 'POST' }),
+  twoFactorVerifyEnroll: (code) =>
+    request('/auth/2fa/verify-enroll/', { method: 'POST', body: JSON.stringify({ code }) }),
+  twoFactorDisable: (password, code) =>
+    request('/auth/2fa/disable/', { method: 'POST', body: JSON.stringify({ password, code }) }),
+  twoFactorRegenRecovery: (code) =>
+    request('/auth/2fa/recovery-codes/', { method: 'POST', body: JSON.stringify({ code }) }),
+
+  // Sessions
+  listSessions: () => request('/auth/sessions/'),
+  revokeSession: (key) => request(`/auth/sessions/${encodeURIComponent(key)}/`, { method: 'DELETE' }),
+  revokeOtherSessions: () => request('/auth/sessions/revoke-others/', { method: 'DELETE' }),
 }

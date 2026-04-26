@@ -36,6 +36,24 @@ class PasswordReset(models.Model):
         return f'PasswordReset(user={self.user_id}, expires={self.expires_at:%Y-%m-%d %H:%M})'
 
 
+class TwoFactor(models.Model):
+    """Per-user TOTP setup. `secret` is stored base32 (plaintext) — acceptable
+    for our threat model since DB compromise here implies VPS compromise. The
+    real defense is `enabled=False` until verified, and recovery codes are
+    HMAC-hashed (never stored plaintext)."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name='two_factor',
+        on_delete=models.CASCADE,
+    )
+    secret = models.CharField(max_length=64)  # base32 TOTP secret
+    enabled = models.BooleanField(default=False)
+    recovery_codes = models.JSONField(default=list)  # list of HMAC-SHA256 hex digests
+    enrolled_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class Conversation(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

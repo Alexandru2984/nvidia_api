@@ -857,3 +857,66 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
   .mode-toggle button { padding: 4px 8px; font-size: 11px; }
 }
+
+/* Settings panel */
+.settings-wrap {
+  padding: 24px 32px;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.settings-header h1 { margin: 0; font-size: 24px; }
+.settings-body { display: flex; flex-direction: column; gap: 28px; }
+.settings-section {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.settings-section h2 { margin: 0 0 8px 0; font-size: 18px; }
+.settings-section .muted { color: var(--muted, #8b96a8); font-size: 13px; margin: 0 0 14px 0; }
+.settings-section input[type="text"],
+.settings-section input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text, #e6edf3);
+}
+.enroll-card, .recovery-card {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.secret-box, .recovery-box {
+  background: #0a0d12;
+  border: 1px solid var(--border);
+  padding: 10px;
+  border-radius: 8px;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 8px 0;
+}
+.session-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  gap: 12px;
+}
+.link.danger { color: var(--danger, #ff4d6d); }
+.primary.danger { background: var(--danger, #ff4d6d); }

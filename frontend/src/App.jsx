@@ -4,6 +4,7 @@ import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
 import 'highlight.js/styles/github-dark.css'
 import { api, mediaUrl } from './api'
+import Settings from './Settings'
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'txt', 'md', 'docx']
@@ -273,6 +274,8 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [twoFactorCode, setTwoFactorCode] = useState('')
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [pendingEmail, setPendingEmail] = useState('')
@@ -293,10 +296,13 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
       await api.me()
       if (mode === 'login') {
         try {
-          const u = await api.login(username, password)
+          const u = await api.login(username, password, twoFactorCode || undefined)
           onLoggedIn(u)
         } catch (err) {
-          if (err.status === 401) {
+          if (err.status === 401 && err.body?.two_factor_required) {
+            setTwoFactorRequired(true)
+            setError(twoFactorCode ? 'Wrong 2FA code. Try again.' : null)
+          } else if (err.status === 401) {
             setError('Invalid username or password. (If you just registered, verify your email first.)')
           } else {
             setError(err.message)
@@ -391,6 +397,21 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
             required
           />
         </label>
+        {twoFactorRequired && !isRegister && (
+          <label>
+            <span>Two-factor code</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              placeholder="6-digit code or recovery code"
+              autoFocus
+              required
+            />
+          </label>
+        )}
         {error && <div className="login-error">{error}</div>}
         <button
           type="submit"
@@ -492,6 +513,78 @@ function AttachmentTile({ att, onRemove, compact }) {
       {onRemove && (
         <button type="button" className="att-remove" onClick={() => onRemove(att.id)} title="Remove">×</button>
       )}
+    </div>
+  )
+}
+
+function MessageRow({ m, modelLabel, busy, onEdit, onRegenerate }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(m.content || '')
+  const isPending = m.id === 'pending-regen' || (typeof m.id === 'string' && m.id.startsWith('pending'))
+
+  function startEdit() {
+    setDraft(m.content || '')
+    setEditing(true)
+  }
+  async function saveEdit() {
+    const next = draft.trim()
+    if (!next || next === m.content) { setEditing(false); return }
+    await onEdit(m.id, next)
+    setEditing(false)
+  }
+
+  return (
+    <div className={`msg ${m.role}`}>
+      <div className="avatar">{m.role === 'user' ? 'U' : 'AI'}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="role">
+          <span>{m.role === 'user' ? 'You' : modelLabel}</span>
+          {m.role === 'assistant' && m.content && <CopyButton text={m.content} />}
+          {!isPending && !editing && !busy && (
+            <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
+              {m.role === 'user' && (
+                <button className="link" type="button" onClick={startEdit} title="Edit message">✎ Edit</button>
+              )}
+              {!busy && (
+                <button
+                  className="link"
+                  type="button"
+                  onClick={() => onRegenerate(m.id)}
+                  title="Regenerate from this message"
+                >⟳ Regenerate</button>
+              )}
+            </span>
+          )}
+        </div>
+        {(m.attachments || []).length > 0 && (
+          <div className="msg-attachments">
+            {m.attachments.map((a) => <AttachmentTile key={a.id} att={a} />)}
+          </div>
+        )}
+        {editing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={Math.min(10, Math.max(2, draft.split('\n').length))}
+              style={{ width: '100%', resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="primary" onClick={saveEdit}>Save</button>
+              <button type="button" className="link" onClick={() => setEditing(false)}>Cancel</button>
+              <span style={{ color: 'var(--muted, #888)', fontSize: 12, alignSelf: 'center' }}>
+                Tip: after saving, click ⟳ Regenerate to re-roll the reply.
+              </span>
+            </div>
+          </div>
+        ) : m.streaming && !m.content ? (
+          <div className="bubble assistant-bubble">
+            <span className="typing"><span/><span/><span/></span>
+          </div>
+        ) : m.content ? (
+          <MessageBody role={m.role} content={m.content} />
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -759,6 +852,67 @@ export default function App() {
     } catch (e) { setError(e.message) }
   }
 
+  async function handleEditMessage(msgId, newContent) {
+    if (!active) return
+    try {
+      const updated = await api.editMessage(msgId, newContent)
+      setActive((c) => ({
+        ...c,
+        messages: c.messages.map((m) => (m.id === msgId ? { ...m, content: updated.content } : m)),
+      }))
+    } catch (e) { setError(e.message) }
+  }
+
+  async function handleRegenerate(msgId) {
+    if (!active || sending) return
+    setSending(true)
+    setError(null)
+    // Optimistic UI: drop messages from `msgId` onward (or just the last assistant
+    // for an assistant target). Server is authoritative; refetch convo on done.
+    let placeholder = null
+    setActive((c) => {
+      if (!c) return c
+      const idx = c.messages.findIndex((m) => m.id === msgId)
+      if (idx === -1) return c
+      const target = c.messages[idx]
+      const cutAt = target.role === 'assistant' ? idx : idx + 1
+      const kept = c.messages.slice(0, cutAt)
+      placeholder = { id: 'pending-regen', role: 'assistant', content: '', streaming: true, attachments: [] }
+      return { ...c, messages: [...kept, placeholder] }
+    })
+    try {
+      await api.regenerateMessageStream(msgId, {
+        onChunk: (chunk) => {
+          setActive((c) => ({
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === 'pending-regen' ? { ...m, content: (m.content || '') + chunk } : m,
+            ),
+          }))
+        },
+        onDone: async (obj) => {
+          // Refetch the convo so message ids and counts are consistent.
+          try {
+            const fresh = await api.getConversation(active.id)
+            setActive(fresh)
+            setConversations((prev) => prev.map((c) =>
+              c.id === fresh.id ? { ...c, ...obj.conversation } : c,
+            ))
+          } catch {}
+        },
+        onError: (msg) => {
+          setError(msg)
+          setActive((c) => ({
+            ...c,
+            messages: c.messages.filter((m) => m.id !== 'pending-regen'),
+          }))
+        },
+      })
+    } finally {
+      setSending(false)
+    }
+  }
+
   async function handleSwitchModel(modelId) {
     if (!active) {
       setDefaultModel(modelId)
@@ -855,12 +1009,18 @@ export default function App() {
           <div className="user-pill">
             <div className="user-avatar">{(user.username || '?')[0].toUpperCase()}</div>
             <div className="user-name">{user.username}</div>
+            <button className="icon" title="Settings" onClick={() => { setMode('settings'); setSidebarOpen(false) }}>⚙</button>
             <button className="icon logout" title="Sign out" onClick={handleLogout}>⎋</button>
           </div>
         </div>
       </aside>
 
       <main className="main">
+        {mode === 'settings' && (
+          <Settings onClose={() => setMode('chat')} />
+        )}
+        {mode !== 'settings' && (
+        <>
         <div className="topbar">
           <button className="icon menu-btn" onClick={() => setSidebarOpen(true)} title="Menu">☰</button>
           <div className="mode-toggle" role="tablist">
@@ -879,6 +1039,14 @@ export default function App() {
           <div className="title">
             {mode === 'chat' ? (active?.title || 'New conversation') : 'Image generation'}
           </div>
+          {mode === 'chat' && active && (
+            <a
+              className="icon"
+              href={api.exportConversationUrl(active.id)}
+              title="Download conversation as Markdown"
+              style={{ marginRight: 6 }}
+            >⬇</a>
+          )}
           <div className="model-select-wrap">
             {mode === 'chat' ? (
               <select
@@ -924,29 +1092,14 @@ export default function App() {
           ) : (
             <div className="chat-inner">
               {active.messages.map((m) => (
-                <div key={m.id} className={`msg ${m.role}`}>
-                  <div className="avatar">{m.role === 'user' ? 'U' : 'AI'}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="role">
-                      <span>{m.role === 'user' ? 'You' : modelLabel}</span>
-                      {m.role === 'assistant' && m.content && (
-                        <CopyButton text={m.content} />
-                      )}
-                    </div>
-                    {(m.attachments || []).length > 0 && (
-                      <div className="msg-attachments">
-                        {m.attachments.map((a) => <AttachmentTile key={a.id} att={a} />)}
-                      </div>
-                    )}
-                    {m.streaming && !m.content ? (
-                      <div className="bubble assistant-bubble">
-                        <span className="typing"><span/><span/><span/></span>
-                      </div>
-                    ) : m.content ? (
-                      <MessageBody role={m.role} content={m.content} />
-                    ) : null}
-                  </div>
-                </div>
+                <MessageRow
+                  key={m.id}
+                  m={m}
+                  modelLabel={modelLabel}
+                  busy={sending}
+                  onEdit={handleEditMessage}
+                  onRegenerate={handleRegenerate}
+                />
               ))}
               <div ref={chatEndRef} />
             </div>
@@ -1082,6 +1235,8 @@ export default function App() {
               )}
             </div>
           </div>
+        )}
+        </>
         )}
       </main>
     </div>
