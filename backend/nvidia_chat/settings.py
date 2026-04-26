@@ -26,6 +26,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'chat.middleware.RealClientIPMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -115,6 +116,10 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = False  # frontend reads csrftoken cookie to set X-CSRFToken header
+SESSION_COOKIE_AGE = 14 * 24 * 60 * 60  # 2 weeks; default is 2 years
+SESSION_SAVE_EVERY_REQUEST = True  # sliding expiration — active users stay logged in
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = 'same-origin'
@@ -124,13 +129,46 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = False
     SECURE_SSL_REDIRECT = False  # nginx already redirects http→https
-    SESSION_COOKIE_HTTPONLY = True
 
 RATELIMIT_ENABLE = not DEBUG
+
+# Shared cache so ratelimit buckets are global across the 3 gunicorn workers
+# (default LocMemCache is per-process, which silently triples the effective rate).
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': '/tmp/nvidia_chat_cache',
+        'TIMEOUT': 60 * 60,
+        'OPTIONS': {'MAX_ENTRIES': 10000},
+    },
+}
 
 CHAT_MAX_MESSAGE_CHARS = 8000
 CHAT_HISTORY_MAX_MESSAGES = 30
 CHAT_HISTORY_MAX_CHARS = 25_000
+CHAT_MAX_ATTACHMENTS_PER_MESSAGE = 8
+
+MAX_PASSWORD_LENGTH = 128
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 200
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {'format': '[%(asctime)s] %(levelname)s %(name)s: %(message)s'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'simple'},
+    },
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {
+        'django.request': {'level': 'WARNING', 'propagate': True},
+        'chat': {'level': 'INFO', 'propagate': True},
+    },
+}
 
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],

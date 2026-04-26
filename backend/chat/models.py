@@ -1,3 +1,5 @@
+import secrets
+
 from django.conf import settings
 from django.db import models
 from django.db.models.signals import pre_delete
@@ -17,6 +19,21 @@ class EmailVerification(models.Model):
 
     def __str__(self):
         return f'EmailVerification(user={self.user_id}, expires={self.expires_at:%Y-%m-%d %H:%M})'
+
+
+class PasswordReset(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name='password_reset',
+        on_delete=models.CASCADE,
+    )
+    code_hash = models.CharField(max_length=128)
+    sent_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f'PasswordReset(user={self.user_id}, expires={self.expires_at:%Y-%m-%d %H:%M})'
 
 
 class Conversation(models.Model):
@@ -55,7 +72,8 @@ class Message(models.Model):
 
 
 def _attachment_path(instance, filename):
-    return f'attachments/{instance.user_id}/{instance.created_at:%Y/%m}/{filename}' if instance.created_at else f'attachments/{instance.user_id}/{filename}'
+    rand = secrets.token_hex(8)
+    return f'attachments/{instance.user_id}/{rand}/{filename}'
 
 
 class Attachment(models.Model):
@@ -80,7 +98,7 @@ class Attachment(models.Model):
         null=True,
         blank=True,
     )
-    file = models.FileField(upload_to='attachments/%Y/%m/')
+    file = models.FileField(upload_to=_attachment_path)
     original_name = models.CharField(max_length=255)
     mime_type = models.CharField(max_length=120)
     size = models.PositiveIntegerField()

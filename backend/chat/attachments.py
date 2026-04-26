@@ -2,10 +2,41 @@
 import io
 import logging
 import mimetypes
+import signal
+from contextlib import contextmanager
 
 from django.conf import settings
 
 log = logging.getLogger(__name__)
+
+# Caps applied during text extraction. These are independent of MAX_ATTACHMENT_SIZE
+# (10MB) — a 10MB PDF can still take many seconds to parse, or unzip into much
+# more text than that. The caps below are the worst case we'll burn on parsing.
+EXTRACT_TIMEOUT_SECONDS = 8
+PDF_MAX_PAGES = 200
+DOCX_MAX_PARAGRAPHS = 5000
+
+
+@contextmanager
+def _time_budget(seconds):
+    """SIGALRM-based timeout. Only works on the main thread; gthread workers run
+    requests on worker threads, so we install a thread-local fallback flag."""
+    def _handler(signum, frame):  # pragma: no cover
+        raise TimeoutError(f'document extraction exceeded {seconds}s')
+
+    try:
+        old = signal.signal(signal.SIGALRM, _handler)
+        signal.alarm(seconds)
+        installed = True
+    except (ValueError, AttributeError):
+        # Not on main thread — fall through; per-page/paragraph caps still apply.
+        installed = False
+    try:
+        yield
+    finally:
+        if installed:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
 
 
 # Some clients send a generic octet-stream; fall back to extension.
@@ -44,17 +75,23 @@ def kind_for_mime(mime: str) -> str | None:
 
 
 def extract_text(uploaded_file, mime: str) -> str:
-    """Best-effort text extraction; returns empty string on failure."""
+    """Best-effort text extraction; returns empty string on failure or timeout."""
     cap = settings.DOC_EXTRACT_MAX_CHARS
     try:
-        if mime == 'application/pdf':
-            return _extract_pdf(uploaded_file, cap)
-        if mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-            return _extract_docx(uploaded_file, cap)
-        if mime in {'text/plain', 'text/markdown'}:
-            data = uploaded_file.read()
-            uploaded_file.seek(0)
-            return data.decode('utf-8', errors='replace')[:cap]
+        with _time_budget(EXTRACT_TIMEOUT_SECONDS):
+            if mime == 'application/pdf':
+                return _extract_pdf(uploaded_file, cap)
+            if mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+                return _extract_docx(uploaded_file, cap)
+            if mime in {'text/plain', 'text/markdown'}:
+                # Read at most `cap` bytes — text files larger than that are
+                # almost certainly logs/dumps and we only feed `cap` chars to
+                # the model anyway.
+                data = uploaded_file.read(cap + 1)
+                uploaded_file.seek(0)
+                return data.decode('utf-8', errors='replace')[:cap]
+    except TimeoutError:
+        log.warning('Extraction timed out for %s (%s)', uploaded_file.name, mime)
     except Exception:
         log.exception('Failed to extract text from %s (%s)', uploaded_file.name, mime)
     return ''
@@ -67,7 +104,9 @@ def _extract_pdf(uploaded_file, cap: int) -> str:
     reader = PdfReader(io.BytesIO(data))
     out = []
     total = 0
-    for page in reader.pages:
+    for i, page in enumerate(reader.pages):
+        if i >= PDF_MAX_PAGES:
+            break
         try:
             t = page.extract_text() or ''
         except Exception:
@@ -86,5 +125,15 @@ def _extract_docx(uploaded_file, cap: int) -> str:
     data = uploaded_file.read()
     uploaded_file.seek(0)
     doc = Document(io.BytesIO(data))
-    parts = [p.text for p in doc.paragraphs if p.text]
+    parts = []
+    total = 0
+    for i, p in enumerate(doc.paragraphs):
+        if i >= DOCX_MAX_PARAGRAPHS:
+            break
+        if not p.text:
+            continue
+        parts.append(p.text)
+        total += len(p.text)
+        if total >= cap:
+            break
     return '\n'.join(parts)[:cap]

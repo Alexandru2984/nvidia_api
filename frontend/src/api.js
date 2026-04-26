@@ -60,6 +60,10 @@ export const api = {
     request('/auth/verify/', { method: 'POST', body: JSON.stringify({ email, code }) }),
   resend: (email) =>
     request('/auth/resend/', { method: 'POST', body: JSON.stringify({ email }) }),
+  forgotPassword: (email) =>
+    request('/auth/forgot/', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (email, code, password) =>
+    request('/auth/reset/', { method: 'POST', body: JSON.stringify({ email, code, password }) }),
   listModels: () => request('/models/'),
   listConversations: () => request('/conversations/'),
   getConversation: (id) => request(`/conversations/${id}/`),
@@ -70,15 +74,48 @@ export const api = {
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ title }) }),
   switchModel: (id, model_id) =>
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ model_id }) }),
-  sendMessage: (id, content, model_id, attachment_ids) =>
-    request(`/conversations/${id}/messages/`, {
+  sendMessageStream: async (id, content, model_id, attachment_ids, handlers) => {
+    const headers = { 'Content-Type': 'application/json' }
+    const csrf = getCookie('csrftoken')
+    if (csrf) headers['X-CSRFToken'] = csrf
+    const res = await fetch(`${BASE}/conversations/${id}/messages/`, {
       method: 'POST',
+      credentials: 'include',
+      headers,
       body: JSON.stringify({
         content,
         ...(model_id ? { model_id } : {}),
         ...(attachment_ids && attachment_ids.length ? { attachment_ids } : {}),
       }),
-    }),
+    })
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
+      handlers.onError?.(detail, res.status)
+      return
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const event = buffer.slice(0, idx).trim()
+        buffer = buffer.slice(idx + 2)
+        if (!event.startsWith('data:')) continue
+        try {
+          const obj = JSON.parse(event.slice(5).trim())
+          if (obj.error) { handlers.onError?.(obj.error); return }
+          if (obj.done) { handlers.onDone?.(obj); return }
+          if (obj.chunk) handlers.onChunk?.(obj.chunk)
+          if (obj.user_message) handlers.onUserMessage?.(obj.user_message)
+        } catch { /* skip malformed event */ }
+      }
+    }
+  },
   listAttachments: (kind) => request(`/attachments/${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
   uploadAttachment: (file) => {
     const fd = new FormData()

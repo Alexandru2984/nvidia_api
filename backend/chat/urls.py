@@ -10,6 +10,8 @@ urlpatterns = [
     path('auth/register/', views.auth_register),
     path('auth/verify/', views.auth_verify),
     path('auth/resend/', views.auth_resend),
+    path('auth/forgot/', views.auth_forgot),
+    path('auth/reset/', views.auth_reset),
     path('models/', views.list_models),
     path('conversations/', views.conversations),
     path('conversations/<int:pk>/', views.conversation_detail),

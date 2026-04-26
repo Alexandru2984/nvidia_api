@@ -1,17 +1,22 @@
 import base64
 import hashlib
 import hmac
+import json
 import logging
+import os
 import re
 import secrets
 from datetime import timedelta
 
 import requests
+from django.http import StreamingHttpResponse
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login as django_login, logout as django_logout
+from django.contrib.auth.password_validation import validate_password
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -24,7 +29,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .attachments import detect_mime, extract_text, kind_for_mime
-from .models import Attachment, Conversation, EmailVerification, Message
+from .models import Attachment, Conversation, EmailVerification, Message, PasswordReset
 from .models_catalog import (
     DEFAULT_IMAGE_GEN_MODEL_ID,
     DEFAULT_MODEL_ID,
@@ -53,7 +58,7 @@ def _rate_limited(request):
 @ensure_csrf_cookie
 def auth_me(request):
     if request.user.is_authenticated:
-        return Response({'username': request.user.username, 'is_staff': request.user.is_staff})
+        return Response({'username': request.user.username})
     return Response({'username': None})
 
 
@@ -66,11 +71,13 @@ def auth_login(request):
     password = request.data.get('password') or ''
     if not username or not password:
         return Response({'error': 'username and password required'}, status=status.HTTP_400_BAD_REQUEST)
+    if len(password) > settings.MAX_PASSWORD_LENGTH:
+        return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
     user = authenticate(request, username=username, password=password)
     if user is None:
         return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
     django_login(request, user)
-    return Response({'username': user.username, 'is_staff': user.is_staff})
+    return Response({'username': user.username})
 
 
 @api_view(['POST'])
@@ -169,6 +176,17 @@ def _issue_new_code(user):
 @ratelimit(key='ip', rate='5/h', block=False)
 def auth_register(request):
     if (r := _rate_limited(request)): return r
+    # Honeypot: hidden form field that real users never fill in. Bots that
+    # blindly fill every input will trip it and get the same generic 201 a
+    # real signup gets, but no account is created.
+    if (request.data.get('website') or '').strip():
+        log.info('Honeypot tripped on register from %s', request.META.get('REMOTE_ADDR'))
+        return Response({
+            'message': 'Account created. Check your email for the 6-digit code.',
+            'email': (request.data.get('email') or '').strip().lower(),
+            'resend_available_in': RESEND_COOLDOWN_SECONDS,
+        }, status=201)
+
     username = (request.data.get('username') or '').strip()
     email = (request.data.get('email') or '').strip().lower()
     password = request.data.get('password') or ''
@@ -179,8 +197,8 @@ def auth_register(request):
         validate_email(email)
     except ValidationError:
         return Response({'error': 'Invalid email address.'}, status=400)
-    if len(password) < 8:
-        return Response({'error': 'Password must be at least 8 characters.'}, status=400)
+    if len(password) < 8 or len(password) > settings.MAX_PASSWORD_LENGTH:
+        return Response({'error': f'Password must be 8-{settings.MAX_PASSWORD_LENGTH} characters.'}, status=400)
 
     User = get_user_model()
     if User.objects.filter(username__iexact=username).exists():
@@ -221,7 +239,7 @@ def auth_verify(request):
     User = get_user_model()
     user = User.objects.filter(email__iexact=email).first()
     if user is None:
-        return Response({'error': 'No account with that email.'}, status=404)
+        return Response({'error': 'Invalid email or code.'}, status=400)
     if user.is_active:
         return Response({'verified': True, 'username': user.username})
 
@@ -243,7 +261,7 @@ def auth_verify(request):
     user.save(update_fields=['is_active'])
     ev.delete()
     django_login(request, user)
-    return Response({'verified': True, 'username': user.username, 'is_staff': user.is_staff})
+    return Response({'verified': True, 'username': user.username})
 
 
 @api_view(['POST'])
@@ -280,22 +298,173 @@ def auth_resend(request):
                      'resend_available_in': RESEND_COOLDOWN_SECONDS})
 
 
+def _send_password_reset_email(user, code):
+    subject = 'Your NVIDIA Chat Hub password reset code'
+    text = (
+        f'Hi {user.username},\n\n'
+        f'Your password reset code is: {code}\n\n'
+        f'Enter this code along with a new password to reset your account.\n'
+        f'The code expires in 30 minutes.\n\n'
+        f"If you didn't request a reset, you can ignore this email — your password won't change.\n\n"
+        f'— NVIDIA Chat Hub\n'
+    )
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{subject}</title></head>
+<body style="margin:0;padding:0;background:#0a0d12;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e6edf3;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0a0d12;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#11161d;border:1px solid #232a36;border-radius:14px;overflow:hidden;">
+        <tr><td style="padding:28px 28px 8px 28px;">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="width:36px;height:36px;background:#76b900;color:#0a0d12;border-radius:8px;font-weight:800;font-size:18px;text-align:center;vertical-align:middle;">N</td>
+            <td style="padding-left:12px;font-weight:600;font-size:16px;color:#e6edf3;">NVIDIA Chat Hub</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:8px 28px 0 28px;">
+          <h1 style="margin:18px 0 8px 0;font-size:20px;font-weight:600;color:#e6edf3;">Reset your password</h1>
+          <p style="margin:0 0 18px 0;font-size:14px;line-height:1.55;color:#8b96a8;">
+            Hi <strong style="color:#e6edf3;">{user.username}</strong>, use the code below to set a new password.
+          </p>
+        </td></tr>
+        <tr><td style="padding:0 28px;">
+          <div style="background:#0a0d12;border:1px solid #232a36;border-radius:12px;padding:22px 16px;text-align:center;">
+            <div style="font-size:11px;letter-spacing:2px;color:#8b96a8;text-transform:uppercase;margin-bottom:8px;">Reset code</div>
+            <div style="font-size:34px;letter-spacing:10px;font-weight:700;color:#76b900;font-family:'SFMono-Regular',Menlo,Consolas,monospace;">{code}</div>
+            <div style="font-size:12px;color:#8b96a8;margin-top:10px;">Expires in 30 minutes</div>
+          </div>
+        </td></tr>
+        <tr><td style="padding:18px 28px 26px 28px;">
+          <p style="margin:0;font-size:12px;line-height:1.55;color:#8b96a8;">
+            If you didn't request this, you can ignore the email — your password stays the same.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    msg = EmailMultiAlternatives(subject, text, settings.DEFAULT_FROM_EMAIL, [user.email])
+    msg.attach_alternative(html, 'text/html')
+    msg.send(fail_silently=False)
+
+
+def _issue_password_reset(user):
+    code = _generate_code()
+    now = timezone.now()
+    PasswordReset.objects.update_or_create(
+        user=user,
+        defaults={
+            'code_hash': _hash_code(code),
+            'sent_at': now,
+            'expires_at': now + timedelta(seconds=OTP_TTL_SECONDS),
+            'attempts': 0,
+        },
+    )
+    _send_password_reset_email(user, code)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='5/h', block=False)
+def auth_forgot(request):
+    if (r := _rate_limited(request)): return r
+    email = (request.data.get('email') or '').strip().lower()
+    generic = Response({
+        'message': 'If an account exists for that email, a reset code has been sent.',
+        'resend_available_in': RESEND_COOLDOWN_SECONDS,
+    })
+    if not email:
+        return Response({'error': 'Email required.'}, status=400)
+    try:
+        validate_email(email)
+    except ValidationError:
+        return Response({'error': 'Invalid email address.'}, status=400)
+
+    User = get_user_model()
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if user is None:
+        return generic
+
+    existing = PasswordReset.objects.filter(user=user).first()
+    if existing is not None:
+        elapsed = (timezone.now() - existing.sent_at).total_seconds()
+        if elapsed < RESEND_COOLDOWN_SECONDS:
+            return generic
+
+    try:
+        _issue_password_reset(user)
+    except Exception:
+        log.exception('Failed to send password reset email to %s', email)
+        return Response({'error': 'Failed to send email. Try again later.'}, status=502)
+    return generic
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', block=False)
+def auth_reset(request):
+    if (r := _rate_limited(request)): return r
+    email = (request.data.get('email') or '').strip().lower()
+    code = (request.data.get('code') or '').strip()
+    password = request.data.get('password') or ''
+    if not email or not code or not password:
+        return Response({'error': 'Email, code, and new password are required.'}, status=400)
+    if not re.fullmatch(r'\d{6}', code):
+        return Response({'error': 'Code must be 6 digits.'}, status=400)
+
+    if len(password) > settings.MAX_PASSWORD_LENGTH:
+        return Response({'error': f'Password must be at most {settings.MAX_PASSWORD_LENGTH} characters.'}, status=400)
+
+    User = get_user_model()
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if user is None:
+        return Response({'error': 'Invalid email or code.'}, status=400)
+
+    pr = PasswordReset.objects.filter(user=user).first()
+    if pr is None:
+        return Response({'error': 'Invalid email or code.'}, status=400)
+    if pr.expires_at <= timezone.now():
+        pr.delete()
+        return Response({'error': 'Code expired. Request a new one.'}, status=400)
+    if pr.attempts >= MAX_VERIFY_ATTEMPTS:
+        return Response({'error': 'Too many wrong attempts. Request a new code.'}, status=429)
+
+    if not hmac.compare_digest(pr.code_hash, _hash_code(code)):
+        pr.attempts += 1
+        pr.save(update_fields=['attempts'])
+        remaining = max(0, MAX_VERIFY_ATTEMPTS - pr.attempts)
+        return Response({'error': f'Wrong code. {remaining} attempt(s) left.'}, status=400)
+
+    try:
+        validate_password(password, user)
+    except ValidationError as e:
+        return Response({'error': ' '.join(e.messages)}, status=400)
+
+    user.set_password(password)
+    user.save(update_fields=['password'])
+    pr.delete()
+    django_login(request, user)
+    return Response({'reset': True, 'username': user.username})
+
+
 @api_view(['GET'])
 def list_models(request):
     return Response({'models': NVIDIA_MODELS, 'default': DEFAULT_MODEL_ID})
 
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def health(request):
     return Response({'status': 'ok'})
 
 
 @api_view(['GET', 'POST'])
+@ratelimit(key='user', method='POST', rate='20/m', block=False)
 def conversations(request):
     if request.method == 'GET':
         qs = Conversation.objects.filter(user=request.user)
         return Response(ConversationListSerializer(qs, many=True).data)
 
+    if (r := _rate_limited(request)): return r
     title = (request.data.get('title') or 'New Chat').strip()[:200] or 'New Chat'
     model_id = request.data.get('model_id') or DEFAULT_MODEL_ID
     if model_id not in MODEL_IDS:
@@ -349,24 +518,35 @@ def upload_attachment(request):
     if kind is None:
         return Response({'error': f'Unsupported file type: {mime}. Allowed: images (jpg/png/webp/gif), pdf, txt, md, docx.'}, status=415)
 
-    used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
-    if used + f.size > settings.MAX_USER_STORAGE:
-        return Response({
-            'error': f'Storage quota exceeded. Limit {settings.MAX_USER_STORAGE // (1024 * 1024)}MB per user.',
-            'used': used, 'limit': settings.MAX_USER_STORAGE,
-        }, status=413)
-
     extracted = extract_text(f, mime) if kind == 'document' else ''
 
-    att = Attachment.objects.create(
-        user=request.user,
-        file=f,
-        original_name=(f.name or 'file')[:255],
-        mime_type=mime,
-        size=f.size,
-        kind=kind,
-        extracted_text=extracted,
-    )
+    safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(f.name or 'file'))[:120] or 'file'
+    f.name = safe_name
+
+    # Race-free quota: lock the user row, recompute usage inside the lock, then
+    # commit the new attachment. Two parallel uploads serialise here.
+    User = get_user_model()
+    try:
+        with transaction.atomic():
+            User.objects.select_for_update().filter(pk=request.user.pk).first()
+            used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
+            if used + f.size > settings.MAX_USER_STORAGE:
+                return Response({
+                    'error': f'Storage quota exceeded. Limit {settings.MAX_USER_STORAGE // (1024 * 1024)}MB per user.',
+                    'used': used, 'limit': settings.MAX_USER_STORAGE,
+                }, status=413)
+            att = Attachment.objects.create(
+                user=request.user,
+                file=f,
+                original_name=(f.name or 'file')[:255],
+                mime_type=mime,
+                size=f.size,
+                kind=kind,
+                extracted_text=extracted,
+            )
+    except Exception:
+        log.exception('Upload failed for user=%s name=%s', request.user.pk, safe_name)
+        return Response({'error': 'Upload failed.'}, status=500)
     return Response(AttachmentSerializer(att).data, status=201)
 
 
@@ -379,26 +559,48 @@ def delete_attachment(request, pk):
     return Response(status=204)
 
 
-def _call_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
+def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
+    """Yield (kind, value) tuples: ('chunk', str), ('usage', dict), ('error', str)."""
     payload = {
         'model': model_id,
         'messages': messages,
         'max_tokens': max_tokens,
         'temperature': temperature,
-        'stream': False,
+        'stream': True,
     }
     headers = {
         'Authorization': f'Bearer {settings.NVIDIA_API_KEY}',
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Accept': 'text/event-stream',
     }
-    resp = requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=120)
-    resp.raise_for_status()
-    data = resp.json()
-    choice = data['choices'][0]
-    text = choice['message']['content']
-    usage = data.get('usage') or {}
-    return text, usage
+    try:
+        with requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=180, stream=True) as resp:
+            if resp.status_code >= 400:
+                body = resp.text[:500]
+                yield ('error', f'NVIDIA API error ({resp.status_code}): {body}')
+                return
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if not line.startswith('data:'):
+                    continue
+                data = line[5:].strip()
+                if data == '[DONE]':
+                    return
+                try:
+                    obj = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choices = obj.get('choices') or []
+                if choices:
+                    delta = choices[0].get('delta') or {}
+                    chunk = delta.get('content')
+                    if chunk:
+                        yield ('chunk', chunk)
+                if obj.get('usage'):
+                    yield ('usage', obj['usage'])
+    except requests.RequestException as e:
+        yield ('error', f'NVIDIA API request failed: {e}')
 
 
 def _attachment_data_url(att):
@@ -441,6 +643,10 @@ def _resolve_attachments(user, ids):
     return qs
 
 
+def _sse(event):
+    return f'data: {json.dumps(event)}\n\n'
+
+
 @api_view(['POST'])
 @ratelimit(key='user', rate='30/m', block=False)
 def send_message(request, pk):
@@ -453,6 +659,11 @@ def send_message(request, pk):
             status=status.HTTP_400_BAD_REQUEST,
         )
     attachment_ids = request.data.get('attachment_ids') or []
+    if isinstance(attachment_ids, list) and len(attachment_ids) > settings.CHAT_MAX_ATTACHMENTS_PER_MESSAGE:
+        return Response(
+            {'error': f'Too many attachments (max {settings.CHAT_MAX_ATTACHMENTS_PER_MESSAGE} per message).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     attachments = _resolve_attachments(request.user, attachment_ids)
     if attachments is None:
@@ -467,6 +678,7 @@ def send_message(request, pk):
             return Response({'error': f'Unknown model_id: {override_model}'}, status=status.HTTP_400_BAD_REQUEST)
         if override_model != convo.model_id:
             convo.model_id = override_model
+            convo.save(update_fields=['model_id'])
 
     has_images = any(a.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED) for a in attachments)
     if has_images and convo.model_id not in VISION_MODEL_IDS:
@@ -493,36 +705,62 @@ def send_message(request, pk):
     keep.reverse()
     history = [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
 
-    try:
-        reply_text, usage = _call_nvidia(convo.model_id, history)
-    except requests.HTTPError as e:
-        body = e.response.text if e.response is not None else ''
-        log.warning('NVIDIA API HTTP error: %s — %s', e, body[:500])
-        Attachment.objects.filter(message=user_msg).update(message=None)
-        user_msg.delete()
-        return Response(
-            {'error': f'NVIDIA API error ({e.response.status_code if e.response is not None else "?"})', 'detail': body[:1000]},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
-    except requests.RequestException as e:
-        log.exception('NVIDIA API request failed')
-        Attachment.objects.filter(message=user_msg).update(message=None)
-        user_msg.delete()
-        return Response({'error': 'NVIDIA API request failed', 'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    user_msg_id = user_msg.id
+    convo_id = convo.id
+    model_id = convo.model_id
+    user_text_snapshot = user_text
+    has_attachments = bool(attachments)
+    first_att_name = attachments[0].original_name if attachments else None
 
-    assistant_msg = Message.objects.create(conversation=convo, role='assistant', content=reply_text)
+    def event_stream():
+        yield _sse({'user_message': MessageSerializer(user_msg).data})
+        full_text = []
+        last_usage = None
+        errored = None
+        for kind, value in _stream_nvidia(model_id, history):
+            if kind == 'chunk':
+                full_text.append(value)
+                yield _sse({'chunk': value})
+            elif kind == 'usage':
+                last_usage = value
+            elif kind == 'error':
+                errored = value
+                break
 
-    if convo.title == 'New Chat':
-        snippet = user_text or (attachments[0].original_name if attachments else 'New Chat')
-        convo.title = snippet[:60] + ('…' if len(snippet) > 60 else '')
-    convo.save()
+        if errored is not None:
+            log.warning('NVIDIA stream error for convo=%s: %s', convo_id, errored)
+            Attachment.objects.filter(message_id=user_msg_id).update(message=None)
+            Message.objects.filter(id=user_msg_id).delete()
+            yield _sse({'error': errored})
+            return
 
-    return Response({
-        'user_message': MessageSerializer(user_msg).data,
-        'assistant_message': MessageSerializer(assistant_msg).data,
-        'conversation': ConversationListSerializer(convo).data,
-        'usage': usage,
-    })
+        reply_text = ''.join(full_text)
+        if not reply_text:
+            Attachment.objects.filter(message_id=user_msg_id).update(message=None)
+            Message.objects.filter(id=user_msg_id).delete()
+            yield _sse({'error': 'NVIDIA returned an empty response.'})
+            return
+
+        assistant_msg = Message.objects.create(conversation_id=convo_id, role='assistant', content=reply_text)
+        convo_obj = Conversation.objects.get(id=convo_id)
+        if convo_obj.title == 'New Chat':
+            snippet = user_text_snapshot or (first_att_name if has_attachments else 'New Chat')
+            convo_obj.title = snippet[:60] + ('…' if len(snippet) > 60 else '')
+        convo_obj.save()
+
+        user_msg_fresh = Message.objects.prefetch_related('attachments').get(id=user_msg_id)
+        yield _sse({
+            'done': True,
+            'user_message': MessageSerializer(user_msg_fresh).data,
+            'assistant_message': MessageSerializer(assistant_msg).data,
+            'conversation': ConversationListSerializer(convo_obj).data,
+            'usage': last_usage or {},
+        })
+
+    response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+    response['Cache-Control'] = 'no-cache, no-transform'
+    response['X-Accel-Buffering'] = 'no'
+    return response
 
 
 @api_view(['GET'])
@@ -558,6 +796,7 @@ def generate_image(request):
     if not (1 <= steps <= spec['max_steps']):
         return Response({'error': f'steps must be 1..{spec["max_steps"]} for {spec["name"]}'}, status=400)
 
+    # Coarse pre-check before paying for an NVIDIA call. Atomic check happens after.
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
     if used >= settings.MAX_USER_STORAGE:
         return Response({'error': 'Storage quota exceeded; delete some attachments first.'}, status=413)
@@ -607,14 +846,24 @@ def generate_image(request):
     from django.core.files.base import ContentFile
     safe_slug = re.sub(r'[^a-z0-9]+', '-', prompt.lower())[:32].strip('-') or 'image'
     filename = f'{safe_slug}-{secrets.token_hex(4)}.png'
-    att = Attachment(
-        user=request.user,
-        original_name=filename,
-        mime_type='image/png',
-        size=len(raw),
-        kind=Attachment.KIND_GENERATED,
-    )
-    att.file.save(filename, ContentFile(raw), save=True)
+    User = get_user_model()
+    try:
+        with transaction.atomic():
+            User.objects.select_for_update().filter(pk=request.user.pk).first()
+            used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
+            if used + len(raw) > settings.MAX_USER_STORAGE:
+                return Response({'error': 'Storage quota exceeded; delete some attachments first.'}, status=413)
+            att = Attachment(
+                user=request.user,
+                original_name=filename,
+                mime_type='image/png',
+                size=len(raw),
+                kind=Attachment.KIND_GENERATED,
+            )
+            att.file.save(filename, ContentFile(raw), save=True)
+    except Exception:
+        log.exception('Generated image save failed for user=%s', request.user.pk)
+        return Response({'error': 'Failed to save generated image.'}, status=500)
 
     return Response({
         'attachment': AttachmentSerializer(att).data,

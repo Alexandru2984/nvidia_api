@@ -86,6 +86,8 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | POST | `/auth/register/` | `{username, email, password}` | open | Creates inactive user, emails OTP. |
 | POST | `/auth/verify/` | `{email, code}` | open | 6-digit code; logs user in on success. |
 | POST | `/auth/resend/` | `{email}` | open | 60s cooldown; never leaks whether the email exists. |
+| POST | `/auth/forgot/` | `{email}` | open | Always returns generic success; emails a 6-digit reset code if account exists. |
+| POST | `/auth/reset/` | `{email, code, password}` | open | Validates the code, applies Django's password validators, logs the user in. |
 | POST | `/auth/login/` | `{username, password}` | open | Rejects inactive users. |
 | POST | `/auth/logout/` | — | session | |
 | GET | `/models/` | — | session | Returns validated NVIDIA models. |

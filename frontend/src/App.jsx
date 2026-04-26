@@ -132,6 +132,142 @@ function CodeScreen({ email, initialCooldown = 60, onVerified, onBack }) {
   )
 }
 
+function ForgotScreen({ onSent, onBack }) {
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.forgotPassword(email.trim().toLowerCase())
+      onSent(email.trim().toLowerCase())
+    } catch (err) {
+      setError(err.message || 'Failed to send reset code.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={submit}>
+        <div className="login-brand">
+          <div className="brand-mark">N</div>
+          <div>
+            <div className="brand-text">Forgot password</div>
+            <div className="brand-sub">We'll email you a 6-digit code</div>
+          </div>
+        </div>
+        <p className="login-hint">
+          Enter your account email and we'll send a reset code. The code expires in 30 minutes.
+        </p>
+        <label>
+          <span>Email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            autoFocus
+            required
+          />
+        </label>
+        {error && <div className="login-error">{error}</div>}
+        <button type="submit" className="primary login-submit" disabled={busy || !email}>
+          {busy ? 'Sending…' : 'Send reset code'}
+        </button>
+        <div className="login-toggle">
+          <button type="button" className="link" onClick={onBack}>← Back to sign in</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function ResetScreen({ email, onReset, onBack }) {
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (busy) return
+    if (!/^\d{6}$/.test(code)) {
+      setError('Enter the 6-digit code from the email.')
+      return
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const u = await api.resetPassword(email, code, password)
+      onReset(u)
+    } catch (err) {
+      setError(err.message || 'Reset failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={submit}>
+        <div className="login-brand">
+          <div className="brand-mark">N</div>
+          <div>
+            <div className="brand-text">Reset password</div>
+            <div className="brand-sub">Enter the code and a new password</div>
+          </div>
+        </div>
+        <p className="login-hint">
+          We sent a code to <strong style={{ color: 'var(--text)' }}>{email}</strong>.
+        </p>
+        <label>
+          <span>Reset code</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="\d{6}"
+            maxLength={6}
+            className="otp-input"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoFocus
+            autoComplete="one-time-code"
+            required
+          />
+        </label>
+        <label>
+          <span>New password</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            minLength={8}
+            required
+          />
+        </label>
+        {error && <div className="login-error">{error}</div>}
+        <button type="submit" className="primary login-submit" disabled={busy || code.length !== 6 || password.length < 8}>
+          {busy ? 'Resetting…' : 'Reset password and sign in'}
+        </button>
+        <div className="login-toggle">
+          <button type="button" className="link" onClick={onBack}>← Back to sign in</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function AuthScreen({ initialMode = 'login', onLoggedIn }) {
   const [mode, setMode] = useState(initialMode)
   const [username, setUsername] = useState('')
@@ -185,6 +321,25 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
         email={pendingEmail}
         initialCooldown={pendingCooldown}
         onVerified={onLoggedIn}
+        onBack={() => switchMode('login')}
+      />
+    )
+  }
+
+  if (mode === 'forgot') {
+    return (
+      <ForgotScreen
+        onSent={(em) => { setPendingEmail(em); setMode('reset') }}
+        onBack={() => switchMode('login')}
+      />
+    )
+  }
+
+  if (mode === 'reset') {
+    return (
+      <ResetScreen
+        email={pendingEmail}
+        onReset={onLoggedIn}
         onBack={() => switchMode('login')}
       />
     )
@@ -244,6 +399,11 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
         >
           {busy ? (isRegister ? 'Creating…' : 'Signing in…') : (isRegister ? 'Create account' : 'Sign in')}
         </button>
+        {!isRegister && (
+          <div className="login-toggle" style={{ marginTop: -4 }}>
+            <button type="button" className="link" onClick={() => switchMode('forgot')}>Forgot password?</button>
+          </div>
+        )}
         <div className="login-toggle">
           {isRegister ? (
             <>Already have an account? <button type="button" className="link" onClick={() => switchMode('login')}>Sign in</button></>
@@ -530,39 +690,63 @@ export default function App() {
     const sendingAttachments = pendingAttachments
     setPendingAttachments([])
 
+    const tmpUserId = `tmp-user-${Date.now()}`
+    const streamingId = `streaming-${Date.now()}`
+
     setActive((c) => ({
       ...c,
-      messages: [...(c?.messages || []), {
-        id: `tmp-${Date.now()}`,
-        role: 'user',
-        content: text,
-        attachments: sendingAttachments,
-      }],
+      messages: [
+        ...(c?.messages || []),
+        { id: tmpUserId, role: 'user', content: text, attachments: sendingAttachments },
+        { id: streamingId, role: 'assistant', content: '', streaming: true },
+      ],
     }))
 
-    try {
-      const res = await api.sendMessage(convo.id, text, undefined, sendingAttachments.map((a) => a.id))
-      setActive((c) => {
-        const base = c?.messages?.filter((m) => !String(m.id).startsWith('tmp-')) || []
-        return {
+    let streamed = ''
+
+    await api.sendMessageStream(convo.id, text, undefined, sendingAttachments.map((a) => a.id), {
+      onUserMessage: (userMsg) => {
+        setActive((c) => ({
           ...c,
-          messages: [...base, res.user_message, res.assistant_message],
-        }
-      })
-      setConversations((prev) => {
-        const others = prev.filter((p) => p.id !== convo.id)
-        return [res.conversation, ...others]
-      })
-    } catch (err) {
-      setError(err.message)
-      setPendingAttachments(sendingAttachments)
-      setActive((c) => ({
-        ...c,
-        messages: (c?.messages || []).filter((m) => !String(m.id).startsWith('tmp-')),
-      }))
-    } finally {
-      setSending(false)
-    }
+          messages: (c?.messages || []).map((m) =>
+            m.id === tmpUserId ? { ...userMsg, attachments: sendingAttachments } : m,
+          ),
+        }))
+      },
+      onChunk: (chunk) => {
+        streamed += chunk
+        setActive((c) => ({
+          ...c,
+          messages: (c?.messages || []).map((m) =>
+            m.id === streamingId ? { ...m, content: streamed } : m,
+          ),
+        }))
+      },
+      onDone: (final) => {
+        setActive((c) => ({
+          ...c,
+          messages: (c?.messages || [])
+            .filter((m) => m.id !== tmpUserId && m.id !== streamingId)
+            .concat([final.user_message, final.assistant_message]),
+        }))
+        setConversations((prev) => {
+          const others = prev.filter((p) => p.id !== convo.id)
+          return [final.conversation, ...others]
+        })
+      },
+      onError: (msg) => {
+        setError(msg)
+        setPendingAttachments(sendingAttachments)
+        setActive((c) => ({
+          ...c,
+          messages: (c?.messages || []).filter(
+            (m) => m.id !== tmpUserId && m.id !== streamingId,
+          ),
+        }))
+      },
+    })
+
+    setSending(false)
   }
 
   async function handleDelete(id, ev) {
@@ -754,21 +938,16 @@ export default function App() {
                         {m.attachments.map((a) => <AttachmentTile key={a.id} att={a} />)}
                       </div>
                     )}
-                    {m.content && <MessageBody role={m.role} content={m.content} />}
+                    {m.streaming && !m.content ? (
+                      <div className="bubble assistant-bubble">
+                        <span className="typing"><span/><span/><span/></span>
+                      </div>
+                    ) : m.content ? (
+                      <MessageBody role={m.role} content={m.content} />
+                    ) : null}
                   </div>
                 </div>
               ))}
-              {sending && (
-                <div className="msg assistant">
-                  <div className="avatar">AI</div>
-                  <div style={{ flex: 1 }}>
-                    <div className="role">{modelLabel}</div>
-                    <div className="bubble">
-                      <span className="typing"><span/><span/><span/></span>
-                    </div>
-                  </div>
-                </div>
-              )}
               <div ref={chatEndRef} />
             </div>
           )}
