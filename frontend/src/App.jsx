@@ -1055,7 +1055,7 @@ export default function App() {
 
       <main className="main">
         {mode === 'settings' && (
-          <Settings onClose={() => setMode('chat')} />
+          <Settings onClose={() => setMode('chat')} onLoggedOut={() => { setMode('chat'); handleLogout() }} />
         )}
         {mode !== 'settings' && (
         <>

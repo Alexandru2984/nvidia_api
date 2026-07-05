@@ -90,6 +90,8 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | POST | `/auth/reset/` | `{email, code, password}` | open | Validates the code, applies Django's password validators, logs the user in. |
 | POST | `/auth/login/` | `{username, password}` | open | Rejects inactive users. |
 | POST | `/auth/logout/` | — | session | |
+| POST | `/auth/password/` | `{current_password, new_password}` | session | Keeps this session, revokes all others. |
+| POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Cascades all user data. |
 | GET | `/models/` | — | session | Returns validated NVIDIA models. |
 | GET | `/conversations/` | — | session | Scoped to `request.user`. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |

@@ -225,7 +225,99 @@ function SessionsPanel() {
 }
 
 
-export default function Settings({ onClose }) {
+function PasswordPanel() {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [info, setInfo] = useState(null)
+
+  async function submit(e) {
+    e.preventDefault()
+    setError(null); setInfo(null)
+    if (next !== confirm) { setError('New passwords do not match.'); return }
+    if (next.length < 8) { setError('New password must be at least 8 characters.'); return }
+    setBusy(true)
+    try {
+      const r = await api.changePassword(current, next)
+      setInfo(`Password changed. ${r.sessions_revoked} other session(s) signed out.`)
+      setCurrent(''); setNext(''); setConfirm('')
+    } catch (e2) { setError(e2.message) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <section className="settings-section">
+      <h2>Change password</h2>
+      <p className="muted">Changing your password signs out every other device.</p>
+      {error && <div className="login-error">{error}</div>}
+      {info && <div className="login-info">{info}</div>}
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360 }}>
+        <input type="password" placeholder="Current password" autoComplete="current-password"
+          value={current} onChange={(e) => setCurrent(e.target.value)} required />
+        <input type="password" placeholder="New password (min 8 chars)" autoComplete="new-password"
+          value={next} onChange={(e) => setNext(e.target.value)} minLength={8} required />
+        <input type="password" placeholder="Repeat new password" autoComplete="new-password"
+          value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={8} required />
+        <button className="primary" type="submit" disabled={busy || !current || !next || !confirm}>
+          {busy ? 'Changing…' : 'Change password'}
+        </button>
+      </form>
+    </section>
+  )
+}
+
+
+function DangerPanel({ onLoggedOut }) {
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
+  const [needsCode, setNeedsCode] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function doDelete() {
+    if (!confirm('This permanently deletes your account, conversations and files. There is no undo. Continue?')) return
+    setBusy(true); setError(null)
+    try {
+      await api.deleteAccount(password, code.trim() || undefined)
+      onLoggedOut?.()
+    } catch (e) {
+      if (e.body?.two_factor_required) setNeedsCode(true)
+      setError(e.message)
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <section className="settings-section">
+      <h2>Danger zone</h2>
+      <p className="muted">Delete your account and every conversation, message and attachment that belongs to it.</p>
+      {!open ? (
+        <button className="link danger" onClick={() => setOpen(true)}>Delete account…</button>
+      ) : (
+        <div className="enroll-card">
+          {error && <div className="login-error">{error}</div>}
+          <input type="password" placeholder="Your password" autoComplete="current-password"
+            value={password} onChange={(e) => setPassword(e.target.value)} />
+          {needsCode && (
+            <input type="text" placeholder="2FA code or recovery code" style={{ marginTop: 8 }}
+              value={code} onChange={(e) => setCode(e.target.value)} />
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="primary danger" onClick={doDelete} disabled={busy || !password}>
+              {busy ? 'Deleting…' : 'Permanently delete account'}
+            </button>
+            <button className="link" onClick={() => { setOpen(false); setPassword(''); setCode(''); setError(null) }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+
+export default function Settings({ onClose, onLoggedOut }) {
   return (
     <div className="settings-wrap">
       <header className="settings-header">
@@ -233,8 +325,10 @@ export default function Settings({ onClose }) {
         <button className="icon" onClick={onClose} title="Close">×</button>
       </header>
       <div className="settings-body">
+        <PasswordPanel />
         <TwoFactorPanel />
         <SessionsPanel />
+        <DangerPanel onLoggedOut={onLoggedOut} />
       </div>
     </div>
   )

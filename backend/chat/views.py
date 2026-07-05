@@ -12,7 +12,10 @@ from datetime import timedelta
 import requests
 from django.http import StreamingHttpResponse
 from django.conf import settings
-from django.contrib.auth import authenticate, get_user_model, login as django_login, logout as django_logout
+from django.contrib.auth import (
+    authenticate, get_user_model, login as django_login, logout as django_logout,
+    update_session_auth_hash,
+)
 from django.contrib.auth.password_validation import validate_password
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
@@ -480,6 +483,60 @@ def auth_reset(request):
     django_login(request, user)
     stamp_session(request)
     return Response({'reset': True, 'username': user.username, 'sessions_revoked': revoked})
+
+
+@api_view(['POST'])
+@ratelimit(key='user', rate='10/h', block=False)
+def auth_change_password(request):
+    """Change password for the logged-in user. Requires the current password.
+    Keeps this session alive, kills every other one."""
+    if (r := _rate_limited(request)): return r
+    current = request.data.get('current_password') or ''
+    new = request.data.get('new_password') or ''
+    if not request.user.check_password(current):
+        return Response({'error': 'Current password is incorrect.'}, status=status.HTTP_401_UNAUTHORIZED)
+    if len(new) < 8 or len(new) > settings.MAX_PASSWORD_LENGTH:
+        return Response({'error': f'Password must be 8-{settings.MAX_PASSWORD_LENGTH} characters.'}, status=400)
+    try:
+        validate_password(new, request.user)
+    except ValidationError as e:
+        return Response({'error': ' '.join(e.messages)}, status=400)
+
+    request.user.set_password(new)
+    request.user.save(update_fields=['password'])
+    # Re-stamp this session's auth hash so the user isn't logged out here,
+    # then revoke everything else (anything on the old password is suspect).
+    update_session_auth_hash(request, request.user)
+    revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
+    log.info('Password changed for user_id=%s; revoked %d other session(s)', request.user.pk, revoked)
+    return Response({'changed': True, 'sessions_revoked': revoked})
+
+
+@api_view(['POST'])
+@ratelimit(key='user', rate='5/h', block=False)
+def auth_delete_account(request):
+    """Permanently delete the account. Requires the password, plus a valid
+    TOTP/recovery code when 2FA is enabled. Cascades to conversations,
+    messages and attachments (files removed via the pre_delete signal)."""
+    if (r := _rate_limited(request)): return r
+    password = request.data.get('password') or ''
+    if not request.user.check_password(password):
+        return Response({'error': 'Wrong password.'}, status=status.HTTP_401_UNAUTHORIZED)
+    if login_requires_2fa(request.user):
+        code = (request.data.get('code') or '').strip()
+        if not code:
+            return Response({'error': 'Two-factor code required.', 'two_factor_required': True},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        if not verify_for_login(request.user, code):
+            return Response({'error': 'Invalid 2FA code.', 'two_factor_required': True},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+    user = request.user
+    username = user.username
+    django_logout(request)
+    user.delete()
+    log.info('Account deleted: %s (user_id no longer exists)', username)
+    return Response({'deleted': True})
 
 
 @api_view(['GET'])

@@ -12,6 +12,8 @@ urlpatterns = [
     path('auth/resend/', views.auth_resend),
     path('auth/forgot/', views.auth_forgot),
     path('auth/reset/', views.auth_reset),
+    path('auth/password/', views.auth_change_password),
+    path('auth/delete-account/', views.auth_delete_account),
     path('auth/2fa/status/', twofactor.status),
     path('auth/2fa/enroll/', twofactor.enroll),
     path('auth/2fa/verify-enroll/', twofactor.verify_enroll),
