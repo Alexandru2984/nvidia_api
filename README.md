@@ -1,6 +1,6 @@
 # NVIDIA Chat Hub
 
-A self-hosted chat UI for NVIDIA's NIM-hosted open-weight LLMs (Llama, Nemotron, Qwen, DeepSeek, GPT-OSS — ~40 validated models). Pick a model, chat, save conversations per-user. Deployed at `https://nvidia.micutu.com`.
+A self-hosted chat UI for NVIDIA's NIM-hosted open-weight LLMs (Llama, Nemotron, Qwen, DeepSeek, GPT-OSS — ~40 validated models). Pick a model, chat, save conversations per-user. Deployed at `https://aichat.micutu.com`.
 
 ## Stack
 
@@ -37,7 +37,7 @@ pip install -r requirements.txt
 cp .env.example .env   # see "Environment" below
 python manage.py migrate
 python manage.py createsuperuser
-python manage.py runserver 8500
+python manage.py runserver 8501
 
 # Frontend
 cd frontend
@@ -45,7 +45,7 @@ npm install
 npm run dev   # vite dev server on :5173
 ```
 
-The Vite dev server hits `http://127.0.0.1:8500/api` directly. CORS + cookies are pre-wired for `localhost:5173`.
+The Vite dev server hits `http://127.0.0.1:8501/api` directly. CORS + cookies are pre-wired for `localhost:5173`.
 
 ## Environment
 
@@ -54,7 +54,7 @@ The Vite dev server hits `http://127.0.0.1:8500/api` directly. CORS + cookies ar
 ```
 DJANGO_SECRET_KEY=...
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=nvidia.micutu.com,localhost,127.0.0.1
+DJANGO_ALLOWED_HOSTS=aichat.micutu.com,localhost,127.0.0.1
 
 DB_NAME=nvidia_db
 DB_USER=nvidia_user
@@ -71,7 +71,7 @@ SMTP_PORT=587
 SMTP_USER=noreply@micutu.com
 SMTP_PASS=...
 SMTP_FROM=noreply@micutu.com
-FRONTEND_URL=https://nvidia.micutu.com
+FRONTEND_URL=https://aichat.micutu.com
 ```
 
 Settings auto-pick `EMAIL_USE_SSL` when `SMTP_PORT=465`, otherwise STARTTLS (`EMAIL_USE_TLS`) is used — the mailcow server on `mail.micutu.com:587` takes the STARTTLS path.
@@ -115,9 +115,9 @@ To resync after NVIDIA adds or removes models, rerun `/tmp/probe_models.py` (or 
 
 The VPS pattern matches every other `*.micutu.com` app on this host:
 
-- **systemd unit** `/etc/systemd/system/nvidia-chat.service` runs `gunicorn` as user `micu`, binds `127.0.0.1:8500`, reads `EnvironmentFile=/home/micu/nvidia/backend/.env`.
-- **nginx** vhost `/etc/nginx/sites-available/nvidia.micutu.com` serves the built SPA from `/var/www/nvidia.micutu.com/` with `try_files $uri $uri/ /index.html;` for client-side routing, and proxies `/api/`, `/admin/`, `/static/` and `/media/` to gunicorn (or, for `/media/`, you can serve directly from `/home/micu/nvidia/backend/media/` for lower overhead).
-- **SSL** via certbot: `sudo certbot --nginx -d nvidia.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
+- **systemd unit** `/etc/systemd/system/aichat-backend.service` runs `gunicorn` (gthread workers, `--timeout 600` for SSE streams) as user `micu`, binds `127.0.0.1:8501`; Django reads `/home/micu/nvidia/backend/.env` via python-dotenv.
+- **nginx** vhost `/etc/nginx/sites-available/aichat.micutu.com` serves the built SPA from `/var/www/aichat.micutu.com/` with `try_files $uri $uri/ /index.html;` for client-side routing, and proxies `/api/`, `/admin/`, `/static/` and `/media/` to gunicorn (or, for `/media/`, you can serve directly from `/home/micu/nvidia/backend/media/` for lower overhead).
+- **SSL** via certbot: `sudo certbot --nginx -d aichat.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
 - **PostgreSQL** runs on `127.0.0.1:5432`. Per-app DB and user as documented in the VPS pattern.
 - **Cron** for orphan-attachment cleanup (daily at 03:00):
   ```cron
@@ -132,13 +132,13 @@ cd /home/micu/nvidia/backend
 . venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
-sudo systemctl restart nvidia-chat.service
+sudo systemctl restart aichat-backend.service
 
 # Frontend
 cd /home/micu/nvidia/frontend
 npm run build
-sudo rsync -a --delete dist/ /var/www/nvidia.micutu.com/
-sudo chown -R www-data:www-data /var/www/nvidia.micutu.com/
+sudo rsync -a --delete dist/ /var/www/aichat.micutu.com/
+sudo chown -R www-data:www-data /var/www/aichat.micutu.com/
 ```
 
 ## Auth notes

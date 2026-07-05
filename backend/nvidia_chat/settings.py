@@ -102,14 +102,14 @@ ALLOWED_DOC_MIMES = {
 ALLOWED_UPLOAD_MIMES = ALLOWED_IMAGE_MIMES | ALLOWED_DOC_MIMES
 
 CORS_ALLOWED_ORIGINS = [
-    'https://nvidia.micutu.com',
+    'https://aichat.micutu.com',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
 ]
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://nvidia.micutu.com',
+    'https://aichat.micutu.com',
 ]
 
 SESSION_COOKIE_SECURE = not DEBUG
@@ -197,5 +197,5 @@ EMAIL_USE_TLS = not EMAIL_USE_SSL
 EMAIL_TIMEOUT = 15
 DEFAULT_FROM_EMAIL = os.environ.get('SMTP_FROM', EMAIL_HOST_USER or 'noreply@example.com')
 
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://nvidia.micutu.com')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://aichat.micutu.com')
 EMAIL_VERIFICATION_TTL_SECONDS = 60 * 60 * 24 * 2  # 2 days
