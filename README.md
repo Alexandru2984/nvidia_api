@@ -129,10 +129,16 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **nginx** vhost `/etc/nginx/sites-available/aichat.micutu.com` serves the built SPA from `/var/www/aichat.micutu.com/` with `try_files $uri $uri/ /index.html;` for client-side routing, and proxies `/api/`, `/admin/`, `/static/` and `/media/` to gunicorn (or, for `/media/`, you can serve directly from `/home/micu/nvidia/backend/media/` for lower overhead).
 - **SSL** via certbot: `sudo certbot --nginx -d aichat.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
 - **PostgreSQL** runs on `127.0.0.1:5432`. Per-app DB and user as documented in the VPS pattern.
-- **Cron** for orphan-attachment cleanup (daily at 03:00):
+- **Cron jobs**:
   ```cron
-  0 3 * * *  cd /home/micu/nvidia/backend && /home/micu/nvidia/backend/venv/bin/python manage.py cleanup_attachments
+  # orphan attachments + expired OTP rows (daily)
+  0 3 * * *  cd /home/micu/nvidia/backend && venv/bin/python manage.py cleanup_attachments
+  # NVIDIA model availability probe (weekly)
+  0 4 * * 0  cd /home/micu/nvidia/backend && venv/bin/python manage.py probe_models
+  # Postgres backup, gzip, keeps newest 7 (daily)
+  30 2 * * * /home/micu/nvidia/scripts/backup_db.sh
   ```
+- **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 
 Deploy steps after a code change:
 
