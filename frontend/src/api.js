@@ -77,46 +77,52 @@ export const api = {
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ title }) }),
   switchModel: (id, model_id) =>
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ model_id }) }),
-  sendMessageStream: async (id, content, model_id, attachment_ids, handlers) => {
+  sendMessageStream: async (id, content, model_id, attachment_ids, handlers, signal) => {
     const headers = { 'Content-Type': 'application/json' }
     const csrf = getCookie('csrftoken')
     if (csrf) headers['X-CSRFToken'] = csrf
-    const res = await fetch(`${BASE}/conversations/${id}/messages/`, {
-      method: 'POST',
-      credentials: 'include',
-      headers,
-      body: JSON.stringify({
-        content,
-        ...(model_id ? { model_id } : {}),
-        ...(attachment_ids && attachment_ids.length ? { attachment_ids } : {}),
-      }),
-    })
-    if (!res.ok) {
-      let detail = `HTTP ${res.status}`
-      try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
-      handlers.onError?.(detail, res.status)
-      return
-    }
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      let idx
-      while ((idx = buffer.indexOf('\n\n')) !== -1) {
-        const event = buffer.slice(0, idx).trim()
-        buffer = buffer.slice(idx + 2)
-        if (!event.startsWith('data:')) continue
-        try {
-          const obj = JSON.parse(event.slice(5).trim())
-          if (obj.error) { handlers.onError?.(obj.error); return }
-          if (obj.done) { handlers.onDone?.(obj); return }
-          if (obj.chunk) handlers.onChunk?.(obj.chunk)
-          if (obj.user_message) handlers.onUserMessage?.(obj.user_message)
-        } catch { /* skip malformed event */ }
+    try {
+      const res = await fetch(`${BASE}/conversations/${id}/messages/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        signal,
+        body: JSON.stringify({
+          content,
+          ...(model_id ? { model_id } : {}),
+          ...(attachment_ids && attachment_ids.length ? { attachment_ids } : {}),
+        }),
+      })
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`
+        try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
+        handlers.onError?.(detail, res.status)
+        return
       }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let idx
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const event = buffer.slice(0, idx).trim()
+          buffer = buffer.slice(idx + 2)
+          if (!event.startsWith('data:')) continue
+          try {
+            const obj = JSON.parse(event.slice(5).trim())
+            if (obj.error) { handlers.onError?.(obj.error); return }
+            if (obj.done) { handlers.onDone?.(obj); return }
+            if (obj.chunk) handlers.onChunk?.(obj.chunk)
+            if (obj.user_message) handlers.onUserMessage?.(obj.user_message)
+          } catch { /* skip malformed event */ }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') { handlers.onAbort?.(); return }
+      throw e
     }
   },
   listAttachments: (kind) => request(`/attachments/${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
@@ -136,37 +142,42 @@ export const api = {
   // Edit / regenerate
   editMessage: (id, content) =>
     request(`/messages/${id}/`, { method: 'PATCH', body: JSON.stringify({ content }) }),
-  regenerateMessageStream: async (id, handlers) => {
+  regenerateMessageStream: async (id, handlers, signal) => {
     const headers = {}
     const csrf = getCookie('csrftoken')
     if (csrf) headers['X-CSRFToken'] = csrf
-    const res = await fetch(`${BASE}/messages/${id}/regenerate/`, {
-      method: 'POST', credentials: 'include', headers,
-    })
-    if (!res.ok) {
-      let detail = `HTTP ${res.status}`
-      try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
-      handlers.onError?.(detail, res.status); return
-    }
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      let idx
-      while ((idx = buffer.indexOf('\n\n')) !== -1) {
-        const event = buffer.slice(0, idx).trim()
-        buffer = buffer.slice(idx + 2)
-        if (!event.startsWith('data:')) continue
-        try {
-          const obj = JSON.parse(event.slice(5).trim())
-          if (obj.error) { handlers.onError?.(obj.error); return }
-          if (obj.done) { handlers.onDone?.(obj); return }
-          if (obj.chunk) handlers.onChunk?.(obj.chunk)
-        } catch { /* skip malformed */ }
+    try {
+      const res = await fetch(`${BASE}/messages/${id}/regenerate/`, {
+        method: 'POST', credentials: 'include', headers, signal,
+      })
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`
+        try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
+        handlers.onError?.(detail, res.status); return
       }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let idx
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const event = buffer.slice(0, idx).trim()
+          buffer = buffer.slice(idx + 2)
+          if (!event.startsWith('data:')) continue
+          try {
+            const obj = JSON.parse(event.slice(5).trim())
+            if (obj.error) { handlers.onError?.(obj.error); return }
+            if (obj.done) { handlers.onDone?.(obj); return }
+            if (obj.chunk) handlers.onChunk?.(obj.chunk)
+          } catch { /* skip malformed */ }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') { handlers.onAbort?.(); return }
+      throw e
     }
   },
 

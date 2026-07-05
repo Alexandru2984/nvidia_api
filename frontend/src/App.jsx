@@ -614,6 +614,7 @@ export default function App() {
   const chatEndRef = useRef(null)
   const textareaRef = useRef(null)
   const fileInputRef = useRef(null)
+  const abortRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -809,6 +810,8 @@ export default function App() {
     }))
 
     let streamed = ''
+    const controller = new AbortController()
+    abortRef.current = controller
 
     await api.sendMessageStream(convo.id, text, undefined, sendingAttachments.map((a) => a.id), {
       onUserMessage: (userMsg) => {
@@ -850,8 +853,20 @@ export default function App() {
           ),
         }))
       },
-    })
+      onAbort: async () => {
+        // Server persists the partial reply on disconnect; give it a beat,
+        // then refetch so ids and content are authoritative.
+        await new Promise((r) => setTimeout(r, 400))
+        try {
+          const fresh = await api.getConversation(convo.id)
+          setActive(fresh)
+          const refreshed = await api.listConversations()
+          setConversations(refreshed)
+        } catch { /* keep optimistic state */ }
+      },
+    }, controller.signal)
 
+    abortRef.current = null
     setSending(false)
   }
 
@@ -893,6 +908,8 @@ export default function App() {
       placeholder = { id: 'pending-regen', role: 'assistant', content: '', streaming: true, attachments: [] }
       return { ...c, messages: [...kept, placeholder] }
     })
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
       await api.regenerateMessageStream(msgId, {
         onChunk: (chunk) => {
@@ -920,8 +937,16 @@ export default function App() {
             messages: c.messages.filter((m) => m.id !== 'pending-regen'),
           }))
         },
-      })
+        onAbort: async () => {
+          await new Promise((r) => setTimeout(r, 400))
+          try {
+            const fresh = await api.getConversation(active.id)
+            setActive(fresh)
+          } catch { /* keep optimistic state */ }
+        },
+      }, controller.signal)
     } finally {
+      abortRef.current = null
       setSending(false)
     }
   }
@@ -1162,14 +1187,21 @@ export default function App() {
               rows={1}
               disabled={sending}
             />
-            <button
-              type="submit"
-              className="primary send"
-              disabled={(!draft.trim() && pendingAttachments.length === 0) || sending || imageBlocked || uploadingCount > 0}
-              title="Send"
-            >
-              {sending ? '…' : '↑'}
-            </button>
+            {sending ? (
+              <button
+                type="button"
+                className="primary send stop"
+                onClick={() => abortRef.current?.abort()}
+                title="Stop generating"
+              >■</button>
+            ) : (
+              <button
+                type="submit"
+                className="primary send"
+                disabled={(!draft.trim() && pendingAttachments.length === 0) || imageBlocked || uploadingCount > 0}
+                title="Send"
+              >↑</button>
+            )}
           </div>
           <div className="hint">Enter to send · Shift+Enter for newline · Powered by NVIDIA NIM API</div>
         </form>

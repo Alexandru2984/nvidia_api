@@ -689,6 +689,17 @@ def _sse(event):
     return f'data: {json.dumps(event)}\n\n'
 
 
+def _save_assistant_reply(convo_id, reply_text, title_snippet=None):
+    """Persist an assistant message and touch the conversation (setting the
+    title from `title_snippet` if it's still the placeholder)."""
+    assistant_msg = Message.objects.create(conversation_id=convo_id, role='assistant', content=reply_text)
+    convo_obj = Conversation.objects.get(id=convo_id)
+    if title_snippet and convo_obj.title == 'New Chat':
+        convo_obj.title = title_snippet[:60] + ('…' if len(title_snippet) > 60 else '')
+    convo_obj.save()
+    return assistant_msg, convo_obj
+
+
 @api_view(['POST'])
 @ratelimit(key='user', rate='30/m', block=False)
 def send_message(request, pk):
@@ -754,20 +765,34 @@ def send_message(request, pk):
     has_attachments = bool(attachments)
     first_att_name = attachments[0].original_name if attachments else None
 
+    title_snippet = user_text_snapshot or (first_att_name if has_attachments else None)
+
     def event_stream():
-        yield _sse({'user_message': MessageSerializer(user_msg).data})
         full_text = []
         last_usage = None
         errored = None
-        for kind, value in _stream_nvidia(model_id, history):
-            if kind == 'chunk':
-                full_text.append(value)
-                yield _sse({'chunk': value})
-            elif kind == 'usage':
-                last_usage = value
-            elif kind == 'error':
-                errored = value
-                break
+        try:
+            yield _sse({'user_message': MessageSerializer(user_msg).data})
+            for kind, value in _stream_nvidia(model_id, history):
+                if kind == 'chunk':
+                    full_text.append(value)
+                    yield _sse({'chunk': value})
+                elif kind == 'usage':
+                    last_usage = value
+                elif kind == 'error':
+                    errored = value
+                    break
+        except GeneratorExit:
+            # Client hit Stop (or dropped). Keep the exchange: persist what the
+            # model already produced so a refetch shows the partial reply.
+            partial = ''.join(full_text)
+            if partial:
+                _save_assistant_reply(convo_id, partial, title_snippet)
+            else:
+                Attachment.objects.filter(message_id=user_msg_id).update(message=None)
+                Message.objects.filter(id=user_msg_id).delete()
+            log.info('Stream aborted by client for convo=%s (%d chars kept)', convo_id, len(partial))
+            raise
 
         if errored is not None:
             log.warning('NVIDIA stream error for convo=%s: %s', convo_id, errored)
@@ -783,12 +808,7 @@ def send_message(request, pk):
             yield _sse({'error': 'NVIDIA returned an empty response.'})
             return
 
-        assistant_msg = Message.objects.create(conversation_id=convo_id, role='assistant', content=reply_text)
-        convo_obj = Conversation.objects.get(id=convo_id)
-        if convo_obj.title == 'New Chat':
-            snippet = user_text_snapshot or (first_att_name if has_attachments else 'New Chat')
-            convo_obj.title = snippet[:60] + ('…' if len(snippet) > 60 else '')
-        convo_obj.save()
+        assistant_msg, convo_obj = _save_assistant_reply(convo_id, reply_text, title_snippet)
 
         user_msg_fresh = Message.objects.prefetch_related('attachments').get(id=user_msg_id)
         yield _sse({
@@ -895,15 +915,22 @@ def regenerate_message(request, pk):
         full_text = []
         last_usage = None
         errored = None
-        for kind, value in _stream_nvidia(model_id, history):
-            if kind == 'chunk':
-                full_text.append(value)
-                yield _sse({'chunk': value})
-            elif kind == 'usage':
-                last_usage = value
-            elif kind == 'error':
-                errored = value
-                break
+        try:
+            for kind, value in _stream_nvidia(model_id, history):
+                if kind == 'chunk':
+                    full_text.append(value)
+                    yield _sse({'chunk': value})
+                elif kind == 'usage':
+                    last_usage = value
+                elif kind == 'error':
+                    errored = value
+                    break
+        except GeneratorExit:
+            partial = ''.join(full_text)
+            if partial:
+                _save_assistant_reply(convo_id, partial)
+            log.info('Regenerate aborted by client for convo=%s (%d chars kept)', convo_id, len(partial))
+            raise
 
         if errored is not None:
             log.warning('NVIDIA regenerate error for convo=%s: %s', convo_id, errored)
@@ -915,9 +942,7 @@ def regenerate_message(request, pk):
             yield _sse({'error': 'NVIDIA returned an empty response.'})
             return
 
-        assistant_msg = Message.objects.create(conversation_id=convo_id, role='assistant', content=reply_text)
-        convo_obj = Conversation.objects.get(id=convo_id)
-        convo_obj.save()  # touch updated_at
+        assistant_msg, convo_obj = _save_assistant_reply(convo_id, reply_text)
         yield _sse({
             'done': True,
             'assistant_message': MessageSerializer(assistant_msg).data,
