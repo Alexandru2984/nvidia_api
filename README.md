@@ -109,7 +109,13 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 2. Filtering out non-chat models (embeddings, retrievers, parsers, classifiers, reward models).
 3. Probing each candidate with a minimal `messages: [{role: "user", content: "hi"}]` request and keeping only those returning `200`.
 
-To resync after NVIDIA adds or removes models, rerun `/tmp/probe_models.py` (or recreate it from the snippet in `chat/views.py`-area history) and regenerate the catalog.
+NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both directions, so availability is re-checked automatically:
+
+- `python manage.py probe_models` probes every catalog model with a 1-token completion (with one retry for cold starts) and writes `backend/model_status.json`.
+- `/api/models/` subtracts the unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
+- A weekly cron (Sunday 04:00) keeps the status fresh. Run the command manually after NVIDIA announces model changes.
+
+Adding brand-new models still means editing `chat/models_catalog.py` (id, name, vendor, context, vision flag).
 
 ## Production deploy
 

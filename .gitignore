@@ -33,6 +33,9 @@ frontend/.vite/
 .vite/
 *.local
 
+# Runtime state (written by manage.py probe_models)
+backend/model_status.json
+
 # Logs
 *.log
 npm-debug.log*

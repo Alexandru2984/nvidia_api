@@ -30,6 +30,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .attachments import detect_mime, extract_text, kind_for_mime
+from .model_status import get_status, unavailable_model_ids
 from .models import Attachment, Conversation, EmailVerification, Message, PasswordReset
 from .sessions import stamp_session
 from .twofactor import _revoke_user_sessions, login_requires_2fa, verify_for_login
@@ -483,7 +484,13 @@ def auth_reset(request):
 
 @api_view(['GET'])
 def list_models(request):
-    return Response({'models': NVIDIA_MODELS, 'default': DEFAULT_MODEL_ID})
+    down = unavailable_model_ids()
+    models = [m for m in NVIDIA_MODELS if m['id'] not in down]
+    default = DEFAULT_MODEL_ID
+    if default in down and models:
+        default = models[0]['id']
+    return Response({'models': models, 'default': default,
+                     'availability_checked_at': get_status().get('checked_at')})
 
 
 @api_view(['GET'])

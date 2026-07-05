@@ -40,3 +40,6 @@ PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 # Required env vars from settings.py — provide test stubs.
 NVIDIA_API_KEY = 'test-nvidia-key'
+
+# Keep tests away from the real model_status.json the weekly cron writes.
+MODEL_STATUS_FILE = tempfile.gettempdir() + '/nvidia_test_model_status_does_not_exist.json'
