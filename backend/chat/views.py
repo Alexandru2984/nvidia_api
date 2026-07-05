@@ -575,6 +575,9 @@ def conversations(request):
     return Response(ConversationDetailSerializer(convo).data, status=status.HTTP_201_CREATED)
 
 
+MAX_SYSTEM_PROMPT_CHARS = 4000
+
+
 @api_view(['GET', 'DELETE', 'PATCH'])
 def conversation_detail(request, pk):
     convo = get_object_or_404(Conversation, pk=pk, user=request.user)
@@ -591,6 +594,27 @@ def conversation_detail(request, pk):
         if model_id not in MODEL_IDS:
             return Response({'error': f'Unknown model_id: {model_id}'}, status=status.HTTP_400_BAD_REQUEST)
         convo.model_id = model_id
+    if 'system_prompt' in request.data:
+        sp = (request.data.get('system_prompt') or '').strip()
+        if len(sp) > MAX_SYSTEM_PROMPT_CHARS:
+            return Response({'error': f'System prompt too long (max {MAX_SYSTEM_PROMPT_CHARS} chars).'}, status=400)
+        convo.system_prompt = sp
+    if 'temperature' in request.data:
+        try:
+            temp = float(request.data.get('temperature'))
+        except (TypeError, ValueError):
+            return Response({'error': 'temperature must be a number'}, status=400)
+        if not (0.0 <= temp <= 2.0):
+            return Response({'error': 'temperature must be between 0 and 2'}, status=400)
+        convo.temperature = temp
+    if 'max_tokens' in request.data:
+        try:
+            mt = int(request.data.get('max_tokens'))
+        except (TypeError, ValueError):
+            return Response({'error': 'max_tokens must be an integer'}, status=400)
+        if not (64 <= mt <= 8192):
+            return Response({'error': 'max_tokens must be between 64 and 8192'}, status=400)
+        convo.max_tokens = mt
     convo.save()
     return Response(ConversationDetailSerializer(convo).data)
 
@@ -817,10 +841,13 @@ def send_message(request, pk):
         keep.append(m)
     keep.reverse()
     history = [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
+    if convo.system_prompt:
+        history.insert(0, {'role': 'system', 'content': convo.system_prompt})
 
     user_msg_id = user_msg.id
     convo_id = convo.id
     model_id = convo.model_id
+    gen_kwargs = {'max_tokens': convo.max_tokens, 'temperature': convo.temperature}
     user_text_snapshot = user_text
     has_attachments = bool(attachments)
     first_att_name = attachments[0].original_name if attachments else None
@@ -833,7 +860,7 @@ def send_message(request, pk):
         errored = None
         try:
             yield _sse({'user_message': MessageSerializer(user_msg).data})
-            for kind, value in _stream_nvidia(model_id, history):
+            for kind, value in _stream_nvidia(model_id, history, **gen_kwargs):
                 if kind == 'chunk':
                     full_text.append(value)
                     yield _sse({'chunk': value})
@@ -906,7 +933,10 @@ def _build_history_for(convo, upto_msg_id=None):
             break
         keep.append(m)
     keep.reverse()
-    return [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
+    history = [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
+    if convo.system_prompt:
+        history.insert(0, {'role': 'system', 'content': convo.system_prompt})
+    return history
 
 
 @api_view(['PATCH'])
@@ -970,13 +1000,14 @@ def regenerate_message(request, pk):
 
     convo_id = convo.id
     model_id = convo.model_id
+    gen_kwargs = {'max_tokens': convo.max_tokens, 'temperature': convo.temperature}
 
     def event_stream():
         full_text = []
         last_usage = None
         errored = None
         try:
-            for kind, value in _stream_nvidia(model_id, history):
+            for kind, value in _stream_nvidia(model_id, history, **gen_kwargs):
                 if kind == 'chunk':
                     full_text.append(value)
                     yield _sse({'chunk': value})

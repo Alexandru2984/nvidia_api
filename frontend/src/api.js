@@ -75,6 +75,8 @@ export const api = {
   deleteConversation: (id) => request(`/conversations/${id}/`, { method: 'DELETE' }),
   renameConversation: (id, title) =>
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  updateConversation: (id, patch) =>
+    request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify(patch) }),
   switchModel: (id, model_id) =>
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ model_id }) }),
   sendMessageStream: async (id, content, model_id, attachment_ids, handlers, signal) => {

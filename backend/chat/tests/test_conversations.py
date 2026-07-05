@@ -288,3 +288,66 @@ class TestConversationSearch:
         self._mk(user, 'Two')
         r = auth_client.get('/api/conversations/?q=')
         assert len(r.json()) == 2
+
+
+@pytest.mark.django_db
+class TestConversationGenSettings:
+    def test_patch_sets_all_fields(self, auth_client, convo):
+        r = auth_client.patch(f'/api/conversations/{convo.id}/', {
+            'system_prompt': '  You are terse.  ',
+            'temperature': 1.3,
+            'max_tokens': 2048,
+        }, format='json')
+        assert r.status_code == 200, r.content
+        body = r.json()
+        assert body['system_prompt'] == 'You are terse.'
+        assert body['temperature'] == 1.3
+        assert body['max_tokens'] == 2048
+
+    def test_temperature_out_of_range_400(self, auth_client, convo):
+        r = auth_client.patch(f'/api/conversations/{convo.id}/', {'temperature': 2.5}, format='json')
+        assert r.status_code == 400
+        r = auth_client.patch(f'/api/conversations/{convo.id}/', {'temperature': 'hot'}, format='json')
+        assert r.status_code == 400
+
+    def test_max_tokens_out_of_range_400(self, auth_client, convo):
+        assert auth_client.patch(f'/api/conversations/{convo.id}/', {'max_tokens': 10}, format='json').status_code == 400
+        assert auth_client.patch(f'/api/conversations/{convo.id}/', {'max_tokens': 999999}, format='json').status_code == 400
+
+    def test_system_prompt_too_long_400(self, auth_client, convo):
+        r = auth_client.patch(f'/api/conversations/{convo.id}/', {'system_prompt': 'x' * 4001}, format='json')
+        assert r.status_code == 400
+
+    def test_system_prompt_and_params_reach_nvidia(self, auth_client, convo):
+        convo.system_prompt = 'You are terse.'
+        convo.temperature = 0.2
+        convo.max_tokens = 512
+        convo.save()
+        captured = {}
+
+        def spy(model_id, messages, **kw):
+            captured['messages'] = messages
+            captured['kw'] = kw
+            yield ('chunk', 'ok')
+
+        with patch('chat.views._stream_nvidia', side_effect=spy):
+            r = auth_client.post(f'/api/conversations/{convo.id}/messages/', {'content': 'hi'}, format='json')
+            _consume_sse(r)
+        assert captured['messages'][0] == {'role': 'system', 'content': 'You are terse.'}
+        assert captured['kw'] == {'max_tokens': 512, 'temperature': 0.2}
+
+    def test_regenerate_uses_system_prompt(self, auth_client, convo):
+        convo.system_prompt = 'Speak like a pirate.'
+        convo.save()
+        u = Message.objects.create(conversation=convo, role='user', content='hi')
+        Message.objects.create(conversation=convo, role='assistant', content='hello')
+        captured = {}
+
+        def spy(model_id, messages, **kw):
+            captured['messages'] = messages
+            yield ('chunk', 'arr')
+
+        with patch('chat.views._stream_nvidia', side_effect=spy):
+            r = auth_client.post(f'/api/messages/{u.id}/regenerate/')
+            _consume_sse(r)
+        assert captured['messages'][0]['role'] == 'system'

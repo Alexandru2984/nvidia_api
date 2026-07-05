@@ -517,6 +517,67 @@ function AttachmentTile({ att, onRemove, compact }) {
   )
 }
 
+function ConvoSettingsPanel({ convo, onSaved, onClose }) {
+  const [systemPrompt, setSystemPrompt] = useState(convo.system_prompt || '')
+  const [temperature, setTemperature] = useState(convo.temperature ?? 0.7)
+  const [maxTokens, setMaxTokens] = useState(convo.max_tokens ?? 1024)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function save() {
+    setBusy(true); setError(null)
+    try {
+      const updated = await api.updateConversation(convo.id, {
+        system_prompt: systemPrompt,
+        temperature: Number(temperature),
+        max_tokens: Number(maxTokens),
+      })
+      onSaved(updated)
+    } catch (e) { setError(e.message) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="convo-settings">
+      <label className="cs-full">
+        <span>System prompt — applies to this conversation only</span>
+        <textarea
+          rows={3}
+          maxLength={4000}
+          value={systemPrompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+          placeholder="e.g. You are a concise senior Python reviewer. Answer in bullet points."
+        />
+      </label>
+      <div className="cs-row">
+        <label>
+          <span>Temperature: {Number(temperature).toFixed(1)}</span>
+          <input
+            type="range" min={0} max={2} step={0.1}
+            value={temperature}
+            onChange={(e) => setTemperature(e.target.value)}
+          />
+        </label>
+        <label>
+          <span>Max tokens</span>
+          <input
+            type="number" min={64} max={8192} step={64}
+            value={maxTokens}
+            onChange={(e) => setMaxTokens(e.target.value)}
+          />
+        </label>
+        <div className="cs-actions">
+          <button type="button" className="primary" onClick={save} disabled={busy}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" className="link" onClick={onClose}>Close</button>
+        </div>
+      </div>
+      {error && <div className="login-error">{error}</div>}
+    </div>
+  )
+}
+
 function MessageRow({ m, modelLabel, busy, onEdit, onRegenerate }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.content || '')
@@ -603,6 +664,7 @@ export default function App() {
   const [bootError, setBootError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [showConvoSettings, setShowConvoSettings] = useState(false)
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
   const [uploadingCount, setUploadingCount] = useState(0)
@@ -1117,12 +1179,21 @@ export default function App() {
             {mode === 'chat' ? (active?.title || 'New conversation') : 'Image generation'}
           </div>
           {mode === 'chat' && active && (
-            <a
-              className="icon"
-              href={api.exportConversationUrl(active.id)}
-              title="Download conversation as Markdown"
-              style={{ marginRight: 6 }}
-            >⬇</a>
+            <>
+              <button
+                className={`icon ${showConvoSettings ? 'active' : ''}`}
+                type="button"
+                onClick={() => setShowConvoSettings((v) => !v)}
+                title="Conversation settings (system prompt, temperature, max tokens)"
+                style={{ marginRight: 2 }}
+              >🎛</button>
+              <a
+                className="icon"
+                href={api.exportConversationUrl(active.id)}
+                title="Download conversation as Markdown"
+                style={{ marginRight: 6 }}
+              >⬇</a>
+            </>
           )}
           <div className="model-select-wrap">
             {mode === 'chat' ? (
@@ -1153,6 +1224,22 @@ export default function App() {
         </div>
 
         {mode === 'chat' && (<>
+        {active && showConvoSettings && (
+          <ConvoSettingsPanel
+            key={active.id}
+            convo={active}
+            onClose={() => setShowConvoSettings(false)}
+            onSaved={(updated) => {
+              setActive((c) => (c ? {
+                ...c,
+                system_prompt: updated.system_prompt,
+                temperature: updated.temperature,
+                max_tokens: updated.max_tokens,
+              } : c))
+              setShowConvoSettings(false)
+            }}
+          />
+        )}
         <div className="chat-area">
           {!active || (active.messages?.length || 0) === 0 ? (
             <div className="welcome">

@@ -69,6 +69,10 @@ class Conversation(models.Model):
     )
     title = models.CharField(max_length=200, default='New Chat')
     model_id = models.CharField(max_length=120)
+    # Per-conversation generation settings, editable from the UI.
+    system_prompt = models.TextField(blank=True, default='')
+    temperature = models.FloatField(default=0.7)
+    max_tokens = models.PositiveIntegerField(default=1024)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

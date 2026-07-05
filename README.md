@@ -95,7 +95,7 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET | `/models/` | — | session | Returns validated NVIDIA models. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |
-| GET/PATCH/DELETE | `/conversations/<id>/` | — | session | 404 if not owned. |
+| GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–2, tokens 64–8192, prompt ≤4000 chars. |
 | POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA, persists both messages. Vision images allowed only on vision-capable models. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
 | POST | `/attachments/upload/` | `multipart` field `file` | session | Whitelist: jpg/png/webp/gif, pdf, txt, md, docx. 10 MB/file, 100 MB/user. Document text is extracted on upload. |

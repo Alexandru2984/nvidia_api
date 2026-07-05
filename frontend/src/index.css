@@ -111,6 +111,19 @@ textarea { resize: none; line-height: 1.5; }
 }
 .new-chat:hover:not(:disabled) { color: var(--text); border-color: var(--accent); border-style: solid; }
 
+.convo-settings {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.convo-settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.convo-settings textarea { width: 100%; resize: vertical; }
+.cs-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+.cs-row label { min-width: 160px; }
+.cs-actions { display: flex; gap: 8px; align-items: center; }
+
 .convo-search {
   margin: 0 12px 8px;
   padding: 8px 12px;
