@@ -2,6 +2,8 @@
 .env
 *.env.local
 backend/.env
+.env.bak*
+*.env.bak*
 .credentials
 
 # Python

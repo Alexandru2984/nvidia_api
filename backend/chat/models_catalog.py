@@ -16,48 +16,6 @@ NVIDIA_MODELS = [
         "context": 32768,
     },
     {
-        "id": 'google/gemma-3-12b-it',
-        "name": 'Gemma 3 12B It',
-        "vendor": 'Google',
-        "description": 'Google Gemma 3 12B instruction-tuned, multimodal.',
-        "context": 128000,
-    },
-    {
-        "id": 'google/gemma-3-27b-it',
-        "name": 'Gemma 3 27B It',
-        "vendor": 'Google',
-        "description": 'Google Gemma 3 27B instruction-tuned, multimodal.',
-        "context": 128000,
-    },
-    {
-        "id": 'google/gemma-3-4b-it',
-        "name": 'Gemma 3 4B It',
-        "vendor": 'Google',
-        "description": 'Google Gemma 3 4B instruction-tuned, multimodal.',
-        "context": 128000,
-    },
-    {
-        "id": 'google/gemma-3n-e2b-it',
-        "name": 'Gemma 3N E2B It',
-        "vendor": 'Google',
-        "description": 'Google Gemma 3n E2B — efficient on-device class.',
-        "context": 128000,
-    },
-    {
-        "id": 'google/gemma-3n-e4b-it',
-        "name": 'Gemma 3N E4B It',
-        "vendor": 'Google',
-        "description": 'Google Gemma 3n E4B — efficient on-device class.',
-        "context": 128000,
-    },
-    {
-        "id": 'meta/llama-3.1-405b-instruct',
-        "name": 'Llama 3.1 405B Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.1 405B — flagship dense LLM.',
-        "context": 128000,
-    },
-    {
         "id": 'meta/llama-3.1-70b-instruct',
         "name": 'Llama 3.1 70B Instruct',
         "vendor": 'Meta',
@@ -76,13 +34,6 @@ NVIDIA_MODELS = [
         "name": 'Llama 3.2 11B Vision Instruct',
         "vendor": 'Meta',
         "description": 'Meta Llama 3.2 11B Vision Instruct.',
-        "context": 128000,
-    },
-    {
-        "id": 'meta/llama-3.2-1b-instruct',
-        "name": 'Llama 3.2 1B Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.2 1B — tiny edge model.',
         "context": 128000,
     },
     {
@@ -107,45 +58,10 @@ NVIDIA_MODELS = [
         "context": 128000,
     },
     {
-        "id": 'meta/llama-4-maverick-17b-128e-instruct',
-        "name": 'Llama 4 Maverick 17B 128E Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 4 Maverick 17B/128E MoE.',
-        "context": 1000000,
-    },
-    {
         "id": 'meta/llama-guard-4-12b',
         "name": 'Llama Guard 4 12B',
         "vendor": 'Meta',
         "description": 'Meta Llama Guard 4 — safety classifier.',
-        "context": 32768,
-    },
-    {
-        "id": 'microsoft/phi-4-mini-instruct',
-        "name": 'Phi 4 Mini Instruct',
-        "vendor": 'Microsoft',
-        "description": 'Microsoft Phi-4 Mini — compact reasoning model.',
-        "context": 128000,
-    },
-    {
-        "id": 'minimaxai/minimax-m2.5',
-        "name": 'Minimax M2.5',
-        "vendor": 'MiniMax',
-        "description": 'MiniMax M2.5 — long-context Chinese/English LLM.',
-        "context": 1000000,
-    },
-    {
-        "id": 'mistralai/devstral-2-123b-instruct-2512',
-        "name": 'Devstral 2 123B Instruct 2512',
-        "vendor": 'Mistral AI',
-        "description": 'Mistral Devstral 2 123B — coding focused.',
-        "context": 32768,
-    },
-    {
-        "id": 'mistralai/magistral-small-2506',
-        "name": 'Magistral Small 2506',
-        "vendor": 'Mistral AI',
-        "description": 'Mistral Magistral Small — reasoning model.',
         "context": 32768,
     },
     {
@@ -177,32 +93,11 @@ NVIDIA_MODELS = [
         "context": 131072,
     },
     {
-        "id": 'mistralai/mixtral-8x22b-instruct-v0.1',
-        "name": 'Mixtral 8X22B Instruct V0.1',
-        "vendor": 'Mistral AI',
-        "description": 'Mistral Mixtral 8x22B MoE Instruct.',
-        "context": 65536,
-    },
-    {
         "id": 'mistralai/mixtral-8x7b-instruct-v0.1',
         "name": 'Mixtral 8X7B Instruct V0.1',
         "vendor": 'Mistral AI',
         "description": 'Mistral Mixtral 8x7B MoE Instruct.',
         "context": 32768,
-    },
-    {
-        "id": 'moonshotai/kimi-k2-instruct-0905',
-        "name": 'Kimi K2 Instruct 0905',
-        "vendor": 'Moonshot AI',
-        "description": 'Moonshot Kimi K2 (Sept 2025 release).',
-        "context": 128000,
-    },
-    {
-        "id": 'moonshotai/kimi-k2.5',
-        "name": 'Kimi K2.5',
-        "vendor": 'Moonshot AI',
-        "description": 'Moonshot Kimi K2.5 — newest flagship.',
-        "context": 128000,
     },
     {
         "id": 'nvidia/ising-calibration-1-35b-a3b',
@@ -331,31 +226,10 @@ NVIDIA_MODELS = [
         "context": 128000,
     },
     {
-        "id": 'qwen/qwen2.5-coder-32b-instruct',
-        "name": 'QWEN2.5 Coder 32B Instruct',
-        "vendor": 'Alibaba Qwen',
-        "description": 'Alibaba Qwen 2.5 Coder 32B.',
-        "context": 128000,
-    },
-    {
-        "id": 'qwen/qwen3-coder-480b-a35b-instruct',
-        "name": 'QWEN3 Coder 480B A35B Instruct',
-        "vendor": 'Alibaba Qwen',
-        "description": 'Alibaba Qwen 3 Coder 480B/A35B MoE.',
-        "context": 128000,
-    },
-    {
         "id": 'qwen/qwen3-next-80b-a3b-instruct',
         "name": 'QWEN3 Next 80B A3B Instruct',
         "vendor": 'Alibaba Qwen',
         "description": 'Qwen 3 Next 80B/A3B Instruct.',
-        "context": 128000,
-    },
-    {
-        "id": 'qwen/qwen3-next-80b-a3b-thinking',
-        "name": 'QWEN3 Next 80B A3B Thinking',
-        "vendor": 'Alibaba Qwen',
-        "description": 'Qwen 3 Next 80B/A3B Thinking — reasoning.',
         "context": 128000,
     },
     {
@@ -400,27 +274,6 @@ NVIDIA_MODELS = [
         "description": 'Upstage Solar 10.7B Instruct.',
         "context": 4096,
     },
-    {
-        "id": 'z-ai/glm-5.1',
-        "name": 'Glm 5.1',
-        "vendor": 'Z.AI',
-        "description": 'Z.AI GLM 5.1.',
-        "context": 128000,
-    },
-    {
-        "id": 'z-ai/glm4.7',
-        "name": 'GLM4.7',
-        "vendor": 'Z.AI',
-        "description": 'Z.AI GLM 4.7.',
-        "context": 128000,
-    },
-    {
-        "id": 'z-ai/glm5',
-        "name": 'GLM5',
-        "vendor": 'Z.AI',
-        "description": 'Z.AI GLM 5 — flagship.',
-        "context": 128000,
-    },
 ]
 
 DEFAULT_MODEL_ID = "meta/llama-3.1-8b-instruct"
@@ -431,12 +284,8 @@ MODEL_IDS = {m["id"] for m in NVIDIA_MODELS}
 VISION_MODEL_IDS = {
     'meta/llama-3.2-11b-vision-instruct',
     'meta/llama-3.2-90b-vision-instruct',
-    'meta/llama-4-maverick-17b-128e-instruct',
     'meta/llama-4-scout-17b-16e-instruct',
     'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
-    'google/gemma-3-4b-it',
-    'google/gemma-3-12b-it',
-    'google/gemma-3-27b-it',
 }
 
 # Mark vision capability inline so the frontend can disable image upload
@@ -462,22 +311,6 @@ IMAGE_GEN_MODELS = [
         'description': 'Higher-quality FLUX. Slower but more faithful.',
         'default_steps': 28,
         'max_steps': 50,
-    },
-    {
-        'id': 'stabilityai/stable-diffusion-3-medium',
-        'name': 'Stable Diffusion 3 Medium',
-        'vendor': 'Stability AI',
-        'description': 'Stable Diffusion 3 — strong on photorealism.',
-        'default_steps': 28,
-        'max_steps': 50,
-    },
-    {
-        'id': 'stabilityai/sdxl-turbo',
-        'name': 'SDXL Turbo',
-        'vendor': 'Stability AI',
-        'description': 'One-step SDXL distillation. Fastest option.',
-        'default_steps': 1,
-        'max_steps': 4,
     },
 ]
 IMAGE_GEN_MODEL_IDS = {m['id'] for m in IMAGE_GEN_MODELS}

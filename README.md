@@ -1,6 +1,6 @@
 # NVIDIA Chat Hub
 
-A self-hosted chat UI for NVIDIA's NIM-hosted open-weight LLMs (Llama, Mixtral, Nemotron, Qwen, GLM, GPT-OSS, and ~50 more). Pick a model, chat, save conversations per-user. Deployed at `https://nvidia.micutu.com`.
+A self-hosted chat UI for NVIDIA's NIM-hosted open-weight LLMs (Llama, Nemotron, Qwen, DeepSeek, GPT-OSS — ~40 validated models). Pick a model, chat, save conversations per-user. Deployed at `https://nvidia.micutu.com`.
 
 ## Stack
 
@@ -65,16 +65,16 @@ DB_PORT=5432
 NVIDIA_API_KEY=nvapi-...
 NVIDIA_API_URL=https://integrate.api.nvidia.com/v1/chat/completions
 
-# Email (used for OTP verification)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_USER=...@gmail.com
-SMTP_PASS=...                 # Gmail app password, not the account password
-SMTP_FROM=noreply@example.com # Gmail rewrites this to SMTP_USER on send
+# Email (used for OTP verification) — self-hosted mailcow
+SMTP_HOST=mail.micutu.com
+SMTP_PORT=587
+SMTP_USER=noreply@micutu.com
+SMTP_PASS=...
+SMTP_FROM=noreply@micutu.com
 FRONTEND_URL=https://nvidia.micutu.com
 ```
 
-Port `465` (SMTPS) is used instead of `587` (STARTTLS) because some hosts silently drop outbound 587. Settings auto-pick `EMAIL_USE_SSL` when `SMTP_PORT=465`.
+Settings auto-pick `EMAIL_USE_SSL` when `SMTP_PORT=465`, otherwise STARTTLS (`EMAIL_USE_TLS`) is used — the mailcow server on `mail.micutu.com:587` takes the STARTTLS path.
 
 ## API
 
@@ -151,4 +151,4 @@ sudo chown -R www-data:www-data /var/www/nvidia.micutu.com/
 
 ## Things to know about the email provider
 
-Gmail SMTP rewrites the `From:` header to the authenticated account. To actually send from `noreply@yourdomain` you need a transactional provider (Mailgun, Postmark, SES) plus SPF/DKIM/DMARC records on the domain.
+Email is sent through the self-hosted mailcow instance at `mail.micutu.com` (STARTTLS on 587), so `From: noreply@micutu.com` works as-is. SPF/DKIM/DMARC are managed at the mailcow/DNS level. If you ever switch back to Gmail SMTP, note that Gmail rewrites the `From:` header to the authenticated account.

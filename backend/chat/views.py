@@ -717,7 +717,7 @@ def send_message(request, pk):
     has_images = any(a.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED) for a in attachments)
     if has_images and convo.model_id not in VISION_MODEL_IDS:
         return Response(
-            {'error': 'This model does not accept images. Pick a vision model (e.g. Llama 3.2 Vision, Llama 4 Maverick, Nemotron Nano VL).'},
+            {'error': 'This model does not accept images. Pick a vision model (e.g. Llama 3.2 Vision, Llama 4 Scout, Nemotron Nano VL).'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
