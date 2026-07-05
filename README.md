@@ -93,7 +93,7 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | POST | `/auth/password/` | `{current_password, new_password}` | session | Keeps this session, revokes all others. |
 | POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Cascades all user data. |
 | GET | `/models/` | — | session | Returns validated NVIDIA models. |
-| GET | `/conversations/` | — | session | Scoped to `request.user`. |
+| GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |
 | GET/PATCH/DELETE | `/conversations/<id>/` | — | session | 404 if not owned. |
 | POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA, persists both messages. Vision images allowed only on vision-capable models. |

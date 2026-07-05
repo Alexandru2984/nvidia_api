@@ -251,3 +251,40 @@ class TestModelsList:
     def test_unauthenticated_blocked(self, client):
         r = client.get('/api/models/')
         assert r.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+class TestConversationSearch:
+    def _mk(self, user, title, msg=None):
+        c = Conversation.objects.create(user=user, title=title, model_id=DEFAULT_MODEL_ID)
+        if msg:
+            Message.objects.create(conversation=c, role='user', content=msg)
+        return c
+
+    def test_search_by_title(self, auth_client, user):
+        self._mk(user, 'Django tips')
+        self._mk(user, 'Cooking pasta')
+        r = auth_client.get('/api/conversations/?q=django')
+        assert [c['title'] for c in r.json()] == ['Django tips']
+
+    def test_search_by_message_content(self, auth_client, user):
+        self._mk(user, 'Untitled A', msg='how do I use gunicorn workers?')
+        self._mk(user, 'Untitled B', msg='banana bread recipe')
+        r = auth_client.get('/api/conversations/?q=gunicorn')
+        assert [c['title'] for c in r.json()] == ['Untitled A']
+
+    def test_search_does_not_leak_other_users(self, auth_client, user, other_user):
+        self._mk(other_user, 'Secret gunicorn talk', msg='gunicorn secrets')
+        r = auth_client.get('/api/conversations/?q=gunicorn')
+        assert r.json() == []
+
+    def test_search_no_duplicates_when_title_and_content_match(self, auth_client, user):
+        self._mk(user, 'gunicorn', msg='more gunicorn text')
+        r = auth_client.get('/api/conversations/?q=gunicorn')
+        assert len(r.json()) == 1
+
+    def test_empty_q_returns_all(self, auth_client, user):
+        self._mk(user, 'One')
+        self._mk(user, 'Two')
+        r = auth_client.get('/api/conversations/?q=')
+        assert len(r.json()) == 2

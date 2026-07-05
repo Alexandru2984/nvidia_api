@@ -602,6 +602,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [bootError, setBootError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
   const [uploadingCount, setUploadingCount] = useState(0)
@@ -657,6 +658,16 @@ export default function App() {
       })
     return () => { cancelled = true }
   }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    const t = setTimeout(() => {
+      api.listConversations(search.trim() || undefined)
+        .then(setConversations)
+        .catch(() => {})
+    }, 300)
+    return () => clearTimeout(t)
+  }, [search, user])
 
   useEffect(() => {
     if (!activeId) { setActive(null); return }
@@ -870,6 +881,19 @@ export default function App() {
     setSending(false)
   }
 
+  async function handleRename(c, ev) {
+    ev?.stopPropagation?.()
+    const title = prompt('Rename conversation:', c.title || '')
+    if (title == null) return
+    const trimmed = title.trim().slice(0, 200)
+    if (!trimmed || trimmed === c.title) return
+    try {
+      const updated = await api.renameConversation(c.id, trimmed)
+      setConversations((prev) => prev.map((x) => (x.id === c.id ? { ...x, title: updated.title } : x)))
+      if (activeId === c.id) setActive((a) => (a ? { ...a, title: updated.title } : a))
+    } catch (e) { setError(e.message) }
+  }
+
   async function handleDelete(id, ev) {
     ev?.stopPropagation?.()
     if (!confirm('Delete this conversation?')) return
@@ -1019,9 +1043,19 @@ export default function App() {
 
         <button className="new-chat" onClick={() => startNewChat()}>+ New chat</button>
 
+        <input
+          className="convo-search"
+          type="search"
+          placeholder="Search conversations…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
         <div className="convo-list">
           {conversations.length === 0 ? (
-            <div className="empty-list">No conversations yet.<br/>Start one below.</div>
+            <div className="empty-list">
+              {search.trim() ? <>No results for “{search.trim()}”.</> : <>No conversations yet.<br/>Start one below.</>}
+            </div>
           ) : (
             conversations.map((c) => (
               <div
@@ -1033,6 +1067,11 @@ export default function App() {
                   <div className="convo-title">{c.title || 'Untitled'}</div>
                   <div className="convo-meta">{(c.model_id || '').split('/').pop()} · {c.message_count} msg</div>
                 </div>
+                <button
+                  className="icon rename"
+                  title="Rename"
+                  onClick={(ev) => handleRename(c, ev)}
+                >✎</button>
                 <button
                   className="icon danger delete"
                   title="Delete"

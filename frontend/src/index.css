@@ -111,6 +111,17 @@ textarea { resize: none; line-height: 1.5; }
 }
 .new-chat:hover:not(:disabled) { color: var(--text); border-color: var(--accent); border-style: solid; }
 
+.convo-search {
+  margin: 0 12px 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+}
+.convo-search::placeholder { color: var(--text-dim); }
+
 .convo-list {
   flex: 1;
   overflow-y: auto;
