@@ -30,7 +30,7 @@ async function request(path, opts = {}) {
     throw err
   }
   if (!res.ok) {
-    let detail = ''
+    let detail
     try {
       const j = await res.clone().json()
       detail = j.error || j.detail || JSON.stringify(j)

@@ -33,8 +33,9 @@ frontend/.vite/
 .vite/
 *.local
 
-# Runtime state (written by manage.py probe_models)
+# Runtime state (written by manage.py probe_models / ratelimit cache)
 backend/model_status.json
+backend/.cache/
 
 # Logs
 *.log

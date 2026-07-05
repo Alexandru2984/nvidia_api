@@ -9,8 +9,15 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'fallback-not-secure')
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true'
+
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'dev-only-insecure-key'
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DEBUG is off.')
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h.strip()]
 
 INSTALLED_APPS = [
@@ -134,10 +141,12 @@ RATELIMIT_ENABLE = not DEBUG
 
 # Shared cache so ratelimit buckets are global across the 3 gunicorn workers
 # (default LocMemCache is per-process, which silently triples the effective rate).
+# Lives under BASE_DIR, not /tmp: survives reboots and isn't subject to
+# systemd PrivateTmp giving cron and gunicorn different /tmp namespaces.
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-        'LOCATION': '/tmp/nvidia_chat_cache',
+        'LOCATION': str(BASE_DIR / '.cache'),
         'TIMEOUT': 60 * 60,
         'OPTIONS': {'MAX_ENTRIES': 10000},
     },

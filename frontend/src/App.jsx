@@ -695,16 +695,18 @@ export default function App() {
     [imageModels, imageModel],
   )
 
-  useEffect(() => {
-    const dims = currentImageSpec?.allowed_dims
+  function handleSwitchImageModel(id) {
+    setImageModel(id)
+    const spec = imageModels.find((m) => m.id === id)
+    const dims = spec?.allowed_dims
     if (!dims) return
     setImageParams((p) => ({
       ...p,
       width: dims.includes(p.width) ? p.width : 1024,
       height: dims.includes(p.height) ? p.height : 1024,
-      steps: Math.min(p.steps, currentImageSpec.max_steps || p.steps),
+      steps: Math.min(p.steps, spec.max_steps || p.steps),
     }))
-  }, [currentImageSpec])
+  }
 
   async function startNewChat(modelId = defaultModel) {
     try {
@@ -1075,7 +1077,7 @@ export default function App() {
             ) : (
               <select
                 value={imageModel}
-                onChange={(e) => setImageModel(e.target.value)}
+                onChange={(e) => handleSwitchImageModel(e.target.value)}
                 disabled={imageBusy}
               >
                 {imageModels.map((m) => (
