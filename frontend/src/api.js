@@ -32,7 +32,7 @@ async function request(path, opts = {}) {
   if (!res.ok) {
     let detail = ''
     try {
-      const j = await res.json()
+      const j = await res.clone().json()
       detail = j.error || j.detail || JSON.stringify(j)
     } catch {
       detail = await res.text()
