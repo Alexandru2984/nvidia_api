@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from datetime import timedelta
 
 import requests
@@ -971,6 +972,63 @@ def list_image_models(request):
     return Response({'models': IMAGE_GEN_MODELS, 'default': DEFAULT_IMAGE_GEN_MODEL_ID})
 
 
+# Total wall-clock we're willing to spend on one generation, including NVCF
+# polling. nginx cuts /api/ at 180s, so stay well under that.
+IMAGE_GEN_BUDGET_SECONDS = 120
+NVCF_POLL_SECONDS = '30'
+
+
+def _nvcf_generate(url, payload):
+    """POST to an NVCF genai endpoint and follow the async flow if needed.
+
+    NVCF holds the connection up to NVCF-POLL-SECONDS, then returns 202 with
+    an NVCF-REQID header to poll at /v1/status/<id>. A 504 with
+    `Nvcf-Status: errored` means the function itself failed server-side (seen
+    when NVIDIA has no capacity for the model) — surface that cleanly instead
+    of hanging for minutes.
+
+    Returns (json_dict, None) on success or (None, Response) on failure.
+    """
+    headers = {
+        'Authorization': f'Bearer {settings.NVIDIA_API_KEY}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'NVCF-POLL-SECONDS': NVCF_POLL_SECONDS,
+    }
+    unavailable = Response(
+        {'error': "NVIDIA's image backend is currently unavailable for this model. Try again later."},
+        status=status.HTTP_502_BAD_GATEWAY,
+    )
+    deadline = time.monotonic() + IMAGE_GEN_BUDGET_SECONDS
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=45)
+        while resp.status_code == 202:
+            reqid = resp.headers.get('NVCF-REQID')
+            if not reqid or time.monotonic() > deadline:
+                log.warning('NVIDIA genai polling gave up (reqid=%s)', reqid)
+                return None, unavailable
+            resp = requests.get(f'{settings.NVIDIA_GENAI_STATUS_BASE}/{reqid}', headers=headers, timeout=45)
+    except requests.RequestException as e:
+        log.warning('NVIDIA genai request failed: %s', e)
+        return None, Response({'error': 'NVIDIA image API request failed', 'detail': str(e)},
+                              status=status.HTTP_502_BAD_GATEWAY)
+
+    if resp.status_code == 504 or resp.headers.get('Nvcf-Status') == 'errored':
+        log.warning('NVIDIA genai function errored (status=%s, nvcf-status=%s)',
+                    resp.status_code, resp.headers.get('Nvcf-Status'))
+        return None, unavailable
+    if resp.status_code >= 400:
+        body = resp.text[:1000]
+        log.warning('NVIDIA genai HTTP %s — %s', resp.status_code, body[:500])
+        return None, Response({'error': f'NVIDIA image API error ({resp.status_code})', 'detail': body},
+                              status=status.HTTP_502_BAD_GATEWAY)
+    try:
+        return resp.json(), None
+    except ValueError:
+        return None, Response({'error': 'NVIDIA image API returned a non-JSON response'},
+                              status=status.HTTP_502_BAD_GATEWAY)
+
+
 @api_view(['POST'])
 @ratelimit(key='user', rate='10/m', block=False)
 def generate_image(request):
@@ -994,7 +1052,15 @@ def generate_image(request):
     except (TypeError, ValueError):
         return Response({'error': 'width/height/steps/seed must be integers'}, status=400)
 
-    if not (256 <= width <= 1536 and 256 <= height <= 1536):
+    allowed_dims = spec.get('allowed_dims')
+    if allowed_dims:
+        if width not in allowed_dims or height not in allowed_dims:
+            return Response(
+                {'error': f'{spec["name"]} only accepts these dimensions: {", ".join(map(str, allowed_dims))}.',
+                 'allowed_dims': allowed_dims},
+                status=400,
+            )
+    elif not (256 <= width <= 1536 and 256 <= height <= 1536):
         return Response({'error': 'width and height must be between 256 and 1536'}, status=400)
     if not (1 <= steps <= spec['max_steps']):
         return Response({'error': f'steps must be 1..{spec["max_steps"]} for {spec["name"]}'}, status=400)
@@ -1011,28 +1077,9 @@ def generate_image(request):
         'seed': seed,
         'steps': steps,
     }
-    headers = {
-        'Authorization': f'Bearer {settings.NVIDIA_API_KEY}',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-    }
-    url = f'{settings.NVIDIA_GENAI_BASE}/{model_id}'
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=180)
-        resp.raise_for_status()
-    except requests.HTTPError as e:
-        body = e.response.text if e.response is not None else ''
-        log.warning('NVIDIA genai HTTP error: %s — %s', e, body[:500])
-        return Response(
-            {'error': f'NVIDIA image API error ({e.response.status_code if e.response is not None else "?"})',
-             'detail': body[:1000]},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
-    except requests.RequestException as e:
-        log.exception('NVIDIA genai request failed')
-        return Response({'error': 'NVIDIA image API request failed', 'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-
-    data = resp.json()
+    data, err = _nvcf_generate(f'{settings.NVIDIA_GENAI_BASE}/{model_id}', payload)
+    if err is not None:
+        return err
     b64 = _extract_image_b64(data)
     if not b64:
         log.warning('NVIDIA genai returned no image: %s', str(data)[:500])

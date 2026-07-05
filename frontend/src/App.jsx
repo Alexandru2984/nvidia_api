@@ -695,6 +695,17 @@ export default function App() {
     [imageModels, imageModel],
   )
 
+  useEffect(() => {
+    const dims = currentImageSpec?.allowed_dims
+    if (!dims) return
+    setImageParams((p) => ({
+      ...p,
+      width: dims.includes(p.width) ? p.width : 1024,
+      height: dims.includes(p.height) ? p.height : 1024,
+      steps: Math.min(p.steps, currentImageSpec.max_steps || p.steps),
+    }))
+  }, [currentImageSpec])
+
   async function startNewChat(modelId = defaultModel) {
     try {
       const c = await api.createConversation(modelId)
@@ -1179,21 +1190,41 @@ export default function App() {
               <div className="image-params">
                 <label>
                   <span>Width</span>
-                  <input
-                    type="number" min={256} max={1536} step={64}
-                    value={imageParams.width}
-                    onChange={(e) => setImageParams((p) => ({ ...p, width: Number(e.target.value) }))}
-                    disabled={imageBusy}
-                  />
+                  {currentImageSpec?.allowed_dims ? (
+                    <select
+                      value={imageParams.width}
+                      onChange={(e) => setImageParams((p) => ({ ...p, width: Number(e.target.value) }))}
+                      disabled={imageBusy}
+                    >
+                      {currentImageSpec.allowed_dims.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      type="number" min={256} max={1536} step={64}
+                      value={imageParams.width}
+                      onChange={(e) => setImageParams((p) => ({ ...p, width: Number(e.target.value) }))}
+                      disabled={imageBusy}
+                    />
+                  )}
                 </label>
                 <label>
                   <span>Height</span>
-                  <input
-                    type="number" min={256} max={1536} step={64}
-                    value={imageParams.height}
-                    onChange={(e) => setImageParams((p) => ({ ...p, height: Number(e.target.value) }))}
-                    disabled={imageBusy}
-                  />
+                  {currentImageSpec?.allowed_dims ? (
+                    <select
+                      value={imageParams.height}
+                      onChange={(e) => setImageParams((p) => ({ ...p, height: Number(e.target.value) }))}
+                      disabled={imageBusy}
+                    >
+                      {currentImageSpec.allowed_dims.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      type="number" min={256} max={1536} step={64}
+                      value={imageParams.height}
+                      onChange={(e) => setImageParams((p) => ({ ...p, height: Number(e.target.value) }))}
+                      disabled={imageBusy}
+                    />
+                  )}
                 </label>
                 <label>
                   <span>Steps</span>

@@ -98,7 +98,7 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
 | POST | `/attachments/upload/` | `multipart` field `file` | session | Whitelist: jpg/png/webp/gif, pdf, txt, md, docx. 10 MB/file, 100 MB/user. Document text is extracted on upload. |
 | DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
-| GET | `/images/models/` | — | session | List image-generation catalog (Flux schnell/dev, SDXL, SD3 medium). |
+| GET | `/images/models/` | — | session | List image-generation catalog (FLUX schnell/dev; each entry includes `allowed_dims`). |
 | POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Saves the generated image to local media storage. |
 
 ## Model catalog

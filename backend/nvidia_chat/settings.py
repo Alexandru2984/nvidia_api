@@ -184,6 +184,7 @@ REST_FRAMEWORK = {
 NVIDIA_API_KEY = os.environ['NVIDIA_API_KEY']
 NVIDIA_API_URL = os.environ.get('NVIDIA_API_URL', 'https://integrate.api.nvidia.com/v1/chat/completions')
 NVIDIA_GENAI_BASE = os.environ.get('NVIDIA_GENAI_BASE', 'https://ai.api.nvidia.com/v1/genai')
+NVIDIA_GENAI_STATUS_BASE = os.environ.get('NVIDIA_GENAI_STATUS_BASE', 'https://ai.api.nvidia.com/v1/status')
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 

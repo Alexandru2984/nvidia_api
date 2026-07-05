@@ -295,6 +295,10 @@ for _m in NVIDIA_MODELS:
 
 
 # Image generation catalog — separate endpoint at NVIDIA_GENAI_BASE/{id}.
+# FLUX endpoints only accept these exact dimensions — the API 422s on anything
+# else (e.g. 512), even though it looks like a free-form pixel field.
+FLUX_ALLOWED_DIMS = [768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344]
+
 IMAGE_GEN_MODELS = [
     {
         'id': 'black-forest-labs/flux.1-schnell',
@@ -303,6 +307,7 @@ IMAGE_GEN_MODELS = [
         'description': 'Fast 4-step distilled FLUX. Best for quick drafts.',
         'default_steps': 4,
         'max_steps': 8,
+        'allowed_dims': FLUX_ALLOWED_DIMS,
     },
     {
         'id': 'black-forest-labs/flux.1-dev',
@@ -311,6 +316,7 @@ IMAGE_GEN_MODELS = [
         'description': 'Higher-quality FLUX. Slower but more faithful.',
         'default_steps': 28,
         'max_steps': 50,
+        'allowed_dims': FLUX_ALLOWED_DIMS,
     },
 ]
 IMAGE_GEN_MODEL_IDS = {m['id'] for m in IMAGE_GEN_MODELS}
