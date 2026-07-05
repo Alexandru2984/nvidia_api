@@ -114,14 +114,14 @@ def _generate_code() -> str:
 
 
 def _send_verification_email(user, code):
-    subject = 'Your NVIDIA Chat Hub verification code'
+    subject = 'Your AI Chat Hub verification code'
     text = (
         f'Hi {user.username},\n\n'
         f'Your verification code is: {code}\n\n'
         f'Enter this code on the verification page to activate your account.\n'
         f'The code expires in 30 minutes.\n\n'
         f"If you didn't create an account, you can ignore this email.\n\n"
-        f'— NVIDIA Chat Hub\n'
+        f'— AI Chat Hub\n'
     )
     html = f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{subject}</title></head>
@@ -132,7 +132,7 @@ def _send_verification_email(user, code):
         <tr><td style="padding:28px 28px 8px 28px;">
           <table role="presentation" cellpadding="0" cellspacing="0"><tr>
             <td style="width:36px;height:36px;background:#76b900;color:#0a0d12;border-radius:8px;font-weight:800;font-size:18px;text-align:center;vertical-align:middle;">N</td>
-            <td style="padding-left:12px;font-weight:600;font-size:16px;color:#e6edf3;">NVIDIA Chat Hub</td>
+            <td style="padding-left:12px;font-weight:600;font-size:16px;color:#e6edf3;">AI Chat Hub</td>
           </tr></table>
         </td></tr>
         <tr><td style="padding:8px 28px 0 28px;">
@@ -150,12 +150,12 @@ def _send_verification_email(user, code):
         </td></tr>
         <tr><td style="padding:18px 28px 26px 28px;">
           <p style="margin:0;font-size:12px;line-height:1.55;color:#8b96a8;">
-            If you didn't sign up for NVIDIA Chat Hub, you can ignore this email — your address won't be used.
+            If you didn't sign up for AI Chat Hub, you can ignore this email — your address won't be used.
           </p>
         </td></tr>
         <tr><td style="padding:14px 28px;border-top:1px solid #232a36;background:#0e131a;">
           <p style="margin:0;font-size:11px;color:#5f6b7d;">
-            This is an automated message from <a href="{settings.FRONTEND_URL}" style="color:#76b900;text-decoration:none;">NVIDIA Chat Hub</a>.
+            This is an automated message from <a href="{settings.FRONTEND_URL}" style="color:#76b900;text-decoration:none;">AI Chat Hub</a>.
           </p>
         </td></tr>
       </table>
@@ -315,14 +315,14 @@ def auth_resend(request):
 
 
 def _send_password_reset_email(user, code):
-    subject = 'Your NVIDIA Chat Hub password reset code'
+    subject = 'Your AI Chat Hub password reset code'
     text = (
         f'Hi {user.username},\n\n'
         f'Your password reset code is: {code}\n\n'
         f'Enter this code along with a new password to reset your account.\n'
         f'The code expires in 30 minutes.\n\n'
         f"If you didn't request a reset, you can ignore this email — your password won't change.\n\n"
-        f'— NVIDIA Chat Hub\n'
+        f'— AI Chat Hub\n'
     )
     html = f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{subject}</title></head>
@@ -333,7 +333,7 @@ def _send_password_reset_email(user, code):
         <tr><td style="padding:28px 28px 8px 28px;">
           <table role="presentation" cellpadding="0" cellspacing="0"><tr>
             <td style="width:36px;height:36px;background:#76b900;color:#0a0d12;border-radius:8px;font-weight:800;font-size:18px;text-align:center;vertical-align:middle;">N</td>
-            <td style="padding-left:12px;font-weight:600;font-size:16px;color:#e6edf3;">NVIDIA Chat Hub</td>
+            <td style="padding-left:12px;font-weight:600;font-size:16px;color:#e6edf3;">AI Chat Hub</td>
           </tr></table>
         </td></tr>
         <tr><td style="padding:8px 28px 0 28px;">

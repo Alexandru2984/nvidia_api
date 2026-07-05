@@ -34,7 +34,7 @@ from .models import TwoFactor
 
 log = logging.getLogger(__name__)
 
-ISSUER = 'NVIDIA Chat Hub'
+ISSUER = 'AI Chat Hub'
 RECOVERY_CODE_COUNT = 10
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_DURATION = timedelta(minutes=10)

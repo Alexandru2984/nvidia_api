@@ -1,4 +1,4 @@
-# NVIDIA Chat Hub
+# AI Chat Hub
 
 A self-hosted chat UI for NVIDIA's NIM-hosted open-weight LLMs (Llama, Nemotron, Qwen, DeepSeek, GPT-OSS — ~40 validated models). Pick a model, chat, save conversations per-user. Deployed at `https://aichat.micutu.com`.
 

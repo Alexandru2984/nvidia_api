@@ -359,7 +359,7 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
         <div className="login-brand">
           <div className="brand-mark">N</div>
           <div>
-            <div className="brand-text">NVIDIA Chat Hub</div>
+            <div className="brand-text">AI Chat Hub</div>
             <div className="brand-sub">{isRegister ? 'Create an account' : 'Sign in to continue'}</div>
           </div>
         </div>
@@ -973,7 +973,7 @@ export default function App() {
         <div className="sidebar-header">
           <div className="brand-mark">N</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="brand-text">NVIDIA Chat Hub</div>
+            <div className="brand-text">AI Chat Hub</div>
             <div className="brand-sub">{models.length} models</div>
           </div>
           <button className="icon sidebar-close" onClick={() => setSidebarOpen(false)} title="Close">×</button>
