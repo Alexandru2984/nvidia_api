@@ -363,6 +363,23 @@ function StoragePanel() {
         <span>{usage.messages} messages</span>
         <span>{usage.attachments} files</span>
       </div>
+      {usage.ai_today && <div className="ai-usage-card">
+        <h3>Today's AI usage</h3>
+        {!usage.ai_today.enabled && <p className="login-error">AI generation is temporarily disabled.</p>}
+        <label>
+          <span>Chat requests</span>
+          <strong>{usage.ai_today.chat_requests} / {usage.ai_today.chat_limit}</strong>
+          <progress aria-label="Daily chat requests used" value={usage.ai_today.chat_requests}
+            max={Math.max(1, usage.ai_today.chat_limit)} />
+        </label>
+        <label>
+          <span>Generated images</span>
+          <strong>{usage.ai_today.image_requests} / {usage.ai_today.image_limit}</strong>
+          <progress aria-label="Daily generated images used" value={usage.ai_today.image_requests}
+            max={Math.max(1, usage.ai_today.image_limit)} />
+        </label>
+        <p className="muted">Resets at {new Date(usage.ai_today.resets_at).toLocaleString()} (UTC budget window).</p>
+      </div>}
       <div className="file-library">
         {files.length === 0 && <p className="muted">No files uploaded yet.</p>}
         {files.map((file) => <div className="library-row" key={file.id}>

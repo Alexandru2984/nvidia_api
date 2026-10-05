@@ -70,6 +70,11 @@ DB_PORT=5432
 
 NVIDIA_API_KEY=nvapi-...
 NVIDIA_API_URL=https://integrate.api.nvidia.com/v1/chat/completions
+AI_GENERATION_ENABLED=True
+AI_USER_DAILY_CHAT_LIMIT=100
+AI_USER_DAILY_IMAGE_LIMIT=10
+AI_GLOBAL_DAILY_CHAT_LIMIT=500
+AI_GLOBAL_DAILY_IMAGE_LIMIT=50
 
 # Email (used for OTP verification) — self-hosted mailcow
 SMTP_HOST=mail.micutu.com
@@ -100,7 +105,7 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Cascades all user data. |
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists opaque session handles and revokes selected/other sessions. |
-| GET | `/account/usage/` | — | session | Storage totals by attachment kind. |
+| GET | `/account/usage/` | — | session | Storage totals plus today's durable chat/image budgets and UTC reset. |
 | GET | `/models/` | — | session | Returns validated NVIDIA models. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |
@@ -112,6 +117,12 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET | `/attachments/<id>/download/` | — | session | Ownership-checked private download; never expose `MEDIA_ROOT` directly. |
 | GET | `/images/models/` | — | session | List image-generation catalog (FLUX schnell/dev; each entry includes `allowed_dims`). |
 | POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Saves the generated image to local media storage. |
+
+Chat, regeneration, and image calls reserve daily PostgreSQL-backed counters
+before contacting NVIDIA. Limits apply per user and globally across all gunicorn
+workers; exhausted user budgets return `429`, while a service-wide budget returns
+`503`, both with a UTC reset time. Set `AI_GENERATION_ENABLED=False` and restart
+the backend for an immediate provider circuit breaker.
 
 ## Model catalog
 

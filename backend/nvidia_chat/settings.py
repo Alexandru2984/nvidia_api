@@ -165,6 +165,22 @@ CHAT_HISTORY_MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 MAX_PASSWORD_LENGTH = 128
 
+
+def _nonnegative_int_env(name, default):
+    value = int(os.environ.get(name, default))
+    if value < 0:
+        raise ValueError(f'{name} must be non-negative')
+    return value
+
+
+# Durable daily provider budgets. Set AI_GENERATION_ENABLED=False and restart
+# the service for an immediate global cost/abuse circuit breaker.
+AI_GENERATION_ENABLED = os.environ.get('AI_GENERATION_ENABLED', 'True').lower() == 'true'
+AI_USER_DAILY_CHAT_LIMIT = _nonnegative_int_env('AI_USER_DAILY_CHAT_LIMIT', 100)
+AI_USER_DAILY_IMAGE_LIMIT = _nonnegative_int_env('AI_USER_DAILY_IMAGE_LIMIT', 10)
+AI_GLOBAL_DAILY_CHAT_LIMIT = _nonnegative_int_env('AI_GLOBAL_DAILY_CHAT_LIMIT', 500)
+AI_GLOBAL_DAILY_IMAGE_LIMIT = _nonnegative_int_env('AI_GLOBAL_DAILY_IMAGE_LIMIT', 50)
+
 DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 200

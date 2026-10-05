@@ -83,6 +83,33 @@ class Conversation(models.Model):
         return f'{self.title} ({self.model_id})'
 
 
+class DailyAIUsage(models.Model):
+    """Durable per-user provider budget for one UTC day."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='daily_ai_usage',
+        on_delete=models.CASCADE,
+    )
+    day = models.DateField()
+    chat_requests = models.PositiveIntegerField(default=0)
+    image_requests = models.PositiveIntegerField(default=0)
+    prompt_characters = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'day'], name='unique_daily_ai_usage'),
+        ]
+        indexes = [models.Index(fields=['day'])]
+
+
+class GlobalAIUsage(models.Model):
+    """Global circuit-breaker counter shared by every user and worker."""
+    day = models.DateField(unique=True)
+    chat_requests = models.PositiveIntegerField(default=0)
+    image_requests = models.PositiveIntegerField(default=0)
+    prompt_characters = models.PositiveBigIntegerField(default=0)
+
+
 class Message(models.Model):
     ROLE_CHOICES = [
         ('user', 'user'),

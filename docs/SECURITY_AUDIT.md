@@ -3,10 +3,10 @@
 Date: 2026-10-05  
 Scope: Django/DRF backend, React/Vite frontend, PostgreSQL data path, attachment
 processing, nginx, systemd, backup automation, Cloudflare Tunnel, and CI.  
-Decision: **YELLOW — mitigate then ship**. The repository fixes are suitable for
-deployment, but the production verdict remains yellow until the staged nginx and
-systemd configurations are applied and verified, existing backup permissions are
-corrected, and abuse/cost controls become durable across processes.
+Decision: **YELLOW — mitigate then ship**. The repository fixes are deployed and
+the request budgets are durable across processes, but the production verdict
+remains yellow until the shared Unix identity is removed, security-event alerting
+and staff access are strengthened, and encrypted off-site recovery is proven.
 
 This is a technical risk assessment, not legal advice. No secrets are reproduced
 in this document.
@@ -59,7 +59,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
-| A-10 | Medium | Model history could multiply document/image payload and cost | Per-message and cumulative history byte/character budgets | Add per-user daily token/image budgets and administrative cutoffs |
+| A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps, PostgreSQL daily request budgets per-user/globally, and a kill-switch | Add token/monetary provider-spend budgets and administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated | IP/user throttles and non-enumerating responses | Add Turnstile or invite/approval mode; enforce mail and provider budgets |
 | A-12 | Medium | Security event detection is incomplete | Availability monitoring and application warnings exist | Centralize auth/admin/upload events and alert on defined thresholds |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
@@ -135,11 +135,15 @@ is required before describing those controls as complete.
   request with the CSRF cookie/header passed CSRF and reached payload validation.
 - Timestamped rollback copies of the prior nginx vhost, systemd unit, and frontend
   webroot were retained on the host. No rollback was required.
+- The newest compressed backup was restored into an isolated scratch database;
+  schema/migration checks and row-count queries passed (27 migrations, 3 users,
+  6 conversations, 16 messages), and the scratch database was removed. A weekly
+  logged drill is now scheduled; failure alerting remains an open action.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
-A-04 local-mode actions, but durable abuse budgets, dedicated service identity,
-security-event alerting, encrypted off-site backup, and a restore drill remain
-open.
+A-04 local-mode actions. The isolated restore drill and durable request budgets
+were completed immediately afterward; dedicated service identity, token/monetary
+budgets, security-event alerting, and encrypted off-site backup remain open.
 
 ## References
 

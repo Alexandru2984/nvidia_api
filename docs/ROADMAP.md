@@ -12,9 +12,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Dedicated service identity:** run as an `aichat` Unix user with an app-only
   database role, media/cache directories, mail credential, and NVIDIA key. Remove
   cross-project read access.
-- **Durable abuse and budget controls:** move throttles to Redis/PostgreSQL; add
-  daily per-user token/image/storage quotas, global provider-spend circuit breaker,
-  registration challenge or invite mode, and admin override/audit trail.
+- **Durable abuse and budget controls:** PostgreSQL-backed daily request budgets
+  per user and globally, plus a configuration kill-switch, are shipped. Add token
+  and monetary spend budgets, registration challenge or invite mode, and an admin
+  override/audit trail; move burst throttles to Redis/PostgreSQL before scaling.
 - **Protected administration:** place `/admin/` behind Cloudflare Access or a VPN,
   require staff 2FA, minimize superusers, and alert on every admin login/change.
 - **Detection:** structured security events for auth, recovery, session revocation,

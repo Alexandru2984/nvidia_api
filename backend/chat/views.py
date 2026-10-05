@@ -53,12 +53,41 @@ from .serializers import (
     ConversationListSerializer,
     MessageSerializer,
 )
+from .usage import next_reset, reserve_ai_request, user_usage_snapshot
 
 log = logging.getLogger(__name__)
 
 
 def _rate_limited(request):
     return Response({'error': 'Too many requests. Slow down and try again.'}, status=429) if getattr(request, 'limited', False) else None
+
+
+def _reserve_provider_call(request, kind, prompt_characters=0):
+    reason = reserve_ai_request(request.user, kind, prompt_characters)
+    if reason is None:
+        return None
+    if reason == 'disabled':
+        log.warning('AI provider circuit breaker blocked kind=%s user_id=%s', kind, request.user.pk)
+        return Response(
+            {'error': 'AI generation is temporarily disabled.', 'code': reason},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    reset, retry_after = next_reset()
+    is_global = reason == 'global_daily_limit'
+    log.warning('AI daily budget blocked kind=%s scope=%s user_id=%s',
+                kind, 'global' if is_global else 'user', request.user.pk)
+    response = Response({
+        'error': (
+            'The service-wide daily AI budget has been reached. Try again after the UTC reset.'
+            if is_global else
+            f'Your daily {kind} generation limit has been reached. Try again after the UTC reset.'
+        ),
+        'code': reason,
+        'resets_at': reset.isoformat().replace('+00:00', 'Z'),
+    }, status=status.HTTP_503_SERVICE_UNAVAILABLE if is_global else status.HTTP_429_TOO_MANY_REQUESTS)
+    response['Retry-After'] = str(retry_after)
+    return response
 
 
 @api_view(['GET'])
@@ -646,6 +675,7 @@ def account_usage(request):
         'attachments': files['count'],
         'conversations': Conversation.objects.filter(user=request.user).count(),
         'messages': Message.objects.filter(conversation__user=request.user).count(),
+        'ai_today': user_usage_snapshot(request.user),
     })
 
 
@@ -899,6 +929,10 @@ def send_message(request, pk):
             {'error': 'This model does not accept images. Pick a vision model (e.g. Llama 3.2 Vision, Llama 4 Scout, Nemotron Nano VL).'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    prompt_characters = len(user_text) + sum(
+        len(a.extracted_text or '') for a in attachments if a.kind == Attachment.KIND_DOCUMENT
+    )
+    if (r := _reserve_provider_call(request, 'chat', prompt_characters)): return r
 
     user_msg = Message.objects.create(conversation=convo, role='user', content=user_text)
     for a in attachments:
@@ -1042,13 +1076,16 @@ def regenerate_message(request, pk):
                 break
         if prev_user is None:
             return Response({'error': 'No preceding user message to regenerate from.'}, status=400)
-        # Delete target and everything after it.
-        Message.objects.filter(conversation=convo, id__gte=target.id).delete()
         anchor = prev_user
     else:  # user
-        # Delete everything strictly after the user message.
-        Message.objects.filter(conversation=convo, id__gt=target.id).delete()
         anchor = target
+
+    # Check the durable provider budget before destructive truncation.
+    if (r := _reserve_provider_call(request, 'chat', len(anchor.content or ''))): return r
+    if target.role == 'assistant':
+        Message.objects.filter(conversation=convo, id__gte=target.id).delete()
+    else:
+        Message.objects.filter(conversation=convo, id__gt=target.id).delete()
 
     history = _build_history_for(convo, upto_msg_id=anchor.id)
     if not history:
@@ -1250,6 +1287,7 @@ def generate_image(request):
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
     if used >= settings.MAX_USER_STORAGE:
         return Response({'error': 'Storage quota exceeded; delete some attachments first.'}, status=413)
+    if (r := _reserve_provider_call(request, 'image', len(prompt))): return r
 
     payload = {
         'prompt': prompt,
