@@ -63,7 +63,7 @@ class TestRevokeSession:
 
     def test_cannot_revoke_current_via_revoke(self, user):
         c1 = _login(user, ua='current')
-        my_key = c1.session.session_key
+        my_key = next(s['id'] for s in c1.get('/api/auth/sessions/').json() if s['current'])
         r = c1.delete(f'/api/auth/sessions/{my_key}/')
         assert r.status_code == 400
 

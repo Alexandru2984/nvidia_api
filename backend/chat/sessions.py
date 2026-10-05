@@ -6,11 +6,17 @@ import logging
 
 from django.contrib.sessions.models import Session
 from django.utils import timezone
+from django.utils.crypto import salted_hmac, constant_time_compare
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 log = logging.getLogger(__name__)
+
+
+def session_handle(session_key):
+    """A revocation identifier, never a bearer credential usable as a cookie."""
+    return salted_hmac('chat.session.handle', session_key, algorithm='sha256').hexdigest()
 
 
 def stamp_session(request):
@@ -46,7 +52,7 @@ def list_sessions(request):
     items = []
     for s, data in _user_sessions(request.user):
         items.append({
-            'id': s.session_key,
+            'id': session_handle(s.session_key),
             'ip': data.get('ip', ''),
             'ua': data.get('ua', ''),
             'login_at': data.get('login_at'),
@@ -61,13 +67,13 @@ def list_sessions(request):
 @permission_classes([IsAuthenticated])
 def revoke_session(request, key):
     """Revoke one session by key. Must belong to the current user."""
-    if key == request.session.session_key:
+    if constant_time_compare(key, session_handle(request.session.session_key)):
         return Response(
             {'error': 'Use /auth/logout/ to end your current session.'},
             status=400,
         )
     for s, _ in _user_sessions(request.user):
-        if s.session_key == key:
+        if constant_time_compare(session_handle(s.session_key), key):
             s.delete()
             return Response(status=204)
     return Response({'error': 'Session not found.'}, status=404)

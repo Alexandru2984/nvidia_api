@@ -227,6 +227,10 @@ def auth_register(request):
         }, status=201)
 
     user = User(username=username, email=email, is_active=False)
+    try:
+        validate_password(password, user)
+    except ValidationError as e:
+        return Response({'error': ' '.join(e.messages)}, status=400)
     user.set_password(password)
     user.save()
 
@@ -247,6 +251,7 @@ def auth_register(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='10/m', block=False)
+@transaction.atomic
 def auth_verify(request):
     if (r := _rate_limited(request)): return r
     email = (request.data.get('email') or '').strip().lower()
@@ -257,11 +262,11 @@ def auth_verify(request):
         return Response({'error': 'Code must be 6 digits.'}, status=400)
 
     User = get_user_model()
-    user = User.objects.filter(email__iexact=email).first()
+    user = User.objects.select_for_update().filter(email__iexact=email).first()
     if user is None:
         return Response({'error': 'Invalid email or code.'}, status=400)
     if user.is_active:
-        return Response({'verified': True, 'username': user.username})
+        return Response({'error': 'Invalid email or code.'}, status=400)
 
     ev = EmailVerification.objects.filter(user=user).first()
     if ev is None:
@@ -288,13 +293,14 @@ def auth_verify(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='5/h', block=False)
+@transaction.atomic
 def auth_resend(request):
     if (r := _rate_limited(request)): return r
     email = (request.data.get('email') or '').strip().lower()
     if not email:
         return Response({'error': 'Email required.'}, status=400)
     User = get_user_model()
-    user = User.objects.filter(email__iexact=email, is_active=False).first()
+    user = User.objects.select_for_update().filter(email__iexact=email, is_active=False).first()
     if user is None:
         # Don't leak whether the email exists.
         return Response({'message': 'If your account is awaiting verification, a new code has been sent.',
@@ -386,6 +392,7 @@ def _issue_password_reset(user):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='5/h', block=False)
+@transaction.atomic
 def auth_forgot(request):
     if (r := _rate_limited(request)): return r
     email = (request.data.get('email') or '').strip().lower()
@@ -401,7 +408,7 @@ def auth_forgot(request):
         return Response({'error': 'Invalid email address.'}, status=400)
 
     User = get_user_model()
-    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    user = User.objects.select_for_update().filter(email__iexact=email, is_active=True).first()
     if user is None:
         return generic
 
@@ -422,6 +429,7 @@ def auth_forgot(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='10/m', block=False)
+@transaction.atomic
 def auth_reset(request):
     if (r := _rate_limited(request)): return r
     email = (request.data.get('email') or '').strip().lower()
@@ -436,7 +444,7 @@ def auth_reset(request):
         return Response({'error': f'Password must be at most {settings.MAX_PASSWORD_LENGTH} characters.'}, status=400)
 
     User = get_user_model()
-    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    user = User.objects.select_for_update().filter(email__iexact=email, is_active=True).first()
     if user is None:
         return Response({'error': 'Invalid email or code.'}, status=400)
 
@@ -493,7 +501,7 @@ def auth_change_password(request):
     if (r := _rate_limited(request)): return r
     current = request.data.get('current_password') or ''
     new = request.data.get('new_password') or ''
-    if not request.user.check_password(current):
+    if len(current) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(current):
         return Response({'error': 'Current password is incorrect.'}, status=status.HTTP_401_UNAUTHORIZED)
     if len(new) < 8 or len(new) > settings.MAX_PASSWORD_LENGTH:
         return Response({'error': f'Password must be 8-{settings.MAX_PASSWORD_LENGTH} characters.'}, status=400)
@@ -520,7 +528,7 @@ def auth_delete_account(request):
     messages and attachments (files removed via the pre_delete signal)."""
     if (r := _rate_limited(request)): return r
     password = request.data.get('password') or ''
-    if not request.user.check_password(password):
+    if len(password) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(password):
         return Response({'error': 'Wrong password.'}, status=status.HTTP_401_UNAUTHORIZED)
     if login_requires_2fa(request.user):
         code = (request.data.get('code') or '').strip()

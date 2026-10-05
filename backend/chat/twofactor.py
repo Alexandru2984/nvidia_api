@@ -250,14 +250,17 @@ def verify_enroll(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='10/h', block=False)
 def disable(request):
     """Require password + a valid TOTP/recovery code to turn 2FA off.
     Also revokes all *other* sessions — if a stolen session disabled 2FA, the
     legitimate user's other sessions get killed too, but more importantly the
     real user's panic-button login can clean up an attacker's session."""
+    if getattr(request, 'limited', False):
+        return Response({'error': 'Too many requests.'}, status=429)
     password = request.data.get('password') or ''
     code = (request.data.get('code') or '').strip()
-    if not request.user.check_password(password):
+    if len(password) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(password):
         return Response({'error': 'Wrong password.'}, status=401)
     if not verify_for_login(request.user, code):
         return Response({'error': 'Wrong 2FA code.'}, status=401)

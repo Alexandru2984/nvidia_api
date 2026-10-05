@@ -1,4 +1,4 @@
-const BASE = import.meta.env.DEV ? 'http://127.0.0.1:8500/api' : '/api'
+const BASE = '/api'
 
 function getCookie(name) {
   const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'))
@@ -17,9 +17,9 @@ async function request(path, opts = {}) {
     if (csrf) headers['X-CSRFToken'] = csrf
   }
   const res = await fetch(`${BASE}${path}`, {
+    ...opts,
     credentials: 'include',
     headers,
-    ...opts,
   })
   if (res.status === 401 || res.status === 403) {
     let body = null
@@ -45,7 +45,7 @@ async function request(path, opts = {}) {
   return res.json()
 }
 
-export const MEDIA_BASE = import.meta.env.DEV ? 'http://127.0.0.1:8500' : ''
+export const MEDIA_BASE = ''
 export function mediaUrl(url) {
   if (!url) return ''
   if (url.startsWith('http')) return url

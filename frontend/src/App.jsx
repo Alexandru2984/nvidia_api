@@ -345,7 +345,17 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
     return (
       <ResetScreen
         email={pendingEmail}
-        onReset={onLoggedIn}
+        onReset={(result) => {
+          if (result.two_factor_required) {
+            switchMode('login')
+            setUsername(result.username || '')
+            setTwoFactorRequired(true)
+            setTwoFactorCode('')
+            setError('Password reset. Sign in with your new password and authenticator code.')
+          } else {
+            onLoggedIn(result)
+          }
+        }}
         onBack={() => switchMode('login')}
       />
     )
