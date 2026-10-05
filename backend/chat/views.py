@@ -4,25 +4,32 @@ import hmac
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import secrets
 import time
 from datetime import timedelta
+from pathlib import Path
 
 import requests
-from django.http import FileResponse, Http404, StreamingHttpResponse
 from django.conf import settings
 from django.contrib.auth import (
-    authenticate, get_user_model, login as django_login, logout as django_logout,
+    authenticate,
+    get_user_model,
     update_session_auth_hash,
 )
+from django.contrib.auth import (
+    login as django_login,
+)
+from django.contrib.auth import (
+    logout as django_logout,
+)
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
-from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, Sum
+from django.http import FileResponse, Http404, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -36,13 +43,6 @@ from rest_framework.response import Response
 from .attachments import detect_mime, extract_text, kind_for_mime
 from .model_status import get_status, unavailable_model_ids
 from .models import Attachment, Conversation, EmailVerification, Message, PasswordReset
-from .sessions import stamp_session
-from .twofactor import (
-    _revoke_user_sessions,
-    login_requires_2fa,
-    mark_staff_2fa_verified,
-    verify_for_login,
-)
 from .models_catalog import (
     DEFAULT_IMAGE_GEN_MODEL_ID,
     DEFAULT_MODEL_ID,
@@ -52,13 +52,20 @@ from .models_catalog import (
     NVIDIA_MODELS,
     VISION_MODEL_IDS,
 )
+from .security_events import actor_for_request, security_log
 from .serializers import (
     AttachmentSerializer,
     ConversationDetailSerializer,
     ConversationListSerializer,
     MessageSerializer,
 )
-from .security_events import actor_for_request, security_log
+from .sessions import stamp_session
+from .twofactor import (
+    _revoke_user_sessions,
+    login_requires_2fa,
+    mark_staff_2fa_verified,
+    verify_for_login,
+)
 from .usage import next_reset, reserve_ai_request, user_usage_snapshot
 
 log = logging.getLogger(__name__)
@@ -152,6 +159,7 @@ USERNAME_RE = re.compile(r'^[A-Za-z0-9_]{3,30}$')
 OTP_TTL_SECONDS = 30 * 60       # code valid 30 min
 RESEND_COOLDOWN_SECONDS = 60    # 1 min between resends
 MAX_VERIFY_ATTEMPTS = 6
+GENERIC_CODE_ERROR = 'Invalid or expired email or code.'
 
 
 def _hash_code(code: str) -> str:
@@ -161,6 +169,21 @@ def _hash_code(code: str) -> str:
 
 def _generate_code() -> str:
     return f'{secrets.randbelow(1_000_000):06d}'
+
+
+def _registration_response(email):
+    return Response({
+        'message': 'If the account details are available, check your email for the 6-digit code.',
+        'email': email,
+        'resend_available_in': RESEND_COOLDOWN_SECONDS,
+    }, status=201)
+
+
+def _resend_response():
+    return Response({
+        'message': 'If your account is awaiting verification, a new code has been sent.',
+        'resend_available_in': RESEND_COOLDOWN_SECONDS,
+    })
 
 
 def _send_verification_email(user, code):
@@ -254,43 +277,46 @@ def auth_register(request):
     if len(password) < 8 or len(password) > settings.MAX_PASSWORD_LENGTH:
         return Response({'error': f'Password must be 8-{settings.MAX_PASSWORD_LENGTH} characters.'}, status=400)
 
-    User = get_user_model()
-    if User.objects.filter(username__iexact=username).exists():
-        return Response({'error': 'Username already taken.'}, status=409)
-    if User.objects.filter(email__iexact=email).exists():
-        return Response({'error': 'An account with this email already exists.'}, status=409)
-
     # Honeypot fires only after the request would have succeeded. Bots that
     # fill every field still get the same 201 a real user gets, but no row
     # is written and no email goes out.
     if honeypot:
         security_log.warning('event=registration_honeypot actor=%s', actor_for_request(request))
-        return Response({
-            'message': 'Account created. Check your email for the 6-digit code.',
-            'email': email,
-            'resend_available_in': RESEND_COOLDOWN_SECONDS,
-        }, status=201)
+        return _registration_response(email)
 
+    User = get_user_model()
     user = User(username=username, email=email, is_active=False)
     try:
         validate_password(password, user)
     except ValidationError as e:
         return Response({'error': ' '.join(e.messages)}, status=400)
+
+    # Do not disclose whether either account identifier already exists.
+    if User.objects.filter(Q(username__iexact=username) | Q(email__iexact=email)).exists():
+        security_log.info('event=registration_suppressed actor=%s', actor_for_request(request))
+        return _registration_response(email)
+
     user.set_password(password)
-    user.save()
+    try:
+        # The pre-check above is intentionally user-friendly, but cannot by
+        # itself prevent two concurrent requests from racing on username.
+        # Translate the database constraint into the same opaque response.
+        with transaction.atomic():
+            user.save()
+    except IntegrityError:
+        security_log.info('event=registration_suppressed actor=%s', actor_for_request(request))
+        return _registration_response(email)
 
     try:
         _issue_new_code(user)
     except Exception:
         log.exception('Failed to send verification email for user_id=%s', user.pk)
         user.delete()
-        return Response({'error': 'Failed to send verification email. Try again later.'}, status=502)
+        # Keep this indistinguishable from an existing identifier. The row is
+        # removed so the user can retry once mail delivery recovers.
+        return _registration_response(email)
 
-    return Response({
-        'message': 'Account created. Check your email for the 6-digit code.',
-        'email': user.email,
-        'resend_available_in': RESEND_COOLDOWN_SECONDS,
-    }, status=201)
+    return _registration_response(user.email)
 
 
 @api_view(['POST'])
@@ -309,23 +335,23 @@ def auth_verify(request):
     User = get_user_model()
     user = User.objects.select_for_update().filter(email__iexact=email).first()
     if user is None:
-        return Response({'error': 'Invalid email or code.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
     if user.is_active:
-        return Response({'error': 'Invalid email or code.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
 
     ev = EmailVerification.objects.filter(user=user).first()
     if ev is None:
-        return Response({'error': 'No active verification. Request a new code.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
     if ev.expires_at <= timezone.now():
-        return Response({'error': 'Code expired. Request a new one.'}, status=400)
+        ev.delete()
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
     if ev.attempts >= MAX_VERIFY_ATTEMPTS:
-        return Response({'error': 'Too many wrong attempts. Request a new code.'}, status=429)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
 
     if not hmac.compare_digest(ev.code_hash, _hash_code(code)):
         ev.attempts += 1
         ev.save(update_fields=['attempts'])
-        remaining = max(0, MAX_VERIFY_ATTEMPTS - ev.attempts)
-        return Response({'error': f'Wrong code. {remaining} attempt(s) left.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
 
     user.is_active = True
     user.save(update_fields=['is_active'])
@@ -347,27 +373,23 @@ def auth_resend(request):
     User = get_user_model()
     user = User.objects.select_for_update().filter(email__iexact=email, is_active=False).first()
     if user is None:
-        # Don't leak whether the email exists.
-        return Response({'message': 'If your account is awaiting verification, a new code has been sent.',
-                         'resend_available_in': RESEND_COOLDOWN_SECONDS})
+        return _resend_response()
 
     ev = EmailVerification.objects.filter(user=user).first()
     now = timezone.now()
     if ev is not None:
         elapsed = (now - ev.sent_at).total_seconds()
         if elapsed < RESEND_COOLDOWN_SECONDS:
-            wait = int(RESEND_COOLDOWN_SECONDS - elapsed) + 1
-            return Response({'error': f'Please wait {wait}s before requesting a new code.',
-                             'resend_available_in': wait}, status=429)
+            return _resend_response()
 
     try:
-        _issue_new_code(user)
+        with transaction.atomic():
+            _issue_new_code(user)
     except Exception:
         log.exception('Failed to resend verification email for user_id=%s', user.pk)
-        return Response({'error': 'Failed to send email. Try again later.'}, status=502)
+        return _resend_response()
 
-    return Response({'message': 'A new code was sent. Check your inbox.',
-                     'resend_available_in': RESEND_COOLDOWN_SECONDS})
+    return _resend_response()
 
 
 def _send_password_reset_email(user, code):
@@ -464,10 +486,11 @@ def auth_forgot(request):
             return generic
 
     try:
-        _issue_password_reset(user)
+        with transaction.atomic():
+            _issue_password_reset(user)
     except Exception:
         log.exception('Failed to send password reset email for user_id=%s', user.pk)
-        return Response({'error': 'Failed to send email. Try again later.'}, status=502)
+        return generic
     return generic
 
 
@@ -491,22 +514,21 @@ def auth_reset(request):
     User = get_user_model()
     user = User.objects.select_for_update().filter(email__iexact=email, is_active=True).first()
     if user is None:
-        return Response({'error': 'Invalid email or code.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
 
     pr = PasswordReset.objects.filter(user=user).first()
     if pr is None:
-        return Response({'error': 'Invalid email or code.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
     if pr.expires_at <= timezone.now():
         pr.delete()
-        return Response({'error': 'Code expired. Request a new one.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
     if pr.attempts >= MAX_VERIFY_ATTEMPTS:
-        return Response({'error': 'Too many wrong attempts. Request a new code.'}, status=429)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
 
     if not hmac.compare_digest(pr.code_hash, _hash_code(code)):
         pr.attempts += 1
         pr.save(update_fields=['attempts'])
-        remaining = max(0, MAX_VERIFY_ATTEMPTS - pr.attempts)
-        return Response({'error': f'Wrong code. {remaining} attempt(s) left.'}, status=400)
+        return Response({'error': GENERIC_CODE_ERROR}, status=400)
 
     try:
         validate_password(password, user)

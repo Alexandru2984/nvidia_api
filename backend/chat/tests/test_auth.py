@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
-from django.test.utils import override_settings
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from chat.models import EmailVerification, PasswordReset
@@ -58,16 +58,28 @@ class TestRegister:
         assert r.status_code == 400
 
     def test_duplicate_username(self, client, user):
+        before = get_user_model().objects.count()
         r = client.post('/api/auth/register/', {
             'username': user.username, 'email': 'other@example.com', 'password': 'Hunter2pass',
         }, format='json')
-        assert r.status_code == 409
+        assert r.status_code == 201
+        assert r.json() == {
+            'message': 'If the account details are available, check your email for the 6-digit code.',
+            'email': 'other@example.com',
+            'resend_available_in': 60,
+        }
+        assert get_user_model().objects.count() == before
+        assert mail.outbox == []
 
     def test_duplicate_email_case_insensitive(self, client, user):
+        before = get_user_model().objects.count()
         r = client.post('/api/auth/register/', {
             'username': 'different', 'email': user.email.upper(), 'password': 'Hunter2pass',
         }, format='json')
-        assert r.status_code == 409
+        assert r.status_code == 201
+        assert r.json()['email'] == user.email.lower()
+        assert get_user_model().objects.count() == before
+        assert mail.outbox == []
 
     def test_honeypot_returns_fake_201_no_user_no_email(self, client):
         r = client.post('/api/auth/register/', {
@@ -78,6 +90,34 @@ class TestRegister:
         User = get_user_model()
         assert not User.objects.filter(username='bot').exists()
         assert mail.outbox == []
+
+    def test_mail_failure_matches_duplicate_response_and_removes_partial_user(self, client):
+        payload = {
+            'username': 'newuser', 'email': 'new@example.com', 'password': 'Hunter2pass',
+        }
+        with patch('chat.views._send_verification_email', side_effect=RuntimeError('mail unavailable')):
+            failed = client.post('/api/auth/register/', payload, format='json')
+        User = get_user_model()
+        assert not User.objects.filter(username='newuser').exists()
+
+        User.objects.create_user(**payload)
+        duplicate = client.post('/api/auth/register/', payload, format='json')
+        assert (failed.status_code, failed.json()) == (duplicate.status_code, duplicate.json())
+        assert mail.outbox == []
+
+    def test_database_rejects_case_insensitive_username_collision(self, user):
+        User = get_user_model()
+        with pytest.raises(IntegrityError), transaction.atomic():
+            User.objects.create_user(
+                username=user.username.swapcase(), email='unique@example.com', password='Hunter2pass',
+            )
+
+    def test_database_rejects_case_insensitive_email_collision(self, user):
+        User = get_user_model()
+        with pytest.raises(IntegrityError), transaction.atomic():
+            User.objects.create_user(
+                username='unique_name', email=user.email.swapcase(), password='Hunter2pass',
+            )
 
 
 @pytest.mark.django_db
@@ -116,7 +156,19 @@ class TestVerify:
         # Should not leak whether the email exists.
         r = client.post('/api/auth/verify/', {'email': 'nope@example.com', 'code': '123456'}, format='json')
         assert r.status_code == 400
-        assert r.json()['error'] == 'Invalid email or code.'
+        assert r.json()['error'] == 'Invalid or expired email or code.'
+
+    def test_known_and_unknown_email_have_identical_wrong_code_response(self, client):
+        client.post('/api/auth/register/', {
+            'username': 'newuser', 'email': 'new@example.com', 'password': 'Hunter2pass',
+        }, format='json')
+        known = client.post(
+            '/api/auth/verify/', {'email': 'new@example.com', 'code': '000000'}, format='json',
+        )
+        unknown = client.post(
+            '/api/auth/verify/', {'email': 'nope@example.com', 'code': '000000'}, format='json',
+        )
+        assert (known.status_code, known.json()) == (unknown.status_code, unknown.json())
 
     def test_code_format_must_be_6_digits(self, client):
         r = client.post('/api/auth/verify/', {'email': 'a@b.com', 'code': 'abcdef'}, format='json')
@@ -175,6 +227,13 @@ class TestPasswordReset:
         assert mail.outbox == []
         assert 'If an account exists' in r.json()['message']
 
+    def test_forgot_mail_failure_is_generic_and_rolls_back_code(self, client, user):
+        with patch('chat.views._send_password_reset_email', side_effect=RuntimeError('mail unavailable')):
+            known = client.post('/api/auth/forgot/', {'email': user.email}, format='json')
+        unknown = client.post('/api/auth/forgot/', {'email': 'nope@example.com'}, format='json')
+        assert (known.status_code, known.json()) == (unknown.status_code, unknown.json())
+        assert not PasswordReset.objects.filter(user=user).exists()
+
     def test_reset_with_correct_code(self, client, user):
         code = self._seed_reset(client, user)
         r = client.post('/api/auth/reset/', {
@@ -197,7 +256,17 @@ class TestPasswordReset:
             'email': 'nope@example.com', 'code': '123456', 'password': 'Hunter2pass',
         }, format='json')
         assert r.status_code == 400
-        assert r.json()['error'] == 'Invalid email or code.'
+        assert r.json()['error'] == 'Invalid or expired email or code.'
+
+    def test_known_and_unknown_email_have_identical_wrong_code_response(self, client, user):
+        self._seed_reset(client, user)
+        known = client.post('/api/auth/reset/', {
+            'email': user.email, 'code': '000000', 'password': 'NewHunter2pass',
+        }, format='json')
+        unknown = client.post('/api/auth/reset/', {
+            'email': 'nope@example.com', 'code': '000000', 'password': 'NewHunter2pass',
+        }, format='json')
+        assert (known.status_code, known.json()) == (unknown.status_code, unknown.json())
 
     def test_reset_expired_code(self, client, user):
         self._seed_reset(client, user)
@@ -209,6 +278,37 @@ class TestPasswordReset:
         }, format='json')
         assert r.status_code == 400
         assert not PasswordReset.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+class TestResendVerification:
+    def test_cooldown_and_unknown_email_have_identical_response(self, client):
+        client.post('/api/auth/register/', {
+            'username': 'newuser', 'email': 'new@example.com', 'password': 'Hunter2pass',
+        }, format='json')
+        known = client.post('/api/auth/resend/', {'email': 'new@example.com'}, format='json')
+        unknown = client.post('/api/auth/resend/', {'email': 'nope@example.com'}, format='json')
+        assert (known.status_code, known.json()) == (unknown.status_code, unknown.json())
+        assert len(mail.outbox) == 1
+
+    def test_mail_failure_is_generic_and_preserves_previous_code(self, client):
+        client.post('/api/auth/register/', {
+            'username': 'newuser', 'email': 'new@example.com', 'password': 'Hunter2pass',
+        }, format='json')
+        verification = EmailVerification.objects.get()
+        verification.sent_at = timezone.now() - timedelta(minutes=2)
+        verification.save(update_fields=['sent_at'])
+        previous_hash = verification.code_hash
+        previous_sent_at = verification.sent_at
+
+        with patch('chat.views._send_verification_email', side_effect=RuntimeError('mail unavailable')):
+            failed = client.post('/api/auth/resend/', {'email': 'new@example.com'}, format='json')
+        unknown = client.post('/api/auth/resend/', {'email': 'nope@example.com'}, format='json')
+
+        verification.refresh_from_db()
+        assert (failed.status_code, failed.json()) == (unknown.status_code, unknown.json())
+        assert verification.code_hash == previous_hash
+        assert verification.sent_at == previous_sent_at
 
 
 @pytest.mark.django_db

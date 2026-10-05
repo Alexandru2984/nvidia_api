@@ -94,11 +94,11 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | Method | Path | Body | Auth | Notes |
 |---|---|---|---|---|
 | GET | `/auth/me/` | — | open | Sets `csrftoken` cookie. Returns `{username}` or `{username: null}`. |
-| POST | `/auth/register/` | `{username, email, password}` | open | Creates inactive user, emails OTP. |
-| POST | `/auth/verify/` | `{email, code}` | open | 6-digit code; logs user in on success. |
-| POST | `/auth/resend/` | `{email}` | open | 60s cooldown; never leaks whether the email exists. |
-| POST | `/auth/forgot/` | `{email}` | open | Always returns generic success; emails a 6-digit reset code if account exists. |
-| POST | `/auth/reset/` | `{email, code, password}` | open | Validates the code, applies Django's password validators, logs the user in. |
+| POST | `/auth/register/` | `{username, email, password}` | open | Creates an inactive user and emails an OTP; valid duplicate identifiers receive the same generic response. |
+| POST | `/auth/verify/` | `{email, code}` | open | 6-digit code; failures do not disclose account/code state; logs the user in on success. |
+| POST | `/auth/resend/` | `{email}` | open | Silent 60s cooldown with a generic response for unknown, throttled, or mail-failure cases. |
+| POST | `/auth/forgot/` | `{email}` | open | Always returns generic success; emails a 6-digit reset code if eligible. |
+| POST | `/auth/reset/` | `{email, code, password}` | open | Code-state failures are generic; applies Django's password validators after code verification. |
 | POST | `/auth/login/` | `{username, password}` | open | Rejects inactive users. |
 | POST | `/auth/logout/` | — | session | |
 | POST | `/auth/password/` | `{current_password, new_password}` | session | Keeps this session, revokes all others. |
@@ -207,7 +207,12 @@ and [roadmap](docs/ROADMAP.md).
 - Conversations are FK'd to the user with `on_delete=CASCADE` — deleting a user deletes their chats.
 - Cross-user access on `/api/conversations/<id>/` returns `404`, not `403`, to avoid leaking which IDs exist.
 - OTP code is HMAC-SHA256 hashed (peppered with `SECRET_KEY`) before storage. TTL 30 min. Six wrong attempts invalidates the code.
-- Resend has a 60s server-side cooldown, returning `429` with `resend_available_in` so the frontend can sync the timer.
+- Resend and password recovery have a 60s server-side cooldown. Eligible,
+  ineligible, cooling-down, and mail-failure requests deliberately return the
+  same public response so account and code state cannot be enumerated.
+- Registration returns the same success shape for available and existing valid
+  identifiers. Verification/reset failures do not distinguish unknown accounts,
+  missing codes, expired codes, exhausted attempts, or wrong codes.
 - Email verification gates registration. New registrations are limited per IP and
   use a honeypot, but a durable cross-process limiter plus challenge/invite mode is
   still required before opening registration to higher-volume traffic.
