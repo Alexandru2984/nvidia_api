@@ -14,9 +14,14 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   database role and app-owned media/cache. Keep this invariant in deployment
   checks and move secrets to systemd credentials during a future rotation.
 - **Durable abuse and budget controls:** PostgreSQL-backed daily request budgets
-  per user and globally, plus a configuration kill-switch, are shipped. Add token
-  and monetary spend budgets, registration challenge or invite mode, and an admin
-  override/audit trail; move burst throttles to Redis/PostgreSQL before scaling.
+  per user and globally, actual provider token accounting, fail-closed concurrent
+  token reservations, and a configuration kill-switch are shipped. Add a
+  contract/GPU-based monetary spend budget, registration challenge or invite
+  mode, and an admin override/audit trail; move burst throttles to
+  Redis/PostgreSQL before scaling.
+- **Provider entitlement:** confirm and record the NVIDIA production license or
+  restrict the service to private evaluation use. Map the contractual/GPU cost
+  model into alerts and a hard monetary circuit breaker.
 - **Protected administration:** password-only Django admin access is blocked;
   staff must verify 2FA through the main application, and valid/denied access is
   monitored. Also place `/admin/` behind Cloudflare Access or a VPN, minimize

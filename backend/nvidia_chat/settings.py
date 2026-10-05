@@ -186,6 +186,11 @@ AI_USER_DAILY_CHAT_LIMIT = _nonnegative_int_env('AI_USER_DAILY_CHAT_LIMIT', 100)
 AI_USER_DAILY_IMAGE_LIMIT = _nonnegative_int_env('AI_USER_DAILY_IMAGE_LIMIT', 10)
 AI_GLOBAL_DAILY_CHAT_LIMIT = _nonnegative_int_env('AI_GLOBAL_DAILY_CHAT_LIMIT', 500)
 AI_GLOBAL_DAILY_IMAGE_LIMIT = _nonnegative_int_env('AI_GLOBAL_DAILY_IMAGE_LIMIT', 50)
+AI_USER_DAILY_TOKEN_LIMIT = _nonnegative_int_env('AI_USER_DAILY_TOKEN_LIMIT', 500_000)
+AI_GLOBAL_DAILY_TOKEN_LIMIT = _nonnegative_int_env('AI_GLOBAL_DAILY_TOKEN_LIMIT', 2_500_000)
+# Reserved atomically before each streamed request, then replaced with the
+# provider's actual usage. A missing usage chunk stays reserved (fail closed).
+AI_CHAT_TOKEN_RESERVATION = _nonnegative_int_env('AI_CHAT_TOKEN_RESERVATION', 32_768)
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024

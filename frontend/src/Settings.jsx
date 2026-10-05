@@ -378,6 +378,15 @@ function StoragePanel() {
           <progress aria-label="Daily generated images used" value={usage.ai_today.image_requests}
             max={Math.max(1, usage.ai_today.image_limit)} />
         </label>
+        <label>
+          <span>Chat tokens</span>
+          <strong>{(usage.ai_today.token_budget_used || 0).toLocaleString()} / {(usage.ai_today.token_limit || 0).toLocaleString()}</strong>
+          <progress aria-label="Daily chat token budget used" value={usage.ai_today.token_budget_used || 0}
+            max={Math.max(1, usage.ai_today.token_limit || 0)} />
+          {usage.ai_today.reserved_tokens > 0 && <small className="muted">
+            Includes {usage.ai_today.reserved_tokens.toLocaleString()} tokens reserved for active or unmetered requests.
+          </small>}
+        </label>
         <p className="muted">Resets at {new Date(usage.ai_today.resets_at).toLocaleString()} (UTC budget window).</p>
       </div>}
       <div className="file-library">

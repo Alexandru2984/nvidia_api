@@ -76,8 +76,9 @@ artifacts including TOTP material. Verify consequences before rotation and requi
 2. Apply migrations/configuration, start the backend, validate nginx/systemd, and
    probe health, authentication, private downloads, CSRF, rate limits, and denial
    of `/media/` before reopening traffic.
-3. Watch authentication, provider spend, error rates, and database changes at
-   elevated sensitivity for at least 24 hours.
+3. Watch authentication, request/token reservations, unmetered provider calls,
+   contractual/GPU spend, error rates, and database changes at elevated
+   sensitivity for at least 24 hours.
 4. Write a blameless timeline, root cause, affected records, control failures,
    costs, and owners/dates for corrective actions.
 

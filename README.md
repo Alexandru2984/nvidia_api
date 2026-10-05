@@ -122,7 +122,17 @@ Chat, regeneration, and image calls reserve daily PostgreSQL-backed counters
 before contacting NVIDIA. Limits apply per user and globally across all gunicorn
 workers; exhausted user budgets return `429`, while a service-wide budget returns
 `503`, both with a UTC reset time. Set `AI_GENERATION_ENABLED=False` and restart
-the backend for an immediate provider circuit breaker.
+the backend for an immediate provider circuit breaker. Streamed chat calls also
+reserve a conservative token allowance atomically; the terminal NVIDIA `usage`
+chunk replaces that reservation with actual prompt/completion tokens. Missing or
+malformed usage fails closed until the UTC reset and is security-monitored. Tune
+`AI_USER_DAILY_TOKEN_LIMIT`, `AI_GLOBAL_DAILY_TOKEN_LIMIT`, and
+`AI_CHAT_TOKEN_RESERVATION` for the deployment's capacity.
+
+The token limit is a consumption/capacity control, not a fabricated currency
+estimate. NVIDIA documents production NIM pricing around licensing/GPU capacity,
+so monetary enforcement must use the owner's actual contract or infrastructure
+cost rather than an assumed per-token price.
 
 ## Model catalog
 
@@ -136,6 +146,9 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
 
 - `python manage.py probe_models` probes every catalog model with a 1-token completion (with one retry for cold starts) and writes the private runtime file `backend/.cache/model_status.json`.
 - `/api/models/` subtracts the unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
+- Conversation creation uses that same fallback, while explicit selection,
+  sending, or regeneration with a retired model is rejected before consuming a
+  request/token reservation.
 - `aichat-model-probe.timer` refreshes it weekly. Run the command manually after NVIDIA announces model changes.
 
 Adding brand-new models still means editing `chat/models_catalog.py` (id, name, vendor, context, vision flag).

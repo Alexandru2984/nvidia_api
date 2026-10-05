@@ -82,6 +82,8 @@ def evaluate(backup_dir, restore_log, journal, now=None):
     auth_failures = journal.count('event=auth_failed')
     rate_limits = journal.count('event=rate_limit')
     admin_denied = journal.count('event=admin_access_denied')
+    unmetered_usage = journal.count('event=ai_usage_unmetered')
+    token_overruns = journal.count('event=ai_token_reservation_exceeded')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
     if auth_failures >= int(os.environ.get('AUTH_FAILURE_ALERT_THRESHOLD', '10')):
         issues['auth_burst'] = f'{auth_failures} failed logins were detected in six minutes.'
@@ -95,6 +97,14 @@ def evaluate(backup_dir, restore_log, journal, now=None):
         issues['two_factor_disabled'] = 'Two-factor authentication was disabled for an account.'
     if 'event=ai_budget_blocked scope=global' in journal:
         issues['global_budget'] = 'The service-wide daily AI budget was exhausted.'
+    if unmetered_usage >= int(os.environ.get('UNMETERED_USAGE_ALERT_THRESHOLD', '3')):
+        issues['unmetered_ai_usage'] = (
+            f'{unmetered_usage} AI calls had no valid provider usage in six minutes.'
+        )
+    if token_overruns:
+        issues['token_reservation_overrun'] = (
+            f'{token_overruns} AI calls exceeded their token reservation in six minutes.'
+        )
     if internal_errors >= int(os.environ.get('INTERNAL_ERROR_ALERT_THRESHOLD', '3')):
         issues['error_burst'] = f'{internal_errors} backend errors were detected in six minutes.'
     return issues

@@ -1,11 +1,13 @@
 """Tests for conversation CRUD, send_message streaming, ownership."""
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
 
 from chat.models import Attachment, Conversation, Message
 from chat.models_catalog import DEFAULT_MODEL_ID, MODEL_IDS, VISION_MODEL_IDS
+from chat.views import _stream_nvidia
 
 
 def _consume_sse(response):
@@ -40,6 +42,23 @@ class TestConversationCreate:
     def test_create_rejects_unknown_model(self, auth_client):
         r = auth_client.post('/api/conversations/', {'model_id': 'fake/model'}, format='json')
         assert r.status_code == 400
+
+    @patch('chat.views.unavailable_model_ids', return_value={DEFAULT_MODEL_ID})
+    def test_default_falls_back_when_catalog_default_is_down(self, _unavailable, auth_client):
+        r = auth_client.post('/api/conversations/', {}, format='json')
+        assert r.status_code == 201
+        assert r.json()['model_id'] != DEFAULT_MODEL_ID
+
+    @patch('chat.views.unavailable_model_ids', return_value={DEFAULT_MODEL_ID})
+    def test_explicit_unavailable_model_is_rejected(self, _unavailable, auth_client):
+        r = auth_client.post('/api/conversations/', {'model_id': DEFAULT_MODEL_ID}, format='json')
+        assert r.status_code == 409
+
+    @patch('chat.views.unavailable_model_ids', return_value=set(MODEL_IDS))
+    def test_create_fails_when_all_models_are_unavailable(self, _unavailable, auth_client):
+        r = auth_client.post('/api/conversations/', {}, format='json')
+        assert r.status_code == 503
+        assert not Conversation.objects.exists()
 
     def test_create_truncates_long_title(self, auth_client):
         r = auth_client.post('/api/conversations/', {'title': 'x' * 500}, format='json')
@@ -76,6 +95,18 @@ class TestConversationDetail:
         r = auth_client.patch(f'/api/conversations/{convo.id}/', {'model_id': 'fake/model'}, format='json')
         assert r.status_code == 400
 
+    @patch('chat.views.unavailable_model_ids', return_value={DEFAULT_MODEL_ID})
+    def test_patch_unavailable_model_rejected(self, _unavailable, auth_client, convo):
+        replacement = next(model for model in MODEL_IDS if model != DEFAULT_MODEL_ID)
+        convo.model_id = replacement
+        convo.save(update_fields=['model_id'])
+        r = auth_client.patch(
+            f'/api/conversations/{convo.id}/', {'model_id': DEFAULT_MODEL_ID}, format='json',
+        )
+        assert r.status_code == 409
+        convo.refresh_from_db()
+        assert convo.model_id == replacement
+
     def test_delete(self, auth_client, convo):
         r = auth_client.delete(f'/api/conversations/{convo.id}/')
         assert r.status_code == 204
@@ -100,6 +131,56 @@ def _stream_error(*args, **kwargs):
 def _stream_empty(*args, **kwargs):
     return
     yield  # pragma: no cover  (make this a generator)
+
+
+class TestNvidiaStreamParser:
+    @patch('chat.views.requests.post')
+    def test_decodes_byte_sse_and_requests_terminal_usage(self, mock_post):
+        response = MagicMock(status_code=200)
+        response.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"hello"}}]}',
+            b'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}',
+            b'data: [DONE]',
+        ]
+        mock_post.return_value.__enter__.return_value = response
+
+        events = list(_stream_nvidia('test/model', [{'role': 'user', 'content': 'hi'}]))
+
+        assert events == [
+            ('chunk', 'hello'),
+            ('usage', {'prompt_tokens': 2, 'completion_tokens': 1, 'total_tokens': 3}),
+        ]
+        payload = mock_post.call_args.kwargs['json']
+        assert payload['stream_options'] == {'include_usage': True}
+
+    @patch('chat.views.requests.post')
+    def test_rejected_request_emits_zero_usage_to_release_reservation(self, mock_post):
+        response = MagicMock(status_code=410)
+        mock_post.return_value.__enter__.return_value = response
+        assert list(_stream_nvidia('retired/model', [])) == [
+            ('usage', {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}),
+            ('error', 'NVIDIA API error (410). Try again later.'),
+        ]
+
+    @patch('chat.views._stream_nvidia')
+    def test_successful_stream_reconciles_token_reservation(
+        self, mock_stream, auth_client, convo, user, settings,
+    ):
+        settings.AI_CHAT_TOKEN_RESERVATION = 100
+        settings.AI_USER_DAILY_TOKEN_LIMIT = 10_000
+        settings.AI_GLOBAL_DAILY_TOKEN_LIMIT = 20_000
+        mock_stream.return_value = iter([
+            ('chunk', 'ok'),
+            ('usage', {'prompt_tokens': 8, 'completion_tokens': 2, 'total_tokens': 10}),
+        ])
+
+        response = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/', {'content': 'hi'}, format='json',
+        )
+        _consume_sse(response)
+
+        usage = user.daily_ai_usage.get(day=timezone.localdate())
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.reserved_tokens) == (8, 2, 0)
 
 
 @pytest.mark.django_db
@@ -200,6 +281,17 @@ class TestSendMessage:
         r = auth_client.post(f'/api/conversations/{c.id}/messages/', {'content': 'hi'}, format='json')
         assert r.status_code == 404
 
+    @patch('chat.views.unavailable_model_ids', return_value={DEFAULT_MODEL_ID})
+    def test_unavailable_model_blocks_before_budget_or_message_write(
+        self, _unavailable, auth_client, convo, user,
+    ):
+        r = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/', {'content': 'hi'}, format='json',
+        )
+        assert r.status_code == 409
+        assert not Message.objects.filter(conversation=convo).exists()
+        assert not user.daily_ai_usage.exists()
+
     def test_image_on_non_vision_model_400(self, auth_client, user, convo):
         # convo is on a non-vision default model. Upload image, attach, expect 400.
         png = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489')
@@ -263,6 +355,13 @@ class TestModelsList:
         assert 'models' in body
         assert 'default' in body
         assert body['default'] == DEFAULT_MODEL_ID
+
+    @patch('chat.views.unavailable_model_ids', return_value=set(MODEL_IDS))
+    def test_all_models_unavailable_has_no_default(self, _unavailable, auth_client):
+        r = auth_client.get('/api/models/')
+        assert r.status_code == 200
+        assert r.json()['models'] == []
+        assert r.json()['default'] is None
 
     def test_unauthenticated_blocked(self, client):
         r = client.get('/api/models/')

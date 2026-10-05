@@ -60,12 +60,13 @@ upstream responses are now logged server-side while clients receive generic text
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
-| A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps, PostgreSQL daily request budgets per-user/globally, and a kill-switch | Add token/monetary provider-spend budgets and administrative override audit |
+| A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | IP/user throttles; uniform register/resend/verify/reset responses; silent cooldown/mail-failure handling; transactional code rollback; case-insensitive database uniqueness for usernames/emails | Add Turnstile or invite/approval mode; enforce mail and provider budgets; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, global budget, errors, backup and restore freshness; the sandboxed monitor alone receives journal-reader access after service separation | Add external retention and upload/provider-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness; the sandboxed monitor alone receives journal-reader access after service separation | Add external retention and upload/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA, with access alerts | Add Cloudflare Access/VPN and admin change-level audit records |
+| A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 
 ## Quantitative risk view
 
@@ -83,8 +84,9 @@ using it for a budget decision.
 The one-minute availability probe gives an outage MTTD near one minute when the
 alert path works. The security timer targets MTTD under six minutes for repeated
 login failures, unexpected admin access, rate-limit spikes, backup/restore
-failures, 2FA disable, backend error bursts, and global NVIDIA budget exhaustion.
-External log retention and finer provider-spend signals remain open. Target
+failures, 2FA disable, backend error bursts, missing provider usage, token
+reservation overruns, and global NVIDIA budget exhaustion. External log
+retention and contractual/GPU-spend signals remain open. Target
 containment time is 60 minutes after a confirmed high-severity alert.
 
 The response procedure is in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md). It must
@@ -98,7 +100,10 @@ timestamp and obtain appropriate legal/privacy review.
 
 - NVIDIA receives prompts, selected conversation context, and user-selected
   images/documents included in model calls. Confirm retention/training terms,
-  regional processing, DPA availability, and incident notification obligations.
+  regional processing, DPA availability, incident notification obligations, and
+  production entitlement. NVIDIA's published FAQ describes Developer Program
+  hosted endpoints as prototyping access and production NIM use as requiring an
+  NVIDIA AI Enterprise license; no such entitlement is evidenced in-repository.
 - Cloudflare carries public traffic through Tunnel and may process network and
   request metadata. Review account security, access logs, DPA, and breach terms.
 - The self-hosted mail system handles addresses and OTP/reset messages. Restrict
@@ -111,9 +116,10 @@ is required before describing those controls as complete.
 
 ## Verification evidence
 
-- 238 backend tests pass, including ownership, CSRF, concurrency, recovery,
-  anti-enumeration, transactional mail-failure, payload, and generated-image
-  boundary tests.
+- 259 backend tests pass, including ownership, CSRF, concurrency, recovery,
+  anti-enumeration, transactional mail-failure, provider token reconciliation,
+  fail-closed usage validation, SSE byte parsing, retired-model handling,
+  payload, and generated-image boundary tests.
 - Frontend lint/build, nine responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
@@ -157,7 +163,8 @@ is required before describing those controls as complete.
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
-immediately afterward; token/monetary budgets, external security-log retention,
+immediately afterward; actual-token budgets are now implemented. Contract/GPU
+monetary enforcement and entitlement evidence, external security-log retention,
 an admin perimeter control, and encrypted off-site backup remain open.
 
 ## References
@@ -166,3 +173,4 @@ an admin perimeter control, and encrypted off-site backup remain open.
 - [django-ratelimit security considerations](https://django-ratelimit.readthedocs.io/en/stable/security.html)
 - [GDPR consolidated text](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
 - [ICO personal data breach guidance](https://ico.org.uk/for-organisations/report-a-breach/personal-data-breach/personal-data-breaches-a-guide/)
+- [NVIDIA NIM product and licensing FAQ](https://docs.api.nvidia.com/nim/docs/product)

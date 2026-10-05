@@ -2,8 +2,9 @@
 from unittest.mock import patch
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
-from chat.models import Conversation, Message
+from chat.models import Attachment, Conversation, Message
 from chat.models_catalog import DEFAULT_MODEL_ID
 
 
@@ -36,10 +37,8 @@ class TestExportConversation:
         assert f'`{DEFAULT_MODEL_ID}`' in body
 
     def test_export_includes_attachment_filenames(self, auth_client, user, populated_convo):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        from chat.models import Attachment
         first_user_msg = populated_convo.messages.filter(role='user').first()
-        a = Attachment.objects.create(
+        Attachment.objects.create(
             user=user,
             file=SimpleUploadedFile('chart.png', b'png', content_type='image/png'),
             original_name='chart.png', mime_type='image/png', size=3, kind='image',
@@ -112,6 +111,16 @@ def _stream_empty(*args, **kwargs):
 
 @pytest.mark.django_db
 class TestRegenerateMessage:
+    @patch('chat.views.unavailable_model_ids', return_value={DEFAULT_MODEL_ID})
+    def test_unavailable_model_does_not_truncate_messages(
+        self, _unavailable, auth_client, populated_convo,
+    ):
+        target = populated_convo.messages.filter(role='assistant').last()
+        ids_before = list(populated_convo.messages.values_list('id', flat=True))
+        r = auth_client.post(f'/api/messages/{target.id}/regenerate/')
+        assert r.status_code == 409
+        assert list(populated_convo.messages.values_list('id', flat=True)) == ids_before
+
     @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
     def test_regenerate_assistant_replaces_it(self, mock_stream, auth_client, populated_convo):
         # 4 messages: user, assistant, user, assistant. Regenerate the last assistant.

@@ -94,6 +94,10 @@ class DailyAIUsage(models.Model):
     chat_requests = models.PositiveIntegerField(default=0)
     image_requests = models.PositiveIntegerField(default=0)
     prompt_characters = models.PositiveBigIntegerField(default=0)
+    prompt_tokens = models.PositiveBigIntegerField(default=0)
+    completion_tokens = models.PositiveBigIntegerField(default=0)
+    reserved_tokens = models.PositiveBigIntegerField(default=0)
+    unmetered_chat_requests = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -108,6 +112,10 @@ class GlobalAIUsage(models.Model):
     chat_requests = models.PositiveIntegerField(default=0)
     image_requests = models.PositiveIntegerField(default=0)
     prompt_characters = models.PositiveBigIntegerField(default=0)
+    prompt_tokens = models.PositiveBigIntegerField(default=0)
+    completion_tokens = models.PositiveBigIntegerField(default=0)
+    reserved_tokens = models.PositiveBigIntegerField(default=0)
+    unmetered_chat_requests = models.PositiveIntegerField(default=0)
 
 
 class Message(models.Model):

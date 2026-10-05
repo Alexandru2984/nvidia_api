@@ -66,7 +66,12 @@ from .twofactor import (
     mark_staff_2fa_verified,
     verify_for_login,
 )
-from .usage import next_reset, reserve_ai_request, user_usage_snapshot
+from .usage import (
+    finalize_chat_usage,
+    next_reset,
+    reserve_ai_request,
+    user_usage_snapshot,
+)
 
 log = logging.getLogger(__name__)
 
@@ -79,8 +84,14 @@ def _rate_limited(request):
     return Response({'error': 'Too many requests. Slow down and try again.'}, status=429)
 
 
-def _reserve_provider_call(request, kind, prompt_characters=0):
-    reason = reserve_ai_request(request.user, kind, prompt_characters)
+def _reserve_provider_call(request, kind, prompt_characters=0, token_reservation=0, day=None):
+    reason = reserve_ai_request(
+        request.user,
+        kind,
+        prompt_characters,
+        token_reservation=token_reservation,
+        day=day,
+    )
     if reason is None:
         return None
     if reason == 'disabled':
@@ -92,14 +103,19 @@ def _reserve_provider_call(request, kind, prompt_characters=0):
         )
 
     reset, retry_after = next_reset()
-    is_global = reason == 'global_daily_limit'
+    is_global = reason in {'global_daily_limit', 'global_daily_token_limit'}
+    is_token_limit = reason in {'global_daily_token_limit', 'user_daily_token_limit'}
     security_log.warning('event=ai_budget_blocked scope=%s kind=%s user_id=%s',
                          'global' if is_global else 'user', kind, request.user.pk)
     response = Response({
         'error': (
             'The service-wide daily AI budget has been reached. Try again after the UTC reset.'
             if is_global else
-            f'Your daily {kind} generation limit has been reached. Try again after the UTC reset.'
+            (
+                'Your daily AI token budget has been reached. Try again after the UTC reset.'
+                if is_token_limit else
+                f'Your daily {kind} generation limit has been reached. Try again after the UTC reset.'
+            )
         ),
         'code': reason,
         'resets_at': reset.isoformat().replace('+00:00', 'Z'),
@@ -620,10 +636,24 @@ def list_models(request):
     down = unavailable_model_ids()
     models = [m for m in NVIDIA_MODELS if m['id'] not in down]
     default = DEFAULT_MODEL_ID
-    if default in down and models:
-        default = models[0]['id']
+    if default in down:
+        default = models[0]['id'] if models else None
     return Response({'models': models, 'default': default,
                      'availability_checked_at': get_status().get('checked_at')})
+
+
+def _available_default_model():
+    down = unavailable_model_ids()
+    if DEFAULT_MODEL_ID not in down:
+        return DEFAULT_MODEL_ID
+    return next((model['id'] for model in NVIDIA_MODELS if model['id'] not in down), None)
+
+
+def _unavailable_model_response():
+    return Response(
+        {'error': 'This model is currently unavailable. Choose another model.'},
+        status=status.HTTP_409_CONFLICT,
+    )
 
 
 @api_view(['GET'])
@@ -644,9 +674,14 @@ def conversations(request):
 
     if (r := _rate_limited(request)): return r
     title = (request.data.get('title') or 'New Chat').strip()[:200] or 'New Chat'
-    model_id = request.data.get('model_id') or DEFAULT_MODEL_ID
+    requested_model = request.data.get('model_id')
+    model_id = requested_model or _available_default_model()
+    if model_id is None:
+        return Response({'error': 'No chat models are currently available.'}, status=503)
     if model_id not in MODEL_IDS:
         return Response({'error': f'Unknown model_id: {model_id}'}, status=status.HTTP_400_BAD_REQUEST)
+    if requested_model and model_id in unavailable_model_ids():
+        return _unavailable_model_response()
     convo = Conversation.objects.create(user=request.user, title=title, model_id=model_id)
     return Response(ConversationDetailSerializer(convo).data, status=status.HTTP_201_CREATED)
 
@@ -669,6 +704,8 @@ def conversation_detail(request, pk):
     if model_id is not None:
         if model_id not in MODEL_IDS:
             return Response({'error': f'Unknown model_id: {model_id}'}, status=status.HTTP_400_BAD_REQUEST)
+        if model_id in unavailable_model_ids():
+            return _unavailable_model_response()
         convo.model_id = model_id
     if 'system_prompt' in request.data:
         sp = (request.data.get('system_prompt') or '').strip()
@@ -803,6 +840,7 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
         'max_tokens': max_tokens,
         'temperature': temperature,
         'stream': True,
+        'stream_options': {'include_usage': True},
     }
     headers = {
         'Authorization': f'Bearer {settings.NVIDIA_API_KEY}',
@@ -813,11 +851,16 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
         with requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=180, stream=True) as resp:
             if resp.status_code >= 400:
                 log.warning('NVIDIA chat API returned HTTP %s', resp.status_code)
+                # A rejected request did not start generation, so release the
+                # token reservation instead of treating it as unmetered spend.
+                yield ('usage', {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0})
                 yield ('error', f'NVIDIA API error ({resp.status_code}). Try again later.')
                 return
             for line in resp.iter_lines(decode_unicode=True):
                 if not line:
                     continue
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8', errors='replace')
                 if not line.startswith('data:'):
                     continue
                 data = line[5:].strip()
@@ -913,6 +956,18 @@ def _sse(event):
     return f'data: {json.dumps(event)}\n\n'
 
 
+def _finalize_provider_usage(user_id, usage_day, token_reservation, usage):
+    try:
+        outcome = finalize_chat_usage(user_id, usage_day, token_reservation, usage)
+    except Exception:
+        log.exception('Failed to finalize AI token usage for user_id=%s', user_id)
+        return
+    if outcome == 'unmetered':
+        security_log.warning('event=ai_usage_unmetered user_id=%s', user_id)
+    elif outcome == 'overrun':
+        security_log.warning('event=ai_token_reservation_exceeded user_id=%s', user_id)
+
+
 def _save_assistant_reply(convo_id, reply_text, title_snippet=None):
     """Persist an assistant message and touch the conversation (setting the
     title from `title_snippet` if it's still the placeholder)."""
@@ -957,9 +1012,13 @@ def send_message(request, pk):
     if override_model:
         if override_model not in MODEL_IDS:
             return Response({'error': f'Unknown model_id: {override_model}'}, status=status.HTTP_400_BAD_REQUEST)
+        if override_model in unavailable_model_ids():
+            return _unavailable_model_response()
         if override_model != convo.model_id:
             convo.model_id = override_model
             convo.save(update_fields=['model_id'])
+    elif convo.model_id in unavailable_model_ids():
+        return _unavailable_model_response()
 
     has_images = any(a.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED) for a in attachments)
     if has_images and convo.model_id not in VISION_MODEL_IDS:
@@ -970,7 +1029,16 @@ def send_message(request, pk):
     prompt_characters = len(user_text) + sum(
         len(a.extracted_text or '') for a in attachments if a.kind == Attachment.KIND_DOCUMENT
     )
-    if (r := _reserve_provider_call(request, 'chat', prompt_characters)): return r
+    usage_day = timezone.localdate()
+    token_reservation = max(convo.max_tokens, settings.AI_CHAT_TOKEN_RESERVATION)
+    if (r := _reserve_provider_call(
+        request,
+        'chat',
+        prompt_characters,
+        token_reservation=token_reservation,
+        day=usage_day,
+    )):
+        return r
 
     user_msg = Message.objects.create(conversation=convo, role='user', content=user_text)
     for a in attachments:
@@ -983,6 +1051,7 @@ def send_message(request, pk):
         history.insert(0, {'role': 'system', 'content': convo.system_prompt})
 
     user_msg_id = user_msg.id
+    user_id = request.user.pk
     convo_id = convo.id
     model_id = convo.model_id
     gen_kwargs = {'max_tokens': convo.max_tokens, 'temperature': convo.temperature}
@@ -1018,6 +1087,8 @@ def send_message(request, pk):
                 Message.objects.filter(id=user_msg_id).delete()
             log.info('Stream aborted by client for convo=%s (%d chars kept)', convo_id, len(partial))
             raise
+        finally:
+            _finalize_provider_usage(user_id, usage_day, token_reservation, last_usage)
 
         if errored is not None:
             log.warning('NVIDIA stream error for convo=%s: %s', convo_id, errored)
@@ -1118,8 +1189,20 @@ def regenerate_message(request, pk):
     else:  # user
         anchor = target
 
+    if convo.model_id in unavailable_model_ids():
+        return _unavailable_model_response()
+
     # Check the durable provider budget before destructive truncation.
-    if (r := _reserve_provider_call(request, 'chat', len(anchor.content or ''))): return r
+    usage_day = timezone.localdate()
+    token_reservation = max(convo.max_tokens, settings.AI_CHAT_TOKEN_RESERVATION)
+    if (r := _reserve_provider_call(
+        request,
+        'chat',
+        len(anchor.content or ''),
+        token_reservation=token_reservation,
+        day=usage_day,
+    )):
+        return r
     if target.role == 'assistant':
         Message.objects.filter(conversation=convo, id__gte=target.id).delete()
     else:
@@ -1130,6 +1213,7 @@ def regenerate_message(request, pk):
         return Response({'error': 'Nothing to send.'}, status=400)
 
     convo_id = convo.id
+    user_id = request.user.pk
     model_id = convo.model_id
     gen_kwargs = {'max_tokens': convo.max_tokens, 'temperature': convo.temperature}
 
@@ -1153,6 +1237,8 @@ def regenerate_message(request, pk):
                 _save_assistant_reply(convo_id, partial)
             log.info('Regenerate aborted by client for convo=%s (%d chars kept)', convo_id, len(partial))
             raise
+        finally:
+            _finalize_provider_usage(user_id, usage_day, token_reservation, last_usage)
 
         if errored is not None:
             log.warning('NVIDIA regenerate error for convo=%s: %s', convo_id, errored)

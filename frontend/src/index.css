@@ -995,6 +995,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 .ai-usage-card h3 { margin: 0 0 12px; }
 .ai-usage-card label { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; margin-top: 10px; font-size: 13px; }
 .ai-usage-card label progress { grid-column: 1 / -1; }
+.ai-usage-card label small { grid-column: 1 / -1; line-height: 1.45; }
 .ai-usage-card > p:last-child { margin: 12px 0 0; font-size: 11px; }
 .file-library { max-height: 320px; overflow-y: auto; }
 .library-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
