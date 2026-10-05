@@ -137,6 +137,30 @@ class GlobalAIUsage(models.Model):
     unmetered_chat_requests = models.PositiveIntegerField(default=0)
 
 
+class AdminAuditEvent(models.Model):
+    """Privacy-minimized, append-only mirror of a Django admin LogEntry."""
+    ACTION_CHOICES = (
+        ('add', 'Add'),
+        ('change', 'Change'),
+        ('delete', 'Delete'),
+    )
+
+    occurred_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    admin_log_id = models.PositiveBigIntegerField(unique=True)
+    actor_user_id = models.PositiveBigIntegerField(db_index=True)
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    model_label = models.CharField(max_length=150, db_index=True)
+    object_ref = models.CharField(max_length=64)
+    changed_fields = models.JSONField(default=list)
+    integrity_tag = models.CharField(max_length=64)
+
+    class Meta:
+        ordering = ['-occurred_at']
+
+    def __str__(self):
+        return f'AdminAuditEvent(id={self.pk}, action={self.action}, model={self.model_label})'
+
+
 class Message(models.Model):
     ROLE_CHOICES = [
         ('user', 'user'),

@@ -5,5 +5,8 @@ class ChatConfig(AppConfig):
     name = 'chat'
 
     def ready(self):
-        # Register authentication security-event receivers.
-        from . import security_events  # noqa: F401
+        # Register authentication and privileged-change security receivers.
+        from . import (  # noqa: F401
+            admin_audit,
+            security_events,
+        )

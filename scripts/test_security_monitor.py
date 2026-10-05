@@ -36,7 +36,8 @@ class SecurityMonitorTests(unittest.TestCase):
             ['event=auth_failed'] * 10
             + ['event=rate_limit'] * 20
             + ['event=admin_access_denied'] * 10
-            + ['event=admin_access user_id=1', 'event=two_factor_disabled',
+            + ['event=admin_access user_id=1', 'event=admin_change action=change',
+               'event=admin_audit_integrity_failed', 'event=two_factor_disabled',
                'event=ai_budget_blocked scope=global',
                'event=ai_token_reservation_exceeded',
                'event=registration_invite_consumed',
@@ -49,6 +50,7 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertEqual(
             set(issues),
             {'auth_burst', 'rate_limit_burst', 'admin_probe_burst', 'admin_access',
+             'admin_change', 'admin_audit_integrity',
              'two_factor_disabled', 'global_budget', 'unmetered_ai_usage',
              'token_reservation_overrun', 'invite_rejection_burst',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},

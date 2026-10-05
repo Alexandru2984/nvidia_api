@@ -2,7 +2,7 @@ import pyotp
 import pytest
 from rest_framework.test import APIClient
 
-from chat.models import TwoFactor
+from chat.models import AdminAuditEvent, TwoFactor
 from chat.twofactor import STAFF_2FA_SESSION_KEY
 
 pytestmark = pytest.mark.django_db
@@ -70,3 +70,23 @@ def test_main_login_with_recovery_code_unlocks_staff_admin(auth_client, user):
 def test_admin_guard_does_not_affect_normal_api(auth_client):
     assert auth_client.get('/api/account/usage/').status_code == 200
 
+
+def test_verified_admin_change_creates_privacy_safe_audit(auth_client, user, convo):
+    _make_staff(user)
+    _enroll(auth_client)
+    response = auth_client.post(f'/admin/chat/conversation/{convo.pk}/change/', {
+        'user': user.pk,
+        'title': 'updated private title',
+        'model_id': convo.model_id,
+        'system_prompt': '',
+        'temperature': '0.7',
+        'max_tokens': '1024',
+        '_save': 'Save',
+    })
+
+    assert response.status_code == 302
+    event = AdminAuditEvent.objects.get()
+    assert event.action == 'change'
+    assert event.model_label == 'chat.conversation'
+    assert event.object_ref == str(convo.pk)
+    assert 'updated private title' not in str(event.changed_fields)

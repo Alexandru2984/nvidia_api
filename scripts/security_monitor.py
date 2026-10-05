@@ -29,7 +29,8 @@ JOURNAL_WINDOW = '6 minutes ago'
 
 def read_journal():
     result = subprocess.run(
-        ['journalctl', '--unit=aichat-backend.service', f'--since={JOURNAL_WINDOW}',
+        ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
+         f'--since={JOURNAL_WINDOW}',
          '--output=cat', '--no-pager', '--quiet'],
         capture_output=True, text=True, timeout=20, check=False,
     )
@@ -82,6 +83,7 @@ def evaluate(backup_dir, restore_log, journal, now=None):
     auth_failures = journal.count('event=auth_failed')
     rate_limits = journal.count('event=rate_limit')
     admin_denied = journal.count('event=admin_access_denied')
+    admin_changes = journal.count('event=admin_change')
     unmetered_usage = journal.count('event=ai_usage_unmetered')
     token_overruns = journal.count('event=ai_token_reservation_exceeded')
     invite_rejections = journal.count('event=registration_invite_rejected')
@@ -96,6 +98,10 @@ def evaluate(backup_dir, restore_log, journal, now=None):
         issues['admin_probe_burst'] = f'{admin_denied} denied admin requests were detected in six minutes.'
     if 'event=admin_access ' in journal or 'event=admin_login ' in journal:
         issues['admin_access'] = 'A successful Django admin access was detected.'
+    if admin_changes:
+        issues['admin_change'] = f'{admin_changes} privileged admin changes were detected.'
+    if 'event=admin_audit_integrity_failed' in journal:
+        issues['admin_audit_integrity'] = 'The privileged-change audit trail failed integrity checks.'
     if 'event=two_factor_disabled' in journal:
         issues['two_factor_disabled'] = 'Two-factor authentication was disabled for an account.'
     if 'event=ai_budget_blocked scope=global' in journal:

@@ -9,6 +9,7 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from chat.models import (
+    AdminAuditEvent,
     Attachment,
     Conversation,
     EmailVerification,
@@ -114,3 +115,20 @@ class TestCleanupAttachments:
         call_command('cleanup_attachments', stdout=StringIO())
 
         assert list(RegistrationInvite.objects.values_list('pk', flat=True)) == [keep.pk]
+
+    def test_dry_run_reports_clean_admin_audit_integrity(self, user, convo):
+        from django.contrib.admin.models import CHANGE, LogEntry
+
+        LogEntry.objects.log_actions(
+            user_id=user.pk,
+            queryset=[convo],
+            action_flag=CHANGE,
+            change_message=[{'changed': {'fields': ['Title']}}],
+            single_object=True,
+        )
+        output = StringIO()
+
+        call_command('cleanup_attachments', '--dry-run', stdout=output)
+
+        assert 'audit integrity: 0 invalid, 0 missing' in output.getvalue()
+        assert AdminAuditEvent.objects.count() == 1
