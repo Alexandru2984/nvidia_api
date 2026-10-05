@@ -134,9 +134,9 @@ the backend for an immediate provider circuit breaker.
 
 NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both directions, so availability is re-checked automatically:
 
-- `python manage.py probe_models` probes every catalog model with a 1-token completion (with one retry for cold starts) and writes `backend/model_status.json`.
+- `python manage.py probe_models` probes every catalog model with a 1-token completion (with one retry for cold starts) and writes the private runtime file `backend/.cache/model_status.json`.
 - `/api/models/` subtracts the unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
-- A weekly cron (Sunday 04:00) keeps the status fresh. Run the command manually after NVIDIA announces model changes.
+- `aichat-model-probe.timer` refreshes it weekly. Run the command manually after NVIDIA announces model changes.
 
 Adding brand-new models still means editing `chat/models_catalog.py` (id, name, vendor, context, vision flag).
 
@@ -144,16 +144,14 @@ Adding brand-new models still means editing `chat/models_catalog.py` (id, name, 
 
 The VPS pattern matches every other `*.micutu.com` app on this host:
 
-- **systemd unit** `/etc/systemd/system/aichat-backend.service` runs `gunicorn` (gthread workers, `--timeout 600` for SSE streams), binds `127.0.0.1:8501`, and reads `/home/micu/nvidia/backend/.env`. Apply the reviewed drop-in at `ops/systemd/hardening.conf`; migrating from the shared `micu` identity to an app-only identity remains a P0 task.
+- **systemd unit** `/etc/systemd/system/aichat-backend.service` runs `gunicorn` as the dedicated, non-login `aichat` identity (gthread workers, `--timeout 600` for SSE streams), binds `127.0.0.1:8501`, and reads `/home/micu/nvidia/backend/.env` through group-only access. The reviewed unit and sandbox are under `ops/systemd/`.
 - **nginx** vhost `/etc/nginx/sites-available/aichat.micutu.com` serves the built SPA from `/var/www/aichat.micutu.com/`, proxies authenticated API/admin traffic, and must return `404` for `/media/`. Private files are served only through `/api/attachments/<id>/download/`. The reviewed template is `ops/nginx/aichat.micutu.com.conf`.
 - **SSL** via certbot: `sudo certbot --nginx -d aichat.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
 - **PostgreSQL** runs on `127.0.0.1:5432`. Per-app DB and user as documented in the VPS pattern.
-- **Cron jobs**:
+- **Scheduled jobs**: application jobs run as `aichat` through the sandboxed
+  `aichat-maintenance.timer` and `aichat-model-probe.timer`. Host-level backup
+  jobs remain in the administrator's cron:
   ```cron
-  # orphan attachments + expired OTP rows (daily)
-  0 3 * * *  cd /home/micu/nvidia/backend && venv/bin/python manage.py cleanup_attachments
-  # NVIDIA model availability probe (weekly)
-  0 4 * * 0  cd /home/micu/nvidia/backend && venv/bin/python manage.py probe_models
   # Postgres backup, gzip, keeps newest 7 (daily)
   30 2 * * * /home/micu/nvidia/scripts/backup_db.sh
   # Isolated restore/integrity drill (weekly)
@@ -195,6 +193,25 @@ sudo install -o root -g root -m 0644 ops/systemd/aichat-security-monitor.{servic
 sudo systemctl daemon-reload
 sudo systemctl enable --now aichat-security-monitor.timer
 ```
+
+One-time service-identity bootstrap (take configuration and database backups
+first):
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin aichat
+sudo chgrp aichat backend/.env && sudo chmod 0640 backend/.env
+sudo chown -R aichat:aichat backend/media backend/.cache
+sudo chmod 0700 backend/media backend/.cache
+sudo install -o root -g root -m 0644 ops/systemd/aichat-backend.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/hardening.conf /etc/systemd/system/aichat-backend.service.d/
+sudo install -o root -g root -m 0644 ops/systemd/aichat-{maintenance,model-probe}.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now aichat-maintenance.timer aichat-model-probe.timer
+sudo systemctl restart aichat-backend.service
+```
+
+Run production management commands that touch runtime files as `aichat`. Source
+updates and dependency installation remain owned by the deployment administrator.
 
 Take a recoverable copy of each live configuration before replacing it. After
 deployment, check service logs, authentication/CSRF, a private attachment download,

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AI Chat Hub cleanup daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=5m
+Unit=aichat-maintenance.service
+
+[Install]
+WantedBy=timers.target

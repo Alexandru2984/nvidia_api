@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Chat Hub backend
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=aichat
+Group=aichat
+WorkingDirectory=/home/micu/nvidia/backend
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/micu/nvidia/backend/venv/bin/gunicorn nvidia_chat.wsgi:application --bind 127.0.0.1:8501 --worker-class gthread --workers 3 --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile - --error-logfile -
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

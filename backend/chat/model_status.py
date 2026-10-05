@@ -1,11 +1,11 @@
 """Runtime availability of catalog models.
 
-`manage.py probe_models` (cron, weekly) probes every catalog model against the
+`manage.py probe_models` (systemd timer, weekly) probes every catalog model against the
 live NVIDIA API and writes the result here as JSON. `/api/models/` subtracts
 the unavailable set so dead models never reach the picker, without a deploy.
 
-The file lives outside the repo state on purpose: the catalog says what we
-*support*, this file says what NVIDIA currently *serves*.
+The file lives in the private runtime cache rather than deployable source: the
+catalog says what we *support*, this file says what NVIDIA currently *serves*.
 """
 import json
 from pathlib import Path
@@ -14,7 +14,7 @@ from django.conf import settings
 
 
 def _status_file() -> Path:
-    return Path(getattr(settings, 'MODEL_STATUS_FILE', Path(settings.BASE_DIR) / 'model_status.json'))
+    return Path(getattr(settings, 'MODEL_STATUS_FILE', Path(settings.BASE_DIR) / '.cache/model_status.json'))
 
 
 _cache = {'mtime': None, 'data': {}}

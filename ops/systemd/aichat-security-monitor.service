@@ -6,6 +6,9 @@ After=network-online.target aichat-backend.service
 Type=oneshot
 User=micu
 Group=micu
+# The backend runs as `aichat`; grant journal visibility only inside this
+# sandboxed monitor process, not to the interactive `micu` account.
+SupplementaryGroups=systemd-journal
 ExecStart=/usr/local/libexec/aichat-security-monitor
 UMask=0077
 StateDirectory=aichat-security-monitor

@@ -9,9 +9,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Verified rollout:** apply the committed nginx/systemd templates, deny direct
   media access, correct existing backup modes, validate health and rollback, and
   capture evidence in the deployment log.
-- **Dedicated service identity:** run as an `aichat` Unix user with an app-only
-  database role, media/cache directories, mail credential, and NVIDIA key. Remove
-  cross-project read access.
+- **Dedicated service identity:** the web process and application maintenance
+  timers run as the non-login `aichat` Unix user, with an unprivileged app-only
+  database role and app-owned media/cache. Keep this invariant in deployment
+  checks and move secrets to systemd credentials during a future rotation.
 - **Durable abuse and budget controls:** PostgreSQL-backed daily request budgets
   per user and globally, plus a configuration kill-switch, are shipped. Add token
   and monetary spend budgets, registration challenge or invite mode, and an admin

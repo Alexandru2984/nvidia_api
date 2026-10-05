@@ -1,0 +1,11 @@
+[Unit]
+Description=Probe AI Chat Hub NVIDIA models weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=aichat-model-probe.service
+
+[Install]
+WantedBy=timers.target

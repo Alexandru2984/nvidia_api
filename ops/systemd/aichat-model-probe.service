@@ -1,0 +1,36 @@
+[Unit]
+Description=AI Chat Hub NVIDIA model availability probe
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=aichat
+Group=aichat
+WorkingDirectory=/home/micu/nvidia/backend
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/micu/nvidia/backend/venv/bin/python manage.py probe_models
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/micu/nvidia/backend
+ReadWritePaths=/home/micu/nvidia/backend/.cache
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+LimitCORE=0
+TasksMax=32
+MemoryMax=512M

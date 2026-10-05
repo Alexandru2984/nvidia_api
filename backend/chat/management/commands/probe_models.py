@@ -5,8 +5,7 @@ NVIDIA's /v1/models listing is unreliable in both directions (it lists models
 that 404 on invocation and omits ones that work), so the only trustworthy
 check is a real chat/completions call with max_tokens=1 per model.
 
-Recommended cron (weekly):
-    0 4 * * 0  cd /home/micu/nvidia/backend && venv/bin/python manage.py probe_models
+Scheduled in production by `aichat-model-probe.timer`.
 """
 import concurrent.futures
 

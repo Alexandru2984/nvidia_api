@@ -1,7 +1,6 @@
 """Daily cleanup: orphan attachments + expired OTP rows.
 
-Recommended cron (daily):
-    0 3 * * *  cd /home/micu/nvidia/backend && . venv/bin/activate && python manage.py cleanup_attachments
+Scheduled in production by `aichat-maintenance.timer`.
 """
 from datetime import timedelta
 
@@ -37,7 +36,7 @@ class Command(BaseCommand):
         pr_count = pr_qs.count()
 
         if dry:
-            self.stdout.write(f'[dry-run] Would delete:')
+            self.stdout.write('[dry-run] Would delete:')
             self.stdout.write(f'  - {att_count} orphan attachments ({att_bytes / 1024 / 1024:.1f} MB)')
             self.stdout.write(f'  - {ev_count} expired email verifications')
             self.stdout.write(f'  - {pr_count} expired password resets')

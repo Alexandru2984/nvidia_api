@@ -1,15 +1,19 @@
-# Drop-in for aichat-backend.service. Test on this host before enabling.
+[Unit]
+Description=AI Chat Hub expired-data and orphan cleanup
+Wants=network-online.target
+After=network-online.target postgresql.service
+
 [Service]
+Type=oneshot
+User=aichat
+Group=aichat
+WorkingDirectory=/home/micu/nvidia/backend
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/micu/nvidia/backend/venv/bin/python manage.py cleanup_attachments
 UMask=0077
-# Gunicorn 25 enables an optional control socket and falls back to ~/.gunicorn
-# when the per-user runtime directory is unavailable. The service does not use
-# that interface, and ProtectHome intentionally makes the fallback read-only.
-Environment=GUNICORN_CMD_ARGS=--no-control-socket
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
-ProtectProc=invisible
-ProcSubset=pid
 ProtectSystem=strict
 ProtectHome=tmpfs
 BindReadOnlyPaths=/home/micu/nvidia/backend
@@ -28,6 +32,5 @@ CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 LimitCORE=0
-TasksMax=128
-MemoryHigh=1G
-MemoryMax=1536M
+TasksMax=32
+MemoryMax=512M

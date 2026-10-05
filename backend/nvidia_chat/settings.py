@@ -4,6 +4,7 @@ Django settings for nvidia_chat project.
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -155,6 +156,10 @@ CACHES = {
         'OPTIONS': {'MAX_ENTRIES': 10000},
     },
 }
+
+# Mutable provider availability belongs with the private runtime cache rather
+# than alongside deployable source. The dedicated service identity owns it.
+MODEL_STATUS_FILE = BASE_DIR / '.cache' / 'model_status.json'
 
 CHAT_MAX_MESSAGE_CHARS = 8000
 CHAT_HISTORY_MAX_MESSAGES = 30

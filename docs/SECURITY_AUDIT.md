@@ -4,10 +4,10 @@ Date: 2026-10-05
 Scope: Django/DRF backend, React/Vite frontend, PostgreSQL data path, attachment
 processing, nginx, systemd, backup automation, Cloudflare Tunnel, and CI.  
 Decision: **YELLOW — mitigate then ship**. The repository fixes are deployed and
-the request budgets are durable across processes, but the production verdict
-remains yellow until the shared Unix identity is removed, security-event alerting
-is retained externally, staff access is also restricted at the edge and
-change-audited, and encrypted off-site recovery is proven.
+the request budgets are durable across processes and the request-serving process
+has a dedicated Unix identity. The production verdict remains yellow until
+security-event alerting is retained externally, staff access is also restricted
+at the edge and change-audited, and encrypted off-site recovery is proven.
 
 This is a technical risk assessment, not legal advice. No secrets are reproduced
 in this document.
@@ -38,7 +38,7 @@ limits.
 
 | Priority | Threat | Likelihood | Impact | Blast radius | State |
 |---|---|---:|---:|---|---|
-| 1 | **Elevation/tampering:** a malicious document exploits a parser running as the shared `micu` account | Medium | High | This app plus other files and credentials readable by the same Unix user | Parser isolation fixed in code; dedicated Unix identity remains P0 |
+| 1 | **Elevation/tampering:** a malicious document exploits the parser or web process | Low/Medium | High | The AI Chat Hub database, runtime files and provider/mail credentials; other projects are outside the service sandbox | Resource-bounded parser plus dedicated non-login identity and systemd sandbox deployed |
 | 2 | **Information disclosure:** direct media URLs or permissive backup modes expose private content | Medium | High | Attachment owners or the complete database, depending on path reached | Private API fixed; nginx block staged; existing backup modes require rollout |
 | 3 | **Denial of service/cost abuse:** registrations and model generation consume mail, CPU, storage, or NVIDIA quota | High | Medium/High | Availability and provider budget for all users | Per-route limits and payload caps exist; durable quotas and signup challenge remain P0 |
 
@@ -53,7 +53,7 @@ upstream responses are now logged server-side while clients receive generic text
 |---|---|---|---|---|
 | A-01 | Critical | `/media/` could bypass object ownership | Authenticated download endpoint and nginx deny template | Apply vhost; assert `/media/*` is 404 externally |
 | A-02 | High | PDF/DOCX handled in the request process | Magic-byte checks, ZIP limits, subprocess timeout and OS resource limits | Move parsing to a dedicated worker/container before higher-volume use |
-| A-03 | High | Shared service user had broad host reach | Restrictive systemd drop-in is staged | Apply it, then migrate to a dedicated `aichat` identity and credentials |
+| A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, app-owned runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials during a controlled rotation |
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Backup script now uses `umask 077`, atomic output, locks, and gzip verification | Correct existing modes; add encryption, off-site copy, and restore drill |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
 | A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque session handles | Rotate sessions after any suspected historic disclosure |
@@ -62,7 +62,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps, PostgreSQL daily request budgets per-user/globally, and a kill-switch | Add token/monetary provider-spend budgets and administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | IP/user throttles; uniform register/resend/verify/reset responses; silent cooldown/mail-failure handling; transactional code rollback; case-insensitive database uniqueness for usernames/emails | Add Turnstile or invite/approval mode; enforce mail and provider budgets; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, global budget, errors, backup and restore freshness | Add external retention and upload/provider-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, global budget, errors, backup and restore freshness; the sandboxed monitor alone receives journal-reader access after service separation | Add external retention and upload/provider-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA, with access alerts | Add Cloudflare Access/VPN and admin change-level audit records |
@@ -146,9 +146,8 @@ is required before describing those controls as complete.
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
-immediately afterward; dedicated service identity, token/monetary budgets,
-external security-log retention, an admin perimeter control, and encrypted
-off-site backup remain open.
+immediately afterward; token/monetary budgets, external security-log retention,
+an admin perimeter control, and encrypted off-site backup remain open.
 
 ## References
 
