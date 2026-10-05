@@ -1,69 +1,69 @@
-"""Helpers for attachments: validation, MIME sniffing, document text extraction."""
+"""Attachment type checks and resource-bounded document extraction."""
 import io
 import logging
-import mimetypes
-import signal
-from contextlib import contextmanager
+import os
+from pathlib import Path
+import subprocess
+import sys
+import zipfile
 
 from django.conf import settings
 
 log = logging.getLogger(__name__)
-
-# Caps applied during text extraction. These are independent of MAX_ATTACHMENT_SIZE
-# (10MB) — a 10MB PDF can still take many seconds to parse, or unzip into much
-# more text than that. The caps below are the worst case we'll burn on parsing.
 EXTRACT_TIMEOUT_SECONDS = 8
-PDF_MAX_PAGES = 200
-DOCX_MAX_PARAGRAPHS = 5000
-
-
-@contextmanager
-def _time_budget(seconds):
-    """SIGALRM-based timeout. Only works on the main thread; gthread workers run
-    requests on worker threads, so we install a thread-local fallback flag."""
-    def _handler(signum, frame):  # pragma: no cover
-        raise TimeoutError(f'document extraction exceeded {seconds}s')
-
-    try:
-        old = signal.signal(signal.SIGALRM, _handler)
-        signal.alarm(seconds)
-        installed = True
-    except (ValueError, AttributeError):
-        # Not on main thread — fall through; per-page/paragraph caps still apply.
-        installed = False
-    try:
-        yield
-    finally:
-        if installed:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old)
-
-
-# Some clients send a generic octet-stream; fall back to extension.
+DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 _EXT_TO_MIME = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.webp': 'image/webp',
-    '.gif': 'image/gif',
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain',
-    '.md': 'text/markdown',
-    '.markdown': 'text/markdown',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.webp': 'image/webp', '.gif': 'image/gif', '.pdf': 'application/pdf',
+    '.txt': 'text/plain', '.md': 'text/markdown', '.markdown': 'text/markdown',
+    '.docx': DOCX_MIME,
 }
 
 
 def detect_mime(uploaded_file) -> str:
-    declared = (uploaded_file.content_type or '').lower().split(';')[0].strip()
-    if declared in settings.ALLOWED_UPLOAD_MIMES:
-        return declared
-    name = (uploaded_file.name or '').lower()
-    for ext, mime in _EXT_TO_MIME.items():
-        if name.endswith(ext):
-            return mime
-    guessed, _ = mimetypes.guess_type(name)
-    return guessed or declared or 'application/octet-stream'
+    """Require extension and content signature to agree; never trust HTTP MIME.
+
+    Signature checks are not a malware scanner. Downloads are also authorized,
+    non-executable and sandboxed, and complex parsing runs in a child process.
+    """
+    mime = _EXT_TO_MIME.get(Path(uploaded_file.name or '').suffix.lower())
+    if not mime:
+        return 'application/octet-stream'
+    data = uploaded_file.read(settings.MAX_ATTACHMENT_SIZE + 1)
+    uploaded_file.seek(0)
+    valid = False
+    if mime == 'image/png':
+        valid = len(data) >= 33 and data.startswith(b'\x89PNG\r\n\x1a\n') and data[12:16] == b'IHDR'
+    elif mime == 'image/jpeg':
+        valid = len(data) >= 4 and data.startswith(b'\xff\xd8\xff')
+    elif mime == 'image/gif':
+        valid = len(data) >= 13 and data[:6] in (b'GIF87a', b'GIF89a')
+    elif mime == 'image/webp':
+        valid = len(data) >= 16 and data[:4] == b'RIFF' and data[8:12] == b'WEBP'
+    elif mime == 'application/pdf':
+        valid = data.startswith(b'%PDF-')
+    elif mime in {'text/plain', 'text/markdown'}:
+        try:
+            data.decode('utf-8')
+            valid = b'\x00' not in data
+        except UnicodeDecodeError:
+            pass
+    elif mime == DOCX_MIME:
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                entries = archive.infolist()
+                names = {entry.filename for entry in entries}
+                valid = (
+                    {'[Content_Types].xml', 'word/document.xml'} <= names
+                    and len(entries) <= 1000
+                    and sum(entry.file_size for entry in entries) <= 32 * 1024 * 1024
+                    and all(not entry.flag_bits & 1 and entry.file_size <= 16 * 1024 * 1024
+                            and entry.file_size <= max(entry.compress_size, 1) * 200
+                            for entry in entries)
+                )
+        except (zipfile.BadZipFile, ValueError):
+            pass
+    return mime if valid else 'application/octet-stream'
 
 
 def kind_for_mime(mime: str) -> str | None:
@@ -75,65 +75,28 @@ def kind_for_mime(mime: str) -> str | None:
 
 
 def extract_text(uploaded_file, mime: str) -> str:
-    """Best-effort text extraction; returns empty string on failure or timeout."""
     cap = settings.DOC_EXTRACT_MAX_CHARS
+    if mime in {'text/plain', 'text/markdown'}:
+        data = uploaded_file.read(cap * 4)
+        uploaded_file.seek(0)
+        return data.decode('utf-8', errors='replace')[:cap]
+    if mime not in {'application/pdf', DOCX_MIME}:
+        return ''
+    data = uploaded_file.read(settings.MAX_ATTACHMENT_SIZE + 1)
+    uploaded_file.seek(0)
+    if len(data) > settings.MAX_ATTACHMENT_SIZE:
+        return ''
     try:
-        with _time_budget(EXTRACT_TIMEOUT_SECONDS):
-            if mime == 'application/pdf':
-                return _extract_pdf(uploaded_file, cap)
-            if mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                return _extract_docx(uploaded_file, cap)
-            if mime in {'text/plain', 'text/markdown'}:
-                # Read at most `cap` bytes — text files larger than that are
-                # almost certainly logs/dumps and we only feed `cap` chars to
-                # the model anyway.
-                data = uploaded_file.read(cap + 1)
-                uploaded_file.seek(0)
-                return data.decode('utf-8', errors='replace')[:cap]
-    except TimeoutError:
-        log.warning('Extraction timed out for %s (%s)', uploaded_file.name, mime)
-    except Exception:
-        log.exception('Failed to extract text from %s (%s)', uploaded_file.name, mime)
+        result = subprocess.run(
+            [sys.executable, '-I', str(Path(__file__).with_name('document_worker.py')),
+             'pdf' if mime == 'application/pdf' else 'docx', str(cap)],
+            input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=EXTRACT_TIMEOUT_SECONDS, check=False,
+            env={'PATH': os.defpath, 'LANG': 'C.UTF-8'},
+        )
+        if result.returncode == 0:
+            return result.stdout.decode('utf-8', errors='replace')[:cap]
+        log.warning('Document extraction failed (exit=%s, type=%s)', result.returncode, mime)
+    except (subprocess.TimeoutExpired, OSError):
+        log.warning('Document extraction timed out or could not start (type=%s)', mime)
     return ''
-
-
-def _extract_pdf(uploaded_file, cap: int) -> str:
-    from pypdf import PdfReader
-    data = uploaded_file.read()
-    uploaded_file.seek(0)
-    reader = PdfReader(io.BytesIO(data))
-    out = []
-    total = 0
-    for i, page in enumerate(reader.pages):
-        if i >= PDF_MAX_PAGES:
-            break
-        try:
-            t = page.extract_text() or ''
-        except Exception:
-            t = ''
-        if not t:
-            continue
-        out.append(t)
-        total += len(t)
-        if total >= cap:
-            break
-    return '\n\n'.join(out)[:cap]
-
-
-def _extract_docx(uploaded_file, cap: int) -> str:
-    from docx import Document
-    data = uploaded_file.read()
-    uploaded_file.seek(0)
-    doc = Document(io.BytesIO(data))
-    parts = []
-    total = 0
-    for i, p in enumerate(doc.paragraphs):
-        if i >= DOCX_MAX_PARAGRAPHS:
-            break
-        if not p.text:
-            continue
-        parts.append(p.text)
-        total += len(p.text)
-        if total >= cap:
-            break
-    return '\n'.join(parts)[:cap]

@@ -4,13 +4,14 @@ import hmac
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import secrets
 import time
 from datetime import timedelta
 
 import requests
-from django.http import StreamingHttpResponse
+from django.http import FileResponse, Http404, StreamingHttpResponse
 from django.conf import settings
 from django.contrib.auth import (
     authenticate, get_user_model, login as django_login, logout as django_logout,
@@ -652,10 +653,14 @@ def upload_attachment(request):
     if kind is None:
         return Response({'error': f'Unsupported file type: {mime}. Allowed: images (jpg/png/webp/gif), pdf, txt, md, docx.'}, status=415)
 
+    used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
+    if used + f.size > settings.MAX_USER_STORAGE:
+        return Response({'error': 'Storage quota exceeded.'}, status=413)
     extracted = extract_text(f, mime) if kind == 'document' else ''
 
     safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(f.name or 'file'))[:120] or 'file'
-    f.name = safe_name
+    # The storage path has a 100-character limit; keep user-facing names separate.
+    f.name = secrets.token_hex(12) + Path(safe_name).suffix.lower()
 
     # Race-free quota: lock the user row, recompute usage inside the lock, then
     # commit the new attachment. Two parallel uploads serialise here.
@@ -672,7 +677,7 @@ def upload_attachment(request):
             att = Attachment.objects.create(
                 user=request.user,
                 file=f,
-                original_name=(f.name or 'file')[:255],
+                original_name=safe_name,
                 mime_type=mime,
                 size=f.size,
                 kind=kind,
@@ -691,6 +696,23 @@ def delete_attachment(request, pk):
         return Response({'error': 'Cannot delete an attachment already linked to a message.'}, status=409)
     att.delete()
     return Response(status=204)
+
+
+@api_view(['GET'])
+def download_attachment(request, pk):
+    att = get_object_or_404(Attachment, pk=pk, user=request.user)
+    try:
+        file = att.file.open('rb')
+    except (OSError, ValueError):
+        raise Http404 from None
+    # Only raster images may render inline. Documents always download.
+    inline = att.mime_type in settings.ALLOWED_IMAGE_MIMES
+    response = FileResponse(file, as_attachment=not inline,
+        filename=att.original_name, content_type=att.mime_type if inline else 'application/octet-stream')
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Content-Security-Policy'] = "default-src 'none'; sandbox"
+    response['Cross-Origin-Resource-Policy'] = 'same-origin'
+    return response
 
 
 def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):

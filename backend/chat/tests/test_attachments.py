@@ -148,13 +148,13 @@ class TestDeleteAttachment:
 
 @pytest.mark.django_db
 class TestMimeSniffing:
-    def test_detect_mime_uses_declared(self):
-        f = SimpleUploadedFile('x.png', b'', content_type='image/png')
+    def test_detect_mime_uses_content(self):
+        f = SimpleUploadedFile('x.png', _png_bytes(), content_type='application/octet-stream')
         assert detect_mime(f) == 'image/png'
 
     def test_detect_mime_falls_back_to_extension(self):
         # Some clients send octet-stream — we recover from the extension.
-        f = SimpleUploadedFile('doc.pdf', b'', content_type='application/octet-stream')
+        f = SimpleUploadedFile('doc.pdf', b'%PDF-1.7\n', content_type='application/octet-stream')
         assert detect_mime(f) == 'application/pdf'
 
     def test_kind_for_mime(self):

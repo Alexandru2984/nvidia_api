@@ -144,7 +144,8 @@ class Attachment(models.Model):
 
     @property
     def url(self):
-        return self.file.url if self.file else ''
+        from django.urls import reverse
+        return reverse('attachment-download', args=[self.pk]) if self.file else ''
 
 
 @receiver(pre_delete, sender=Attachment)

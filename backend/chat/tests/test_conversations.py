@@ -167,7 +167,7 @@ class TestSendMessage:
         # other user uploads
         r = other_client.post(
             '/api/attachments/upload/',
-            {'file': SimpleUploadedFile('x.png', b'\x89PNG', content_type='image/png')},
+            {'file': SimpleUploadedFile('x.txt', b'test', content_type='text/plain')},
             format='multipart',
         )
         att_id = r.json()['id']

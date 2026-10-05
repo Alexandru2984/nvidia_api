@@ -32,6 +32,7 @@ urlpatterns = [
     path('attachments/', views.list_attachments),
     path('attachments/upload/', views.upload_attachment),
     path('attachments/<int:pk>/', views.delete_attachment),
+    path('attachments/<int:pk>/download/', views.download_attachment, name='attachment-download'),
     path('images/generate/', views.generate_image),
     path('images/models/', views.list_image_models),
 ]
