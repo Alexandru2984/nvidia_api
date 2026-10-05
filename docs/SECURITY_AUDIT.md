@@ -116,10 +116,34 @@ is required before describing those controls as complete.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
   external route/header probes must be repeated during each production rollout.
 
+### Production rollout — 2026-10-05
+
+- Deployed repository state through `e3c5b33`; database migrations reported no
+  pending operations and the production dependency environment passed `pip check`.
+- `pip-audit` and `npm audit --audit-level=low` reported no known vulnerabilities.
+- Applied the nginx template after a successful syntax test. Public and origin
+  probes returned 200 for health and `security.txt`, 404 for arbitrary `/media/`
+  paths, 403 for `.env`/`.git` paths, and 403 for an unauthenticated private-file
+  download.
+- Applied the systemd sandbox after a successful transient-unit preflight. The
+  service remained active with three workers and zero automatic restarts; its
+  `systemd-analyze security` exposure score improved from 9.2 `UNSAFE` to 3.0
+  `OK`.
+- Corrected the backup directory and media directory to mode `0700`, and existing
+  database dumps/runtime logs to `0600`.
+- A live anonymous CSRF probe was rejected with 403. A same-origin browser-shaped
+  request with the CSRF cookie/header passed CSRF and reached payload validation.
+- Timestamped rollback copies of the prior nginx vhost, systemd unit, and frontend
+  webroot were retained on the host. No rollback was required.
+
+The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
+A-04 local-mode actions, but durable abuse budgets, dedicated service identity,
+security-event alerting, encrypted off-site backup, and a restore drill remain
+open.
+
 ## References
 
 - [Django deployment checklist](https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/)
 - [django-ratelimit security considerations](https://django-ratelimit.readthedocs.io/en/stable/security.html)
 - [GDPR consolidated text](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
 - [ICO personal data breach guidance](https://ico.org.uk/for-organisations/report-a-breach/personal-data-breach/personal-data-breaches-a-guide/)
-
