@@ -9,6 +9,7 @@ Group=micu
 ExecStart=/usr/local/libexec/aichat-security-monitor
 UMask=0077
 StateDirectory=aichat-security-monitor
+StateDirectoryMode=0700
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
