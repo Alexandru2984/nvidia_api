@@ -146,7 +146,7 @@ RATELIMIT_ENABLE = not DEBUG
 # systemd PrivateTmp giving cron and gunicorn different /tmp namespaces.
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'BACKEND': 'chat.cache.AtomicFileCache',
         'LOCATION': str(BASE_DIR / '.cache'),
         'TIMEOUT': 60 * 60,
         'OPTIONS': {'MAX_ENTRIES': 10000},
