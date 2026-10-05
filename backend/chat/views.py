@@ -53,13 +53,18 @@ from .serializers import (
     ConversationListSerializer,
     MessageSerializer,
 )
+from .security_events import actor_for_request, security_log
 from .usage import next_reset, reserve_ai_request, user_usage_snapshot
 
 log = logging.getLogger(__name__)
 
 
 def _rate_limited(request):
-    return Response({'error': 'Too many requests. Slow down and try again.'}, status=429) if getattr(request, 'limited', False) else None
+    if not getattr(request, 'limited', False):
+        return None
+    security_log.warning('event=rate_limit path=%s actor=%s',
+                         request.path[:160], actor_for_request(request))
+    return Response({'error': 'Too many requests. Slow down and try again.'}, status=429)
 
 
 def _reserve_provider_call(request, kind, prompt_characters=0):
@@ -67,7 +72,8 @@ def _reserve_provider_call(request, kind, prompt_characters=0):
     if reason is None:
         return None
     if reason == 'disabled':
-        log.warning('AI provider circuit breaker blocked kind=%s user_id=%s', kind, request.user.pk)
+        security_log.warning('event=ai_budget_blocked scope=disabled kind=%s user_id=%s',
+                             kind, request.user.pk)
         return Response(
             {'error': 'AI generation is temporarily disabled.', 'code': reason},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -75,8 +81,8 @@ def _reserve_provider_call(request, kind, prompt_characters=0):
 
     reset, retry_after = next_reset()
     is_global = reason == 'global_daily_limit'
-    log.warning('AI daily budget blocked kind=%s scope=%s user_id=%s',
-                kind, 'global' if is_global else 'user', request.user.pk)
+    security_log.warning('event=ai_budget_blocked scope=%s kind=%s user_id=%s',
+                         'global' if is_global else 'user', kind, request.user.pk)
     response = Response({
         'error': (
             'The service-wide daily AI budget has been reached. Try again after the UTC reset.'
@@ -249,7 +255,7 @@ def auth_register(request):
     # fill every field still get the same 201 a real user gets, but no row
     # is written and no email goes out.
     if honeypot:
-        log.info('Honeypot tripped on register from %s', request.META.get('REMOTE_ADDR'))
+        security_log.warning('event=registration_honeypot actor=%s', actor_for_request(request))
         return Response({
             'message': 'Account created. Check your email for the 6-digit code.',
             'email': email,
@@ -267,7 +273,7 @@ def auth_register(request):
     try:
         _issue_new_code(user)
     except Exception:
-        log.exception('Failed to send verification email to %s', email)
+        log.exception('Failed to send verification email for user_id=%s', user.pk)
         user.delete()
         return Response({'error': 'Failed to send verification email. Try again later.'}, status=502)
 
@@ -348,7 +354,7 @@ def auth_resend(request):
     try:
         _issue_new_code(user)
     except Exception:
-        log.exception('Failed to resend verification email to %s', email)
+        log.exception('Failed to resend verification email for user_id=%s', user.pk)
         return Response({'error': 'Failed to send email. Try again later.'}, status=502)
 
     return Response({'message': 'A new code was sent. Check your inbox.',
@@ -451,7 +457,7 @@ def auth_forgot(request):
     try:
         _issue_password_reset(user)
     except Exception:
-        log.exception('Failed to send password reset email to %s', email)
+        log.exception('Failed to send password reset email for user_id=%s', user.pk)
         return Response({'error': 'Failed to send email. Try again later.'}, status=502)
     return generic
 
@@ -546,7 +552,8 @@ def auth_change_password(request):
     # then revoke everything else (anything on the old password is suspect).
     update_session_auth_hash(request, request.user)
     revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
-    log.info('Password changed for user_id=%s; revoked %d other session(s)', request.user.pk, revoked)
+    security_log.warning('event=password_changed user_id=%s sessions_revoked=%s',
+                         request.user.pk, revoked)
     return Response({'changed': True, 'sessions_revoked': revoked})
 
 
@@ -570,10 +577,10 @@ def auth_delete_account(request):
                             status=status.HTTP_401_UNAUTHORIZED)
 
     user = request.user
-    username = user.username
+    user_id = user.pk
     django_logout(request)
     user.delete()
-    log.info('Account deleted: %s (user_id no longer exists)', username)
+    security_log.warning('event=account_deleted former_user_id=%s', user_id)
     return Response({'deleted': True})
 
 
@@ -726,7 +733,7 @@ def upload_attachment(request):
                 extracted_text=extracted,
             )
     except Exception:
-        log.exception('Upload failed for user=%s name=%s', request.user.pk, safe_name)
+        log.exception('Upload failed for user_id=%s', request.user.pk)
         return Response({'error': 'Upload failed.'}, status=500)
     return Response(AttachmentSerializer(att).data, status=201)
 
@@ -1234,8 +1241,7 @@ def _nvcf_generate(url, payload):
                     resp.status_code, resp.headers.get('Nvcf-Status'))
         return None, unavailable
     if resp.status_code >= 400:
-        body = resp.text[:1000]
-        log.warning('NVIDIA genai HTTP %s — %s', resp.status_code, body[:500])
+        log.warning('NVIDIA genai returned HTTP %s', resp.status_code)
         return None, Response({'error': f'NVIDIA image API error ({resp.status_code}). Try again later.'},
                               status=status.HTTP_502_BAD_GATEWAY)
     try:
@@ -1301,7 +1307,7 @@ def generate_image(request):
         return err
     b64 = _extract_image_b64(data)
     if not b64:
-        log.warning('NVIDIA genai returned no image: %s', str(data)[:500])
+        log.warning('NVIDIA genai returned no image data (response_type=%s)', type(data).__name__)
         return Response({'error': 'NVIDIA image API returned no image data'},
                         status=status.HTTP_502_BAD_GATEWAY)
 

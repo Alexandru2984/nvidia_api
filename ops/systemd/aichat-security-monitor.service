@@ -1,0 +1,32 @@
+[Unit]
+Description=AI Chat Hub security and recovery monitor
+After=network-online.target aichat-backend.service
+
+[Service]
+Type=oneshot
+User=micu
+Group=micu
+ExecStart=/usr/local/libexec/aichat-security-monitor
+UMask=0077
+StateDirectory=aichat-security-monitor
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/micu/backups/nvidia_db /home/micu/scripts/.env
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+MemoryMax=128M
+TasksMax=32

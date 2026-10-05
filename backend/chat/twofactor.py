@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from .models import TwoFactor
 
 log = logging.getLogger(__name__)
+security_log = logging.getLogger('security')
 
 ISSUER = 'AI Chat Hub'
 RECOVERY_CODE_COUNT = 10
@@ -241,7 +242,7 @@ def verify_enroll(request):
     tf.failed_attempts = 0
     tf.locked_until = None
     tf.save()
-    log.info('2FA enabled for user_id=%s', request.user.pk)
+    security_log.warning('event=two_factor_enabled user_id=%s', request.user.pk)
     return Response({
         'enabled': True,
         'recovery_codes': plaintexts,  # show once; never returned again
@@ -267,7 +268,8 @@ def disable(request):
 
     TwoFactor.objects.filter(user=request.user).delete()
     revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
-    log.info('2FA disabled for user_id=%s; revoked %d other session(s)', request.user.pk, revoked)
+    security_log.warning('event=two_factor_disabled user_id=%s sessions_revoked=%s',
+                         request.user.pk, revoked)
     return Response({'enabled': False, 'sessions_revoked': revoked})
 
 
@@ -283,5 +285,5 @@ def regenerate_recovery_codes(request):
     plaintexts, hashes = _new_recovery_codes()
     tf.recovery_codes = hashes
     tf.save(update_fields=['recovery_codes'])
-    log.info('2FA recovery codes regenerated for user_id=%s', request.user.pk)
+    security_log.warning('event=recovery_codes_regenerated user_id=%s', request.user.pk)
     return Response({'recovery_codes': plaintexts})

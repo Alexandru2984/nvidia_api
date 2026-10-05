@@ -12,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 log = logging.getLogger(__name__)
+security_log = logging.getLogger('security')
 
 
 def session_handle(session_key):
@@ -75,6 +76,7 @@ def revoke_session(request, key):
     for s, _ in _user_sessions(request.user):
         if constant_time_compare(session_handle(s.session_key), key):
             s.delete()
+            security_log.warning('event=session_revoked user_id=%s', request.user.pk)
             return Response(status=204)
     return Response({'error': 'Session not found.'}, status=404)
 
@@ -91,4 +93,7 @@ def revoke_other_sessions(request):
             continue
         s.delete()
         deleted += 1
+    if deleted:
+        security_log.warning('event=other_sessions_revoked user_id=%s count=%s',
+                             request.user.pk, deleted)
     return Response({'revoked': deleted})

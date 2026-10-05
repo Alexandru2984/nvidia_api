@@ -160,6 +160,10 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   15 5 * * 0 /home/micu/nvidia/scripts/backup_restore_drill.sh
   ```
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
+- **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
+  privacy-minimized auth/admin/rate/budget events plus backup and restore freshness
+  every five minutes. It uses the host's existing Telegram channel, keeps cooldown
+  state under `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 
 Deploy steps after a code change:
 
@@ -184,6 +188,12 @@ sudo systemctl restart aichat-backend.service
 sudo systemctl reload nginx
 curl -fsS https://aichat.micutu.com/api/health/
 curl -o /dev/null -sS -w '%{http_code}\n' https://aichat.micutu.com/media/not-public
+
+# Install/update the root-owned security monitor and timer
+sudo install -o root -g root -m 0755 scripts/security_monitor.py /usr/local/libexec/aichat-security-monitor
+sudo install -o root -g root -m 0644 ops/systemd/aichat-security-monitor.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now aichat-security-monitor.timer
 ```
 
 Take a recoverable copy of each live configuration before replacing it. After

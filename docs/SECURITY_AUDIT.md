@@ -6,7 +6,8 @@ processing, nginx, systemd, backup automation, Cloudflare Tunnel, and CI.
 Decision: **YELLOW — mitigate then ship**. The repository fixes are deployed and
 the request budgets are durable across processes, but the production verdict
 remains yellow until the shared Unix identity is removed, security-event alerting
-and staff access are strengthened, and encrypted off-site recovery is proven.
+is retained externally, staff access is strongly authenticated, and encrypted
+off-site recovery is proven.
 
 This is a technical risk assessment, not legal advice. No secrets are reproduced
 in this document.
@@ -61,7 +62,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps, PostgreSQL daily request budgets per-user/globally, and a kill-switch | Add token/monetary provider-spend budgets and administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated | IP/user throttles and non-enumerating responses | Add Turnstile or invite/approval mode; enforce mail and provider budgets |
-| A-12 | Medium | Security event detection is incomplete | Availability monitoring and application warnings exist | Centralize auth/admin/upload events and alert on defined thresholds |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate bursts, admin login, 2FA disable, global budget, errors, backup and restore freshness | Add external retention and upload/provider-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 
@@ -79,11 +80,11 @@ using it for a budget decision.
 ## Detection, response, and recovery
 
 The one-minute availability probe gives an outage MTTD near one minute when the
-alert path works, but a confidentiality compromise may currently remain
-undetected. Target security MTTD is 15 minutes for repeated login failures,
-unexpected admin access, rate-limit spikes, backup failures, and abnormal NVIDIA
-usage. Target containment time is 60 minutes after a confirmed high-severity
-alert.
+alert path works. The security timer targets MTTD under six minutes for repeated
+login failures, unexpected admin access, rate-limit spikes, backup/restore
+failures, 2FA disable, backend error bursts, and global NVIDIA budget exhaustion.
+External log retention and finer provider-spend signals remain open. Target
+containment time is 60 minutes after a confirmed high-severity alert.
 
 The response procedure is in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md). It must
 be exercised with a tabletop and a database restore test; an untested runbook is
@@ -138,12 +139,13 @@ is required before describing those controls as complete.
 - The newest compressed backup was restored into an isolated scratch database;
   schema/migration checks and row-count queries passed (27 migrations, 3 users,
   6 conversations, 16 messages), and the scratch database was removed. A weekly
-  logged drill is now scheduled; failure alerting remains an open action.
+  logged drill is now scheduled and its freshness/success marker is monitored.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill and durable request budgets
 were completed immediately afterward; dedicated service identity, token/monetary
-budgets, security-event alerting, and encrypted off-site backup remain open.
+budgets, external security-log retention, protected staff access, and encrypted
+off-site backup remain open.
 
 ## References
 

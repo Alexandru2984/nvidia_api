@@ -198,6 +198,7 @@ LOGGING = {
     'loggers': {
         'django.request': {'level': 'WARNING', 'propagate': True},
         'chat': {'level': 'INFO', 'propagate': True},
+        'security': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
     },
 }
 

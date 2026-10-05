@@ -17,6 +17,13 @@ for sensitive data.
    compromise; SEV-2 for contained account compromise or sustained abuse; SEV-3
    for suspicious but unconfirmed events.
 
+The `aichat-security-monitor` Telegram message contains only an event name and
+count. Confirm it against root-owned timer/service status and the system journal;
+do not paste raw journal lines into Telegram. High-signal rules include a
+successful admin login, 2FA disable, global AI-budget exhaustion, 10 failed
+logins/6 minutes, 20 rate limits/6 minutes, 3 backend errors/6 minutes, a database
+backup older than 30 hours, or a restore drill older than eight days.
+
 ## 2. Contain
 
 - Disable the affected route/account or put the application into maintenance
@@ -81,4 +88,3 @@ artifacts including TOTP material. Verify consequences before rotation and requi
 - At least twice yearly: restore a selected encrypted backup into an isolated
   database and validate row counts and application startup.
 - After material architecture changes: repeat the threat model and runbook drill.
-

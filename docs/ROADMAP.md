@@ -18,9 +18,11 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   override/audit trail; move burst throttles to Redis/PostgreSQL before scaling.
 - **Protected administration:** place `/admin/` behind Cloudflare Access or a VPN,
   require staff 2FA, minimize superusers, and alert on every admin login/change.
-- **Detection:** structured security events for auth, recovery, session revocation,
-  uploads, admin actions, throttles, provider failures and spend. Alert within 15
-  minutes without logging prompts, cookies, OTPs, or secrets.
+- **Detection:** structured privacy-minimized events and five-minute alerts now
+  cover auth bursts, throttles, successful admin access, 2FA disable, global AI
+  budget exhaustion, backend error bursts, and backup/restore freshness. Add
+  upload/parser/provider-spend correlation and an external log sink without
+  logging prompts, cookies, OTPs, filenames, raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;
   schedule and monitor it. Encrypt backups with a separately held key, keep a
   tested off-site copy, alert on job failure, and document RPO/RTO.
