@@ -944,3 +944,89 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 }
 .link.danger { color: var(--danger, #ff4d6d); }
 .primary.danger { background: var(--danger, #ff4d6d); }
+
+/* Layout and accessible controls across desktop, tablets and small phones. */
+:root[data-theme="light"] {
+  --bg: #f5f7fa;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #eaf0f5;
+  --border: #cbd5e1;
+  --text: #182433;
+  --text-dim: #526276;
+  --accent: #4f8000;
+  --accent-dim: #426c00;
+  --user-bubble: #e4edfa;
+  --assistant-bubble: #ffffff;
+  --danger: #c93131;
+  color-scheme: light;
+}
+:root[data-theme="light"] button.primary { color: #fff; }
+:root[data-theme="light"] .login-error { color: #a82020; }
+.app { height: 100dvh; width: 100%; grid-template-columns: 280px minmax(0, 1fr); overflow: hidden; }
+.topbar { min-height: 64px; height: auto; flex-shrink: 0; padding-block: 8px; }
+.convo-search { width: calc(100% - 24px); }
+.convo-open { flex: 1; min-width: 0; padding: 0; border: 0; text-align: left; }
+.convo-open:hover:not(:disabled) { background: transparent; }
+.convo-open .convo-title { display: block; }
+.convo-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convo-item:focus-within .delete, .msg:focus-within .copy-btn, .code-block:focus-within .copy-btn { opacity: 1; }
+:where(button, a, input, textarea, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.chat-area { min-height: 0; overscroll-behavior: contain; }
+.bubble { overflow-wrap: anywhere; }
+.assistant-bubble table { display: block; max-width: 100%; overflow-x: auto; }
+.assistant-bubble img { max-width: 100%; }
+.msg .role { flex-wrap: wrap; }
+.code-block pre { color: #e6edf3; }
+.markdown-fallback { white-space: pre-wrap; }
+.composer-wrap { flex-shrink: 0; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+.privacy-hint { margin-top: 5px; text-align: center; color: var(--text-dim); font-size: 11px; }
+.login-wrap { min-height: 100dvh; height: auto; overflow-y: auto; }
+.boot-splash { height: 100dvh; }
+.settings-wrap { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: max(32px, env(safe-area-inset-bottom)); }
+.settings-section .muted { color: var(--text-dim); }
+.settings-section .secret-box, .settings-section .recovery-box { background: var(--bg); }
+.session-row > div { min-width: 0; overflow-wrap: anywhere; }
+.session-row button { flex-shrink: 0; }
+.theme-field { display: flex; align-items: center; gap: 20px; }
+.theme-field select { max-width: 200px; }
+.settings-section progress { width: 100%; height: 12px; accent-color: var(--accent); }
+.usage-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 14px 0; font-size: 12px; color: var(--text-dim); }
+.file-library { max-height: 320px; overflow-y: auto; }
+.library-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+.library-row > div { min-width: 0; flex: 1; }
+.library-row a { display: block; overflow-wrap: anywhere; color: var(--text); }
+.library-row small { display: block; margin-top: 4px; color: var(--text-dim); }
+
+@media (max-width: 1000px) and (min-width: 761px) {
+  .app { grid-template-columns: 240px minmax(0, 1fr); }
+  .model-select-wrap { min-width: 180px; max-width: 240px; }
+  .topbar { gap: 8px; padding-inline: 12px; flex-wrap: wrap; }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { visibility: hidden; padding-bottom: env(safe-area-inset-bottom); }
+  .app.sidebar-open .sidebar { visibility: visible; }
+  .topbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+  .topbar .title { min-width: 0; flex: 1; }
+  .model-select-wrap { flex: 1 0 100%; width: 100%; max-width: none; min-width: 0; }
+  .model-select-wrap select { font-size: 16px; }
+  button.icon, .mode-toggle button { min-height: 44px; min-width: 44px; }
+  .settings-wrap { padding: 18px 12px max(24px, env(safe-area-inset-bottom)); }
+  .settings-section { padding: 16px; }
+  .settings-section input, .settings-section select, .login-card input { font-size: 16px; }
+  .settings-section .enroll-card { padding: 10px; }
+  .enroll-card img { max-width: 100%; object-fit: contain; }
+  .session-row { flex-wrap: wrap; }
+  .session-row > div { flex: 1 1 180px; }
+  .welcome { padding: 28px 16px; }
+  .att-tile.doc { min-width: 0; max-width: 100%; }
+  .convo-item .delete, .copy-btn { opacity: 1; }
+  .hint { font-size: 10px; }
+}
+@media (hover: none) {
+  .convo-item .delete, .copy-btn { opacity: 1; }
+  .att-remove { min-width: 32px; min-height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

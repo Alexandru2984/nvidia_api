@@ -1,10 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import rehypeHighlight from 'rehype-highlight'
-import remarkGfm from 'remark-gfm'
-import 'highlight.js/styles/github-dark.css'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
-import Settings from './Settings'
+const Settings = lazy(() => import('./Settings'))
+const MarkdownBody = lazy(() => import('./MarkdownBody'))
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'txt', 'md', 'docx']
@@ -469,31 +466,9 @@ function MessageBody({ role, content }) {
   }
   return (
     <div className="bubble assistant-bubble">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-        components={{
-          pre({ children, ...rest }) {
-            const codeText = (() => {
-              try {
-                const c = Array.isArray(children) ? children[0] : children
-                return c?.props?.children?.toString() || ''
-              } catch { return '' }
-            })()
-            return (
-              <div className="code-block">
-                <CopyButton text={codeText} label="Copy code" />
-                <pre {...rest}>{children}</pre>
-              </div>
-            )
-          },
-          a({ children, ...props }) {
-            return <a {...props} target="_blank" rel="noreferrer">{children}</a>
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+      <Suspense fallback={<div className="markdown-fallback">{content}</div>}>
+        <MarkdownBody content={content} />
+      </Suspense>
     </div>
   )
 }
@@ -517,7 +492,7 @@ function AttachmentTile({ att, onRemove, compact }) {
     <div className={`att-tile doc ${compact ? 'compact' : ''}`}>
       <div className="att-doc-icon">{(fileExt(att.original_name) || 'DOC').toUpperCase()}</div>
       <div className="att-doc-meta">
-        <div className="att-doc-name" title={att.original_name}>{att.original_name}</div>
+        <a className="att-doc-name" href={url} title={att.original_name} download>{att.original_name}</a>
         <div className="att-doc-size">{humanSize(att.size)}{att.has_text ? ' · text extracted' : ''}</div>
       </div>
       {onRemove && (
@@ -673,6 +648,10 @@ export default function App() {
   const [error, setError] = useState(null)
   const [bootError, setBootError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('aichat-theme') === 'light' ? 'light' : 'dark' }
+    catch { return 'dark' }
+  })
   const [search, setSearch] = useState('')
   const [showConvoSettings, setShowConvoSettings] = useState(false)
   const [mode, setMode] = useState('chat')
@@ -688,6 +667,35 @@ export default function App() {
   const textareaRef = useRef(null)
   const fileInputRef = useRef(null)
   const abortRef = useRef(null)
+  const sidebarRef = useRef(null)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    try { localStorage.setItem('aichat-theme', theme) } catch {}
+  }, [theme])
+
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const sidebar = sidebarRef.current
+    const menuButton = menuRef.current
+    const focusable = () => [...sidebar.querySelectorAll('button:not(:disabled), input, a[href]')]
+      .filter((element) => element.getClientRects().length > 0)
+    focusable()[0]?.focus()
+    function trapFocus(event) {
+      if (event.key === 'Escape') { setSidebarOpen(false); return }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      const first = items[0], last = items.at(-1)
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    document.addEventListener('keydown', trapFocus)
+    return () => {
+      document.removeEventListener('keydown', trapFocus)
+      menuButton?.focus()
+    }
+  }, [sidebarOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -742,7 +750,7 @@ export default function App() {
   }, [search, user])
 
   useEffect(() => {
-    if (!activeId) { setActive(null); return }
+    if (!activeId) return
     let cancelled = false
     api.getConversation(activeId)
       .then((c) => !cancelled && setActive(c))
@@ -793,6 +801,7 @@ export default function App() {
   }
 
   async function startNewChat(modelId = defaultModel) {
+    if (sending) return
     try {
       const c = await api.createConversation(modelId)
       setConversations((prev) => [c, ...prev])
@@ -1071,12 +1080,14 @@ export default function App() {
   }
 
   function selectConversation(id) {
+    if (sending) return
     setActiveId(id)
+    setMode('chat')
     setSidebarOpen(false)
   }
 
   function onKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       handleSend(e)
     }
@@ -1103,7 +1114,7 @@ export default function App() {
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
 
-      <aside className="sidebar">
+      <aside className="sidebar" id="conversation-sidebar" ref={sidebarRef} aria-label="Conversations">
         <div className="sidebar-header">
           <div className="brand-mark">N</div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1113,11 +1124,12 @@ export default function App() {
           <button className="icon sidebar-close" onClick={() => setSidebarOpen(false)} title="Close">×</button>
         </div>
 
-        <button className="new-chat" onClick={() => startNewChat()}>+ New chat</button>
+        <button className="new-chat" disabled={sending} onClick={() => startNewChat()}>+ New chat</button>
 
         <input
           className="convo-search"
           type="search"
+          aria-label="Search conversations"
           placeholder="Search conversations…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -1133,12 +1145,11 @@ export default function App() {
               <div
                 key={c.id}
                 className={`convo-item ${c.id === activeId ? 'active' : ''}`}
-                onClick={() => selectConversation(c.id)}
               >
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <button className="convo-open" disabled={sending} aria-current={c.id === activeId ? 'page' : undefined} onClick={() => selectConversation(c.id)}>
                   <div className="convo-title">{c.title || 'Untitled'}</div>
                   <div className="convo-meta">{(c.model_id || '').split('/').pop()} · {c.message_count} msg</div>
-                </div>
+                </button>
                 <button
                   className="icon rename"
                   title="Rename"
@@ -1147,6 +1158,7 @@ export default function App() {
                 <button
                   className="icon danger delete"
                   title="Delete"
+                  disabled={sending}
                   onClick={(ev) => handleDelete(c.id, ev)}
                 >×</button>
               </div>
@@ -1164,15 +1176,17 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main">
+      <main className="main" inert={sidebarOpen ? true : undefined}>
         {mode === 'settings' && (
-          <Settings onClose={() => setMode('chat')} onLoggedOut={() => { setMode('chat'); handleLogout() }} />
+          <Suspense fallback={<div className="empty-list">Loading settings…</div>}>
+            <Settings theme={theme} onThemeChange={setTheme} onClose={() => setMode('chat')} onLoggedOut={() => { setMode('chat'); handleLogout() }} />
+          </Suspense>
         )}
         {mode !== 'settings' && (
         <>
         <div className="topbar">
-          <button className="icon menu-btn" onClick={() => setSidebarOpen(true)} title="Menu">☰</button>
-          <div className="mode-toggle" role="tablist">
+          <button className="icon menu-btn" ref={menuRef} onClick={() => setSidebarOpen(true)} title="Menu" aria-label="Open conversations" aria-expanded={sidebarOpen} aria-controls="conversation-sidebar">☰</button>
+          <div className="mode-toggle" role="group" aria-label="Workspace mode">
             <button
               type="button"
               className={mode === 'chat' ? 'active' : ''}
@@ -1209,6 +1223,7 @@ export default function App() {
             {mode === 'chat' ? (
               <select
                 value={currentModelId}
+                aria-label="Chat model"
                 onChange={(e) => handleSwitchModel(e.target.value)}
                 disabled={sending}
                 title={modelLabel}
@@ -1222,6 +1237,7 @@ export default function App() {
             ) : (
               <select
                 value={imageModel}
+                aria-label="Image model"
                 onChange={(e) => handleSwitchImageModel(e.target.value)}
                 disabled={imageBusy}
               >
@@ -1254,7 +1270,7 @@ export default function App() {
           {!active || (active.messages?.length || 0) === 0 ? (
             <div className="welcome">
               <h1>Talk to NVIDIA's <span className="accent">open models</span></h1>
-              <p>Pick a model up top, type below, hit enter. All conversations are saved on this server.</p>
+              <p>Choose a model and start a conversation. Your history is private to your account.</p>
               <div className="suggestions">
                 {SUGGESTIONS.map((s, i) => (
                   <button key={i} className="suggestion" onClick={() => setDraft(s)}>
@@ -1321,6 +1337,8 @@ export default function App() {
               onKeyDown={onKeyDown}
               placeholder={active ? 'Reply…' : 'Ask anything, or attach a file…'}
               rows={1}
+              maxLength={8000}
+              aria-label="Message"
               disabled={sending}
             />
             {sending ? (
@@ -1339,7 +1357,8 @@ export default function App() {
               >↑</button>
             )}
           </div>
-          <div className="hint">Enter to send · Shift+Enter for newline · Powered by NVIDIA NIM API</div>
+          <div className="hint">{draft.length > 0 && <span>{draft.length.toLocaleString()} / 8,000 · </span>}Enter to send · Shift+Enter for newline</div>
+          <div className="privacy-hint">Messages and attached content are sent to NVIDIA to generate responses.</div>
         </form>
         </>)}
 

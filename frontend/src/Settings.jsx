@@ -27,7 +27,12 @@ function TwoFactorPanel() {
       setStatus(s)
     } catch (e) { setError(e.message) }
   }
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    let cancelled = false
+    api.twoFactorStatus().then((value) => { if (!cancelled) setStatus(value) })
+      .catch((e) => { if (!cancelled) setError(e.message) })
+    return () => { cancelled = true }
+  }, [])
 
   async function startEnroll() {
     setError(null); setBusy(true)
@@ -69,7 +74,7 @@ function TwoFactorPanel() {
     finally { setBusy(false) }
   }
 
-  if (!status) return <div>Loading 2FA status…</div>
+  if (!status) return <div role="status">{error || 'Loading 2FA status…'}</div>
 
   return (
     <section className="settings-section">
@@ -173,7 +178,12 @@ function SessionsPanel() {
   async function refresh() {
     try { setSessions(await api.listSessions()) } catch (e) { setError(e.message) }
   }
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    let cancelled = false
+    api.listSessions().then((value) => { if (!cancelled) setSessions(value) })
+      .catch((e) => { if (!cancelled) setError(e.message) })
+    return () => { cancelled = true }
+  }, [])
 
   async function revokeOne(key) {
     if (!confirm('Sign this session out?')) return
@@ -190,7 +200,7 @@ function SessionsPanel() {
     finally { setBusy(false) }
   }
 
-  if (!sessions) return <div>Loading sessions…</div>
+  if (!sessions) return <div role="status">{error || 'Loading sessions…'}</div>
 
   return (
     <section className="settings-section">
@@ -317,7 +327,54 @@ function DangerPanel({ onLoggedOut }) {
 }
 
 
-export default function Settings({ onClose, onLoggedOut }) {
+function StoragePanel() {
+  const [usage, setUsage] = useState(null)
+  const [files, setFiles] = useState([])
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([api.accountUsage(), api.listAttachments()]).then(([stats, attachments]) => {
+      if (cancelled) return
+      setUsage(stats); setFiles(attachments)
+    }).catch((e) => { if (!cancelled) setError(e.message) })
+    return () => { cancelled = true }
+  }, [])
+
+  async function remove(file) {
+    if (!confirm(`Delete ${file.original_name}? This cannot be undone.`)) return
+    setBusy(true); setError(null)
+    try {
+      await api.deleteAttachment(file.id)
+      setFiles((items) => items.filter((item) => item.id !== file.id))
+      setUsage(await api.accountUsage())
+    } catch (e) { setError(e.message) }
+    finally { setBusy(false) }
+  }
+
+  return <section className="settings-section">
+    <h2>Storage & files</h2>
+    {error && <p className="login-error" role="alert">{error}</p>}
+    {usage ? <>
+      <p className="muted">{(usage.storage_bytes / 1048576).toFixed(1)} MB of {Math.round(usage.storage_limit_bytes / 1048576)} MB used</p>
+      <progress aria-label="Storage used" value={usage.storage_bytes} max={usage.storage_limit_bytes} />
+      <div className="usage-stats">
+        <span>{usage.conversations} conversations</span>
+        <span>{usage.messages} messages</span>
+        <span>{usage.attachments} files</span>
+      </div>
+      <div className="file-library">
+        {files.length === 0 && <p className="muted">No files uploaded yet.</p>}
+        {files.map((file) => <div className="library-row" key={file.id}>
+          <div><a href={file.url} download>{file.original_name}</a><small>{Math.max(1, Math.round(file.size / 1024))} KB · {file.deletable ? 'Unattached' : 'Linked to a conversation'}</small></div>
+          {file.deletable && <button className="link danger" disabled={busy} onClick={() => remove(file)} aria-label={`Delete ${file.original_name}`}>Delete</button>}
+        </div>)}
+      </div>
+    </> : !error && <p role="status">Loading storage…</p>}
+  </section>
+}
+
+export default function Settings({ onClose, onLoggedOut, theme, onThemeChange }) {
   return (
     <div className="settings-wrap">
       <header className="settings-header">
@@ -325,6 +382,15 @@ export default function Settings({ onClose, onLoggedOut }) {
         <button className="icon" onClick={onClose} title="Close">×</button>
       </header>
       <div className="settings-body">
+        <section className="settings-section">
+          <h2>Appearance</h2>
+          <label className="theme-field"><span>Color theme</span>
+            <select value={theme} onChange={(e) => onThemeChange(e.target.value)}>
+              <option value="dark">Dark</option><option value="light">Light</option>
+            </select>
+          </label>
+        </section>
+        <StoragePanel />
         <PasswordPanel />
         <TwoFactorPanel />
         <SessionsPanel />

@@ -22,7 +22,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -635,6 +635,18 @@ def list_attachments(request):
     if kind:
         qs = qs.filter(kind=kind)
     return Response(AttachmentSerializer(qs, many=True).data)
+
+
+@api_view(['GET'])
+def account_usage(request):
+    files = Attachment.objects.filter(user=request.user).aggregate(bytes=Sum('size'), count=Count('id'))
+    return Response({
+        'storage_bytes': files['bytes'] or 0,
+        'storage_limit_bytes': settings.MAX_USER_STORAGE,
+        'attachments': files['count'],
+        'conversations': Conversation.objects.filter(user=request.user).count(),
+        'messages': Message.objects.filter(conversation__user=request.user).count(),
+    })
 
 
 @api_view(['POST'])

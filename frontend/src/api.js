@@ -194,6 +194,7 @@ export const api = {
     request('/auth/2fa/recovery-codes/', { method: 'POST', body: JSON.stringify({ code }) }),
 
   // Account
+  accountUsage: () => request('/account/usage/'),
   changePassword: (current_password, new_password) =>
     request('/auth/password/', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
   deleteAccount: (password, code) =>

@@ -62,3 +62,7 @@ jobs:
         run: npm run build
       - name: Audit dependencies
         run: npm audit --audit-level=low
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Responsive browser tests
+        run: npm run test:e2e

@@ -6,13 +6,17 @@ from .models import Attachment, Conversation, Message
 class AttachmentSerializer(serializers.ModelSerializer):
     url = serializers.CharField(read_only=True)
     has_text = serializers.SerializerMethodField()
+    deletable = serializers.SerializerMethodField()
 
     class Meta:
         model = Attachment
-        fields = ['id', 'kind', 'original_name', 'mime_type', 'size', 'url', 'has_text', 'created_at']
+        fields = ['id', 'kind', 'original_name', 'mime_type', 'size', 'url', 'has_text', 'created_at', 'deletable']
 
     def get_has_text(self, obj):
         return bool(obj.extracted_text)
+
+    def get_deletable(self, obj):
+        return obj.message_id is None
 
 
 class MessageSerializer(serializers.ModelSerializer):

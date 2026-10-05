@@ -5,6 +5,7 @@ from . import sessions as sessions_views, twofactor, views
 urlpatterns = [
     path('health/', views.health),
     path('auth/me/', views.auth_me),
+    path('account/usage/', views.account_usage),
     path('auth/login/', views.auth_login),
     path('auth/logout/', views.auth_logout),
     path('auth/register/', views.auth_register),
