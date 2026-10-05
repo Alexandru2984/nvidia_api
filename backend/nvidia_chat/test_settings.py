@@ -4,6 +4,7 @@ import tempfile
 from .settings import *  # noqa
 
 DEBUG = False
+SECURE_SSL_REDIRECT = False
 
 DATABASES = {
     'default': {

@@ -136,7 +136,9 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = False
-    SECURE_SSL_REDIRECT = False  # nginx already redirects http→https
+    # Defense in depth behind nginx/Cloudflare. SECURE_PROXY_SSL_HEADER below
+    # prevents a redirect loop for requests that arrived over HTTPS.
+    SECURE_SSL_REDIRECT = True
 
 RATELIMIT_ENABLE = not DEBUG
 
