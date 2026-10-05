@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '23 6 * * 1'
+
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -32,6 +37,10 @@ jobs:
         run: python manage.py check --settings=nvidia_chat.test_settings
       - name: Run tests
         run: python -m pytest -q
+      - name: Audit runtime dependencies
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit -r requirements.txt --progress-spinner off
 
   frontend:
     runs-on: ubuntu-latest
@@ -51,3 +60,5 @@ jobs:
         run: npx eslint .
       - name: Build
         run: npm run build
+      - name: Audit dependencies
+        run: npm audit --audit-level=low
