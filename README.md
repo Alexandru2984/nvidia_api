@@ -8,7 +8,7 @@ A self-hosted chat UI for NVIDIA's NIM-hosted open-weight LLMs (Llama, Nemotron,
 
 - **Backend** — Django 6 + Django REST Framework, PostgreSQL, gunicorn under systemd
 - **Frontend** — React 19 + Vite (built static SPA, served by nginx)
-- **Auth** — Django session cookies, CSRF-protected, register flow with 6-digit OTP via email
+- **Auth** — Django session cookies, CSRF-protected, invite-capable registration with 6-digit OTP via email
 - **LLM** — Proxies to `https://integrate.api.nvidia.com/v1/chat/completions` (OpenAI-compatible)
 
 ## Repo layout
@@ -87,14 +87,33 @@ FRONTEND_URL=https://aichat.micutu.com
 
 Settings auto-pick `EMAIL_USE_SSL` when `SMTP_PORT=465`, otherwise STARTTLS (`EMAIL_USE_TLS`) is used — the mailcow server on `mail.micutu.com:587` takes the STARTTLS path.
 
+## Registration policy
+
+`REGISTRATION_MODE` accepts `open`, `invite`, or `closed`. The production systemd
+profile selects `invite`; local development defaults to `open`. Create a one-time
+code from the production application identity and transfer it only to the intended
+recipient:
+
+```bash
+cd /home/micu/nvidia/backend
+sudo -u aichat venv/bin/python manage.py create_registration_invite --expires-hours=72
+```
+
+The plaintext code is printed once and never stored. PostgreSQL keeps only an
+HMAC, expiry, consumption time, and consuming account. Concurrent redemption is
+serialized; mail failure rolls back both the inactive user and invitation use.
+Expired unused records and used audit rows older than
+`REGISTRATION_INVITE_AUDIT_DAYS` (default 90) are removed by daily maintenance.
+Changing `DJANGO_SECRET_KEY` invalidates every outstanding invite.
+
 ## API
 
 All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CSRFToken` from the `csrftoken` cookie.
 
 | Method | Path | Body | Auth | Notes |
 |---|---|---|---|---|
-| GET | `/auth/me/` | — | open | Sets `csrftoken` cookie. Returns `{username}` or `{username: null}`. |
-| POST | `/auth/register/` | `{username, email, password}` | open | Creates an inactive user and emails an OTP; valid duplicate identifiers receive the same generic response. |
+| GET | `/auth/me/` | — | open | Sets `csrftoken` cookie. Returns `username` plus `registration_mode`. |
+| POST | `/auth/register/` | `{username, email, password, invite_code?}` | open | Creates an inactive user and emails an OTP. Invite mode requires an unused code; valid duplicate identifiers remain opaque and do not consume it. |
 | POST | `/auth/verify/` | `{email, code}` | open | 6-digit code; failures do not disclose account/code state; logs the user in on success. |
 | POST | `/auth/resend/` | `{email}` | open | Silent 60s cooldown with a generic response for unknown, throttled, or mail-failure cases. |
 | POST | `/auth/forgot/` | `{email}` | open | Always returns generic success; emails a 6-digit reset code if eligible. |

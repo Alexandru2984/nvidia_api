@@ -266,7 +266,7 @@ function ResetScreen({ email, onReset, onBack }) {
   )
 }
 
-function AuthScreen({ initialMode = 'login', onLoggedIn }) {
+function AuthScreen({ initialMode = 'login', onLoggedIn, registrationMode }) {
   const [mode, setMode] = useState(initialMode)
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
@@ -277,11 +277,13 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
   const [error, setError] = useState(null)
   const [pendingEmail, setPendingEmail] = useState('')
   const [pendingCooldown, setPendingCooldown] = useState(60)
+  const [inviteCode, setInviteCode] = useState('')
 
   function switchMode(next) {
     setMode(next)
     setError(null)
     setPassword('')
+    setInviteCode('')
   }
 
   async function submit(e) {
@@ -306,9 +308,10 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
           }
         }
       } else {
-        const r = await api.register(username, email, password)
+        const r = await api.register(username, email, password, inviteCode)
         setPendingEmail(email)
         setPendingCooldown(r.resend_available_in || 60)
+        setInviteCode('')
         setMode('code')
       }
     } catch (err) {
@@ -359,6 +362,7 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
   }
 
   const isRegister = mode === 'register'
+  const inviteRequired = registrationMode === 'invite'
 
   return (
     <div className="login-wrap">
@@ -367,7 +371,9 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
           <div className="brand-mark">N</div>
           <div>
             <div className="brand-text">AI Chat Hub</div>
-            <div className="brand-sub">{isRegister ? 'Create an account' : 'Sign in to continue'}</div>
+            <div className="brand-sub">
+              {isRegister ? (inviteRequired ? 'Create an invited account' : 'Create an account') : 'Sign in to continue'}
+            </div>
           </div>
         </div>
         <label>
@@ -389,6 +395,21 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
+              required
+            />
+          </label>
+        )}
+        {isRegister && inviteRequired && (
+          <label>
+            <span>Invitation code</span>
+            <input
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase().slice(0, 24))}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={24}
+              placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"
               required
             />
           </label>
@@ -423,7 +444,8 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
         <button
           type="submit"
           className="primary login-submit"
-          disabled={busy || !username || !password || (isRegister && !email)}
+          disabled={busy || !username || !password
+            || (isRegister && (!email || (inviteRequired && !inviteCode)))}
         >
           {busy ? (isRegister ? 'Creating…' : 'Signing in…') : (isRegister ? 'Create account' : 'Sign in')}
         </button>
@@ -435,6 +457,8 @@ function AuthScreen({ initialMode = 'login', onLoggedIn }) {
         <div className="login-toggle">
           {isRegister ? (
             <>Already have an account? <button type="button" className="link" onClick={() => switchMode('login')}>Sign in</button></>
+          ) : registrationMode === 'closed' ? (
+            <span>New account registration is currently closed.</span>
           ) : (
             <>No account yet? <button type="button" className="link" onClick={() => switchMode('register')}>Create one</button></>
           )}
@@ -638,6 +662,7 @@ function MessageRow({ m, modelLabel, busy, onEdit, onRegenerate }) {
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false)
   const [user, setUser] = useState(null)
+  const [registrationMode, setRegistrationMode] = useState('closed')
   const [models, setModels] = useState([])
   const [defaultModel, setDefaultModel] = useState('')
   const [conversations, setConversations] = useState([])
@@ -702,6 +727,7 @@ export default function App() {
     api.me()
       .then((u) => {
         if (cancelled) return
+        setRegistrationMode(u.registration_mode || 'closed')
         setUser(u.username ? u : null)
         setAuthChecked(true)
       })
@@ -1116,7 +1142,12 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen onLoggedIn={(u) => { setUser(u); setBootError(null) }} />
+    return (
+      <AuthScreen
+        registrationMode={registrationMode}
+        onLoggedIn={(u) => { setUser(u); setBootError(null) }}
+      />
+    )
   }
 
   return (

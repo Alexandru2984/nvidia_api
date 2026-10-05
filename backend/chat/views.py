@@ -42,7 +42,14 @@ from rest_framework.response import Response
 
 from .attachments import detect_mime, extract_text, kind_for_mime
 from .model_status import get_status, unavailable_model_ids
-from .models import Attachment, Conversation, EmailVerification, Message, PasswordReset
+from .models import (
+    Attachment,
+    Conversation,
+    EmailVerification,
+    Message,
+    PasswordReset,
+    RegistrationInvite,
+)
 from .models_catalog import (
     DEFAULT_IMAGE_GEN_MODEL_ID,
     DEFAULT_MODEL_ID,
@@ -52,6 +59,7 @@ from .models_catalog import (
     NVIDIA_MODELS,
     VISION_MODEL_IDS,
 )
+from .registration import hash_invite_code
 from .security_events import actor_for_request, security_log
 from .serializers import (
     AttachmentSerializer,
@@ -128,9 +136,10 @@ def _reserve_provider_call(request, kind, prompt_characters=0, token_reservation
 @permission_classes([AllowAny])
 @ensure_csrf_cookie
 def auth_me(request):
-    if request.user.is_authenticated:
-        return Response({'username': request.user.username})
-    return Response({'username': None})
+    return Response({
+        'username': request.user.username if request.user.is_authenticated else None,
+        'registration_mode': settings.REGISTRATION_MODE,
+    })
 
 
 @api_view(['POST'])
@@ -193,6 +202,10 @@ def _registration_response(email):
         'email': email,
         'resend_available_in': RESEND_COOLDOWN_SECONDS,
     }, status=201)
+
+
+def _registration_mode_response(code, message):
+    return Response({'error': message, 'code': code}, status=status.HTTP_403_FORBIDDEN)
 
 
 def _resend_response():
@@ -280,6 +293,13 @@ def auth_register(request):
     email = (request.data.get('email') or '').strip().lower()
     password = request.data.get('password') or ''
     honeypot = (request.data.get('website') or '').strip()
+    registration_mode = settings.REGISTRATION_MODE
+
+    if registration_mode == 'closed':
+        security_log.info('event=registration_blocked mode=closed actor=%s', actor_for_request(request))
+        return _registration_mode_response(
+            'registration_closed', 'Registration is currently unavailable.',
+        )
 
     # Validation runs *before* the honeypot check so the response shape for
     # malformed input is identical with or without the honeypot field. That
@@ -307,31 +327,65 @@ def auth_register(request):
     except ValidationError as e:
         return Response({'error': ' '.join(e.messages)}, status=400)
 
-    # Do not disclose whether either account identifier already exists.
-    if User.objects.filter(Q(username__iexact=username) | Q(email__iexact=email)).exists():
-        security_log.info('event=registration_suppressed actor=%s', actor_for_request(request))
-        return _registration_response(email)
+    invite_hash = None
+    if registration_mode == 'invite':
+        invite_hash = hash_invite_code(request.data.get('invite_code'))
+        if invite_hash is None:
+            security_log.warning(
+                'event=registration_invite_rejected actor=%s', actor_for_request(request),
+            )
+            return _registration_mode_response(
+                'invalid_invitation', 'A valid invitation code is required.',
+            )
 
-    user.set_password(password)
+    used_invite_id = None
     try:
-        # The pre-check above is intentionally user-friendly, but cannot by
-        # itself prevent two concurrent requests from racing on username.
-        # Translate the database constraint into the same opaque response.
         with transaction.atomic():
+            invite = None
+            if invite_hash is not None:
+                invite = RegistrationInvite.objects.select_for_update().filter(
+                    code_hash=invite_hash,
+                ).first()
+                if invite is None or invite.used_at is not None or invite.expires_at <= timezone.now():
+                    security_log.warning(
+                        'event=registration_invite_rejected actor=%s', actor_for_request(request),
+                    )
+                    return _registration_mode_response(
+                        'invalid_invitation', 'A valid invitation code is required.',
+                    )
+
+            # Keep duplicate username/email behavior opaque. In invite mode the
+            # row lock also ensures a duplicate attempt cannot burn the code.
+            if User.objects.filter(
+                Q(username__iexact=username) | Q(email__iexact=email),
+            ).exists():
+                security_log.info('event=registration_suppressed actor=%s', actor_for_request(request))
+                return _registration_response(email)
+
+            # Do the expensive password hash only after invitation and duplicate
+            # checks so random invalid codes cannot become a CPU-amplification path.
+            user.set_password(password)
             user.save()
+            _issue_new_code(user)
+            if invite is not None:
+                invite.used_at = timezone.now()
+                invite.used_by = user
+                invite.save(update_fields=['used_at', 'used_by'])
+                used_invite_id = invite.pk
     except IntegrityError:
         security_log.info('event=registration_suppressed actor=%s', actor_for_request(request))
         return _registration_response(email)
-
-    try:
-        _issue_new_code(user)
     except Exception:
         log.exception('Failed to send verification email for user_id=%s', user.pk)
-        user.delete()
-        # Keep this indistinguishable from an existing identifier. The row is
-        # removed so the user can retry once mail delivery recovers.
+        # The surrounding transaction rolls back both user and invite usage so
+        # the owner can retry after mail delivery recovers.
         return _registration_response(email)
 
+    if used_invite_id is not None:
+        security_log.warning(
+            'event=registration_invite_consumed invite_id=%s user_id=%s actor=%s',
+            used_invite_id, user.pk, actor_for_request(request),
+        )
     return _registration_response(user.email)
 
 
@@ -374,6 +428,7 @@ def auth_verify(request):
     ev.delete()
     django_login(request, user)
     stamp_session(request)
+    security_log.warning('event=registration_verified user_id=%s', user.pk)
     return Response({'verified': True, 'username': user.username})
 
 

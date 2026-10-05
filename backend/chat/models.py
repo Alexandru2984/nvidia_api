@@ -36,6 +36,25 @@ class PasswordReset(models.Model):
         return f'PasswordReset(user={self.user_id}, expires={self.expires_at:%Y-%m-%d %H:%M})'
 
 
+class RegistrationInvite(models.Model):
+    """One-time registration capability; the plaintext code is never stored."""
+    code_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    used_by = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name='registration_invite',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+    def __str__(self):
+        state = 'used' if self.used_at else 'unused'
+        return f'RegistrationInvite(id={self.pk}, {state}, expires={self.expires_at:%Y-%m-%d %H:%M})'
+
+
 class TwoFactor(models.Model):
     """Per-user TOTP setup. `secret` is stored base32 (plaintext) — acceptable
     for our threat model since DB compromise here implies VPS compromise. The

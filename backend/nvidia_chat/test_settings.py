@@ -1,7 +1,7 @@
 """Test settings: SQLite in-memory, in-process cache, tmp media, no external IO."""
 import tempfile
 
-from .settings import *  # noqa
+from .settings import *
 
 DEBUG = False
 SECURE_SSL_REDIRECT = False
@@ -32,6 +32,7 @@ EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 
 # Predictable for HMAC tests. Don't reuse this anywhere.
 SECRET_KEY = 'test-secret-key-do-not-use-in-prod'
+REGISTRATION_MODE = 'open'
 
 # Avoid SMTP timeouts during tests
 EMAIL_TIMEOUT = 1

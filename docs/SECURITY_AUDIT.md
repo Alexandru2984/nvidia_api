@@ -39,8 +39,8 @@ limits.
 | Priority | Threat | Likelihood | Impact | Blast radius | State |
 |---|---|---:|---:|---|---|
 | 1 | **Elevation/tampering:** a malicious document exploits the parser or web process | Low/Medium | High | The AI Chat Hub database, runtime files and provider/mail credentials; other projects are outside the service sandbox | Resource-bounded parser plus dedicated non-login identity and systemd sandbox deployed |
-| 2 | **Information disclosure:** direct media URLs or permissive backup modes expose private content | Medium | High | Attachment owners or the complete database, depending on path reached | Private API fixed; nginx block staged; existing backup modes require rollout |
-| 3 | **Denial of service/cost abuse:** registrations and model generation consume mail, CPU, storage, or NVIDIA quota | High | Medium/High | Availability and provider budget for all users | Per-route limits and payload caps exist; durable quotas and signup challenge remain P0 |
+| 2 | **Information disclosure:** direct media URLs or permissive backup modes expose private content | Low | High | Attachment owners or the complete database, depending on path reached | Ownership-checked API and nginx denial are deployed; backup/media modes are private and monitored |
+| 3 | **Denial of service/cost abuse:** registrations and model generation consume mail, CPU, storage, or NVIDIA quota | Medium | Medium/High | Availability and provider budget for all users | Durable request/token quotas and invite-only signup bound anonymous consumption; monetary enforcement remains open |
 
 STRIDE coverage also identified spoofing risk at the reverse-proxy boundary,
 repudiation from limited security audit events, and disclosure through raw
@@ -51,18 +51,18 @@ upstream responses are now logged server-side while clients receive generic text
 
 | ID | Severity | Finding | Repository control | Residual action |
 |---|---|---|---|---|
-| A-01 | Critical | `/media/` could bypass object ownership | Authenticated download endpoint and nginx deny template | Apply vhost; assert `/media/*` is 404 externally |
+| A-01 | Critical | `/media/` could bypass object ownership | Authenticated download endpoint and deployed nginx denial | Keep the external `/media/*` 404 regression probe in every rollout |
 | A-02 | High | PDF/DOCX handled in the request process | Magic-byte checks, ZIP limits, subprocess timeout and OS resource limits | Move parsing to a dedicated worker/container before higher-volume use |
 | A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, app-owned runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials during a controlled rotation |
-| A-04 | High | Existing backups were mode `0664` in a `0755` directory | Backup script now uses `umask 077`, atomic output, locks, and gzip verification | Correct existing modes; add encryption, off-site copy, and restore drill |
+| A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
 | A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque session handles | Rotate sessions after any suspected historic disclosure |
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
-| A-11 | Medium | Registration and recovery can be automated or used for account enumeration | IP/user throttles; uniform register/resend/verify/reset responses; silent cooldown/mail-failure handling; transactional code rollback; case-insensitive database uniqueness for usernames/emails | Add Turnstile or invite/approval mode; enforce mail and provider budgets; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness; the sandboxed monitor alone receives journal-reader access after service separation | Add external retention and upload/contract-spend correlation; tabletop the alert path |
+| A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, invite rejection/consumption and verified signup, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and upload/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA, with access alerts | Add Cloudflare Access/VPN and admin change-level audit records |
@@ -116,11 +116,11 @@ is required before describing those controls as complete.
 
 ## Verification evidence
 
-- 259 backend tests pass, including ownership, CSRF, concurrency, recovery,
+- 270 backend tests pass, including ownership, CSRF, concurrency, recovery,
   anti-enumeration, transactional mail-failure, provider token reconciliation,
-  fail-closed usage validation, SSE byte parsing, retired-model handling,
-  payload, and generated-image boundary tests.
-- Frontend lint/build, ten responsive Playwright checks (320–1440 px), and
+  fail-closed usage validation, atomic invite consumption, SSE byte parsing,
+  retired-model handling, payload, and generated-image boundary tests.
+- Frontend lint/build, twelve responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
   external route/header probes must be repeated during each production rollout.

@@ -16,9 +16,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Durable abuse and budget controls:** PostgreSQL-backed daily request budgets
   per user and globally, actual provider token accounting, fail-closed concurrent
   token reservations, and a configuration kill-switch are shipped. Add a
-  contract/GPU-based monetary spend budget, registration challenge or invite
-  mode, and an admin override/audit trail; move burst throttles to
-  Redis/PostgreSQL before scaling.
+  contract/GPU-based monetary spend budget and an admin override/audit trail;
+  invite-only registration with one-time HMAC-stored codes is shipped. Add a
+  human-verification challenge only if public registration returns, and move
+  burst throttles to Redis/PostgreSQL before scaling.
 - **Provider entitlement:** confirm and record the NVIDIA production license or
   restrict the service to private evaluation use. Map the contractual/GPU cost
   model into alerts and a hard monetary circuit breaker.
@@ -29,7 +30,8 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Detection:** structured privacy-minimized events and five-minute alerts now
   cover auth bursts, throttles, successful admin access, 2FA disable, global AI
   budget exhaustion, missing/malformed provider usage, token reservation
-  overruns, backend error bursts, and backup/restore freshness. Add
+  overruns, invalid-invite bursts, invitation consumption, verified
+  registrations, backend error bursts, and backup/restore freshness. Add
   upload/parser/contract-spend correlation and an external log sink without
   logging prompts, cookies, OTPs, filenames, raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;

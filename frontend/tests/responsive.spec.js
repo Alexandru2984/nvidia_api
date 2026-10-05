@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 
-async function mockAPI(page, signedIn = true, conversationModel = 'test/model') {
+async function mockAPI(
+  page, signedIn = true, conversationModel = 'test/model', registrationMode = 'open',
+) {
   await page.route('https://analytics.micutu.com/**', (route) => route.abort())
   const conversation = {
     id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
@@ -17,7 +19,10 @@ async function mockAPI(page, signedIn = true, conversationModel = 'test/model') 
       return route.fulfill({ status: 200, json: { ...conversation, ...patch } })
     }
     const data = {
-      '/api/auth/me/': { username: signedIn ? 'alice' : null },
+      '/api/auth/me/': {
+        username: signedIn ? 'alice' : null,
+        registration_mode: registrationMode,
+      },
       '/api/models/': { models: [{ id: 'test/model', name: 'Test model', vendor: 'Test', vision: true }], default: 'test/model' },
       '/api/conversations/': [conversation],
       '/api/conversations/1/': conversation,
@@ -106,5 +111,24 @@ test('retired conversation model is explicit and recoverable on mobile', async (
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByLabel('Chat model')).toHaveValue('test/model')
   await expect(page.getByLabel('Message')).toBeEnabled()
+  await expectNoPageOverflow(page)
+})
+
+test('invite-only registration requires an invitation code', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await mockAPI(page, false, 'test/model', 'invite')
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create one' }).click()
+  await expect(page.getByText('Create an invited account')).toBeVisible()
+  await expect(page.getByLabel('Invitation code')).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('closed registration exposes no account creation control', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  await mockAPI(page, false, 'test/model', 'closed')
+  await page.goto('/')
+  await expect(page.getByText('New account registration is currently closed.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create one' })).toHaveCount(0)
   await expectNoPageOverflow(page)
 })

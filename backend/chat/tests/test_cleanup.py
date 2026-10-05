@@ -8,7 +8,14 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.utils import timezone
 
-from chat.models import Attachment, Conversation, EmailVerification, Message, PasswordReset
+from chat.models import (
+    Attachment,
+    Conversation,
+    EmailVerification,
+    Message,
+    PasswordReset,
+    RegistrationInvite,
+)
 
 
 def _make_att(user, days_old=0, linked=False):
@@ -85,3 +92,25 @@ class TestCleanupAttachments:
         _make_att(user, days_old=5)
         call_command('cleanup_attachments', '--days=1', stdout=StringIO())
         assert Attachment.objects.count() == 0
+
+    def test_removes_expired_and_old_used_invitation_audit_rows(self, user, settings):
+        settings.REGISTRATION_INVITE_AUDIT_DAYS = 90
+        now = timezone.now()
+        RegistrationInvite.objects.create(
+            code_hash='a' * 64,
+            expires_at=now - timedelta(seconds=1),
+        )
+        RegistrationInvite.objects.create(
+            code_hash='b' * 64,
+            expires_at=now - timedelta(days=100),
+            used_at=now - timedelta(days=91),
+            used_by=user,
+        )
+        keep = RegistrationInvite.objects.create(
+            code_hash='c' * 64,
+            expires_at=now + timedelta(days=1),
+        )
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        assert list(RegistrationInvite.objects.values_list('pk', flat=True)) == [keep.pk]

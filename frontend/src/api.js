@@ -57,8 +57,11 @@ export const api = {
   login: (username, password, code) =>
     request('/auth/login/', { method: 'POST', body: JSON.stringify({ username, password, ...(code ? { code } : {}) }) }),
   logout: () => request('/auth/logout/', { method: 'POST' }),
-  register: (username, email, password) =>
-    request('/auth/register/', { method: 'POST', body: JSON.stringify({ username, email, password }) }),
+  register: (username, email, password, invite_code) =>
+    request('/auth/register/', {
+      method: 'POST',
+      body: JSON.stringify({ username, email, password, ...(invite_code ? { invite_code } : {}) }),
+    }),
   verifyCode: (email, code) =>
     request('/auth/verify/', { method: 'POST', body: JSON.stringify({ email, code }) }),
   resend: (email) =>

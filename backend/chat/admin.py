@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import Conversation, DailyAIUsage, GlobalAIUsage, Message
+from .models import (
+    Conversation,
+    DailyAIUsage,
+    GlobalAIUsage,
+    Message,
+    RegistrationInvite,
+)
 
 
 @admin.register(Conversation)
@@ -41,3 +47,17 @@ class DailyAIUsageAdmin(ReadOnlyUsageAdmin):
 class GlobalAIUsageAdmin(ReadOnlyUsageAdmin):
     list_display = ('day', 'chat_requests', 'image_requests', 'prompt_characters')
     list_filter = ('day',)
+
+
+@admin.register(RegistrationInvite)
+class RegistrationInviteAdmin(admin.ModelAdmin):
+    list_display = ('id', 'created_at', 'expires_at', 'used_at', 'used_by')
+    list_filter = ('used_at', 'expires_at')
+    exclude = ('code_hash',)
+    readonly_fields = ('created_at', 'expires_at', 'used_at', 'used_by')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -1,15 +1,19 @@
 """Tests for /api/auth/* endpoints."""
 import re
 from datetime import timedelta
+from io import StringIO
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from chat.models import EmailVerification, PasswordReset
+from chat.models import EmailVerification, PasswordReset, RegistrationInvite
+from chat.registration import generate_invite_code, hash_invite_code
 
 
 def _last_code(outbox):
@@ -18,6 +22,15 @@ def _last_code(outbox):
     m = re.search(r'\b(\d{6})\b', body)
     assert m is not None, f'no 6-digit code in email body: {body!r}'
     return m.group(1)
+
+
+def _registration_invite(hours=1):
+    code = generate_invite_code()
+    invite = RegistrationInvite.objects.create(
+        code_hash=hash_invite_code(code),
+        expires_at=timezone.now() + timedelta(hours=hours),
+    )
+    return invite, code
 
 
 @pytest.mark.django_db
@@ -119,6 +132,116 @@ class TestRegister:
                 username='unique_name', email=user.email.swapcase(), password='Hunter2pass',
             )
 
+    def test_auth_me_advertises_registration_mode(self, client, settings):
+        settings.REGISTRATION_MODE = 'invite'
+        assert client.get('/api/auth/me/').json() == {
+            'username': None, 'registration_mode': 'invite',
+        }
+
+    def test_closed_registration_writes_nothing(self, client, settings):
+        settings.REGISTRATION_MODE = 'closed'
+        response = client.post('/api/auth/register/', {
+            'username': 'newuser', 'email': 'new@example.com', 'password': 'Hunter2pass',
+        }, format='json')
+        assert response.status_code == 403
+        assert response.json()['code'] == 'registration_closed'
+        assert not get_user_model().objects.exists()
+
+    def test_invite_mode_requires_a_valid_code(self, client, settings):
+        settings.REGISTRATION_MODE = 'invite'
+        with patch('django.contrib.auth.base_user.AbstractBaseUser.set_password') as set_password:
+            response = client.post('/api/auth/register/', {
+                'username': 'newuser', 'email': 'new@example.com', 'password': 'Hunter2pass',
+                'invite_code': 'invalid',
+            }, format='json')
+        assert response.status_code == 403
+        assert response.json()['code'] == 'invalid_invitation'
+        set_password.assert_not_called()
+        assert not get_user_model().objects.exists()
+
+    def test_invite_is_consumed_once_after_email_succeeds(self, client, settings):
+        settings.REGISTRATION_MODE = 'invite'
+        invite, code = _registration_invite()
+        response = client.post('/api/auth/register/', {
+            'username': 'invited', 'email': 'invited@example.com', 'password': 'Hunter2pass',
+            'invite_code': code.lower(),
+        }, format='json')
+        assert response.status_code == 201
+        invite.refresh_from_db()
+        assert invite.used_at is not None
+        assert invite.used_by.username == 'invited'
+        assert len(mail.outbox) == 1
+
+        replay = client.post('/api/auth/register/', {
+            'username': 'replay', 'email': 'replay@example.com', 'password': 'Hunter2pass',
+            'invite_code': code,
+        }, format='json')
+        assert replay.status_code == 403
+        assert not get_user_model().objects.filter(username='replay').exists()
+
+    def test_expired_invite_is_rejected(self, client, settings):
+        settings.REGISTRATION_MODE = 'invite'
+        invite, code = _registration_invite()
+        RegistrationInvite.objects.filter(pk=invite.pk).update(
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        response = client.post('/api/auth/register/', {
+            'username': 'late', 'email': 'late@example.com', 'password': 'Hunter2pass',
+            'invite_code': code,
+        }, format='json')
+        assert response.status_code == 403
+
+    def test_duplicate_identifier_does_not_consume_invite(self, client, user, settings):
+        settings.REGISTRATION_MODE = 'invite'
+        invite, code = _registration_invite()
+        response = client.post('/api/auth/register/', {
+            'username': user.username, 'email': 'other@example.com', 'password': 'Hunter2pass',
+            'invite_code': code,
+        }, format='json')
+        assert response.status_code == 201
+        invite.refresh_from_db()
+        assert invite.used_at is None
+        assert invite.used_by is None
+
+    def test_mail_failure_rolls_back_user_and_invite(self, client, settings):
+        settings.REGISTRATION_MODE = 'invite'
+        invite, code = _registration_invite()
+        with patch('chat.views._send_verification_email', side_effect=RuntimeError('mail unavailable')):
+            response = client.post('/api/auth/register/', {
+                'username': 'retryable', 'email': 'retry@example.com', 'password': 'Hunter2pass',
+                'invite_code': code,
+            }, format='json')
+        assert response.status_code == 201
+        assert not get_user_model().objects.filter(username='retryable').exists()
+        invite.refresh_from_db()
+        assert invite.used_at is None
+        assert invite.used_by is None
+
+    def test_honeypot_does_not_require_or_consume_invite(self, client, settings):
+        settings.REGISTRATION_MODE = 'invite'
+        invite, _ = _registration_invite()
+        response = client.post('/api/auth/register/', {
+            'username': 'botuser', 'email': 'bot@example.com', 'password': 'Hunter2pass',
+            'website': 'https://spam.invalid',
+        }, format='json')
+        assert response.status_code == 201
+        invite.refresh_from_db()
+        assert invite.used_at is None
+        assert not get_user_model().objects.filter(username='botuser').exists()
+
+    def test_management_command_prints_code_once_and_stores_only_hash(self):
+        output = StringIO()
+        call_command('create_registration_invite', '--expires-hours=24', stdout=output)
+        code = re.search(
+            r'Invitation code \(shown once\): ([A-Z2-9-]+)', output.getvalue(),
+        ).group(1)
+        invite = RegistrationInvite.objects.get()
+        assert invite.code_hash == hash_invite_code(code)
+        assert code not in invite.code_hash
+
+        with pytest.raises(CommandError):
+            call_command('create_registration_invite', '--expires-hours=0', stdout=StringIO())
+
 
 @pytest.mark.django_db
 class TestVerify:
@@ -132,6 +255,18 @@ class TestVerify:
         assert r.json()['verified'] is True
         User = get_user_model()
         assert User.objects.get(username='newuser').is_active is True
+
+    def test_successful_verification_is_security_logged(self, client, caplog):
+        client.post('/api/auth/register/', {
+            'username': 'newuser', 'email': 'new@example.com', 'password': 'Hunter2pass',
+        }, format='json')
+        code = _last_code(mail.outbox)
+        caplog.set_level('WARNING', logger='security')
+        response = client.post(
+            '/api/auth/verify/', {'email': 'new@example.com', 'code': code}, format='json',
+        )
+        assert response.status_code == 200
+        assert any('event=registration_verified' in record.message for record in caplog.records)
 
     def test_wrong_code_increments_attempts(self, client):
         client.post('/api/auth/register/', {

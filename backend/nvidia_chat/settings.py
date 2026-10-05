@@ -5,6 +5,7 @@ Django settings for nvidia_chat project.
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -17,7 +18,6 @@ if not SECRET_KEY:
     if DEBUG:
         SECRET_KEY = 'dev-only-insecure-key'
     else:
-        from django.core.exceptions import ImproperlyConfigured
         raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DEBUG is off.')
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h.strip()]
 
@@ -171,12 +171,19 @@ CHAT_HISTORY_MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 MAX_PASSWORD_LENGTH = 128
 
+REGISTRATION_MODE = os.environ.get('REGISTRATION_MODE', 'open').strip().lower()
+if REGISTRATION_MODE not in {'open', 'invite', 'closed'}:
+    raise ImproperlyConfigured('REGISTRATION_MODE must be open, invite, or closed.')
+
 
 def _nonnegative_int_env(name, default):
     value = int(os.environ.get(name, default))
     if value < 0:
         raise ValueError(f'{name} must be non-negative')
     return value
+
+
+REGISTRATION_INVITE_AUDIT_DAYS = _nonnegative_int_env('REGISTRATION_INVITE_AUDIT_DAYS', 90)
 
 
 # Durable daily provider budgets. Set AI_GENERATION_ENABLED=False and restart

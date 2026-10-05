@@ -22,7 +22,8 @@ count. Confirm it against root-owned timer/service status and the system journal
 do not paste raw journal lines into Telegram. High-signal rules include a
 successful admin login, 2FA disable, global AI-budget exhaustion, 10 failed
 logins/6 minutes, 10 denied admin requests/6 minutes, 20 rate limits/6 minutes,
-3 backend errors/6 minutes, a database
+5 rejected invitations/6 minutes, any invitation consumption or verified new
+account, 3 backend errors/6 minutes, a database
 backup older than 30 hours, or a restore drill older than eight days.
 
 ## 2. Contain
@@ -36,6 +37,9 @@ backup older than 30 hours, or a restore drill older than eight days.
   opening it on a workstation, and inspect the service account's reachable files.
 - For NVIDIA cost abuse, disable generation or revoke the API key before tuning
   throttles. A spending incident can continue while the UI appears healthy.
+- For registration abuse, set `REGISTRATION_MODE=closed`, restart the backend,
+  delete unused invitation rows through the verified-2FA admin, and preserve the
+  relevant privacy-minimized events before reopening invite mode.
 
 ## 3. Assess scope
 

@@ -84,6 +84,9 @@ def evaluate(backup_dir, restore_log, journal, now=None):
     admin_denied = journal.count('event=admin_access_denied')
     unmetered_usage = journal.count('event=ai_usage_unmetered')
     token_overruns = journal.count('event=ai_token_reservation_exceeded')
+    invite_rejections = journal.count('event=registration_invite_rejected')
+    invite_consumed = journal.count('event=registration_invite_consumed')
+    registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
     if auth_failures >= int(os.environ.get('AUTH_FAILURE_ALERT_THRESHOLD', '10')):
         issues['auth_burst'] = f'{auth_failures} failed logins were detected in six minutes.'
@@ -104,6 +107,18 @@ def evaluate(backup_dir, restore_log, journal, now=None):
     if token_overruns:
         issues['token_reservation_overrun'] = (
             f'{token_overruns} AI calls exceeded their token reservation in six minutes.'
+        )
+    if invite_rejections >= int(os.environ.get('INVITE_REJECTION_ALERT_THRESHOLD', '5')):
+        issues['invite_rejection_burst'] = (
+            f'{invite_rejections} invalid invitation attempts were detected in six minutes.'
+        )
+    if invite_consumed:
+        issues['registration_invite_consumed'] = (
+            f'{invite_consumed} registration invitations were consumed in six minutes.'
+        )
+    if registrations_verified:
+        issues['registration_verified'] = (
+            f'{registrations_verified} new accounts completed verification in six minutes.'
         )
     if internal_errors >= int(os.environ.get('INTERNAL_ERROR_ALERT_THRESHOLD', '3')):
         issues['error_burst'] = f'{internal_errors} backend errors were detected in six minutes.'
