@@ -127,7 +127,7 @@ is required before describing those controls as complete.
 
 ### Production rollout — 2026-10-05
 
-- Deployed repository state through `1958440`; database migrations reported no
+- Deployed repository state through `6783aee`; database migrations reported no
   pending operations and the production dependency environment passed `pip check`.
 - `pip-audit` and `npm audit --audit-level=low` reported no known vulnerabilities.
 - Applied the nginx template after a successful syntax test. Public and origin
@@ -176,6 +176,10 @@ is required before describing those controls as complete.
   former default, and identified two existing conversations using unavailable
   models. New chats now select an available fallback, while affected existing
   chats require an explicit available-model choice before any budget is consumed.
+- Deployed the retired-model recovery UI after ten responsive Playwright checks.
+  Prior frontend snapshot `aichat.micutu.com_20261005_220524` is private; the
+  current public JS/CSS (`index-D9ELShym.js`, `index-Bwtt96bY.css`) and HTML all
+  returned 200 while the backend remained active with zero restarts.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
