@@ -121,7 +121,7 @@ is required before describing those controls as complete.
 
 ### Production rollout — 2026-10-05
 
-- Deployed repository state through `e3c5b33`; database migrations reported no
+- Deployed repository state through `240e2a3`; database migrations reported no
   pending operations and the production dependency environment passed `pip check`.
 - `pip-audit` and `npm audit --audit-level=low` reported no known vulnerabilities.
 - Applied the nginx template after a successful syntax test. Public and origin
@@ -130,8 +130,19 @@ is required before describing those controls as complete.
   download.
 - Applied the systemd sandbox after a successful transient-unit preflight. The
   service remained active with three workers and zero automatic restarts; its
-  `systemd-analyze security` exposure score improved from 9.2 `UNSAFE` to 3.0
+  `systemd-analyze security` exposure score improved from 9.2 `UNSAFE` to 2.9
   `OK`.
+- Migrated the web master/workers and application maintenance jobs from the
+  shared `micu` account to the non-login `aichat` identity. Live mount-namespace
+  probes confirmed that other projects under `/home/micu` are absent while the
+  app's read-only source and private writable runtime paths remain available.
+  The existing `nvidia_user` database role is not a superuser and cannot create
+  databases or roles. The mail/provider environment is group-readable by
+  `aichat` but not writable by it.
+- Replaced the shared-user cleanup/model-probe cron entries with sandboxed
+  systemd timers. The security monitor alone receives supplementary
+  `systemd-journal` access, and its post-separation execution completed
+  successfully so five-minute detection remains operational.
 - Corrected the backup directory and media directory to mode `0700`, and existing
   database dumps/runtime logs to `0600`.
 - A live anonymous CSRF probe was rejected with 403. A same-origin browser-shaped
