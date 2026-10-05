@@ -41,6 +41,10 @@ class TestGenerateImage:
         r = auth_client.post(self.URL, {'prompt': 'a cat', 'model_id': 'nope/nope'}, format='json')
         assert r.status_code == 400
 
+    def test_rejects_out_of_range_seed(self, auth_client):
+        r = auth_client.post(self.URL, {'prompt': 'a cat', 'seed': -1}, format='json')
+        assert r.status_code == 400
+
     @mock.patch('chat.views.requests.post')
     def test_success_saves_attachment(self, m_post, auth_client, user):
         b64 = base64.b64encode(PNG_1PX).decode()
@@ -76,11 +80,26 @@ class TestGenerateImage:
         assert 'unavailable' in r.json()['error']
 
     @mock.patch('chat.views.requests.post')
-    def test_upstream_400_maps_to_502_with_detail(self, m_post, auth_client):
-        m_post.return_value = _resp(422, text='{"detail": "bad input"}')
+    def test_invalid_generated_bytes_are_not_stored(self, m_post, auth_client):
+        m_post.return_value = _resp(200, {'image': base64.b64encode(b'<script>x</script>').decode()})
         r = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
         assert r.status_code == 502
-        assert 'detail' in r.json()
+        assert not Attachment.objects.exists()
+
+    @mock.patch('chat.views.requests.post')
+    def test_invalid_poll_identifier_is_rejected(self, m_post, auth_client):
+        m_post.return_value = _resp(202, headers={'NVCF-REQID': '../admin'})
+        r = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+        assert r.status_code == 502
+
+    @mock.patch('chat.views.requests.post')
+    def test_upstream_400_maps_to_clean_502(self, m_post, auth_client):
+        secret_upstream_detail = 'upstream-internal-secret'
+        m_post.return_value = _resp(422, text=secret_upstream_detail)
+        r = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+        assert r.status_code == 502
+        assert secret_upstream_detail not in str(r.json())
+        assert 'detail' not in r.json()
 
     def test_anonymous_401(self, client, db):
         r = client.post(self.URL, {'prompt': 'a cat'}, format='json')

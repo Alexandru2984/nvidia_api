@@ -155,6 +155,22 @@ class TestSendMessage:
         )
         assert r.status_code == 400
 
+    def test_combined_attachment_size_is_bounded(self, auth_client, convo, user, settings):
+        settings.CHAT_MAX_ATTACHMENT_BYTES_PER_MESSAGE = 10
+        att = Attachment.objects.create(user=user, file=SimpleUploadedFile('x.txt', b'01234567890'),
+            original_name='x.txt', mime_type='text/plain', size=11, kind='document')
+        r = auth_client.post(f'/api/conversations/{convo.id}/messages/',
+            {'content': 'hi', 'attachment_ids': [att.id]}, format='json')
+        assert r.status_code == 400
+
+    def test_combined_document_context_is_bounded(self, auth_client, convo, user, settings):
+        settings.CHAT_MAX_DOCUMENT_CHARS_PER_MESSAGE = 10
+        att = Attachment.objects.create(user=user, file=SimpleUploadedFile('x.txt', b'x'),
+            original_name='x.txt', mime_type='text/plain', size=1, kind='document', extracted_text='x' * 11)
+        r = auth_client.post(f'/api/conversations/{convo.id}/messages/',
+            {'content': 'hi', 'attachment_ids': [att.id]}, format='json')
+        assert r.status_code == 400
+
     def test_invalid_attachment_ids_400(self, auth_client, convo):
         r = auth_client.post(
             f'/api/conversations/{convo.id}/messages/',

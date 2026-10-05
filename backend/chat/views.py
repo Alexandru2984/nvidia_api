@@ -744,8 +744,8 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
     try:
         with requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=180, stream=True) as resp:
             if resp.status_code >= 400:
-                body = resp.text[:500]
-                yield ('error', f'NVIDIA API error ({resp.status_code}): {body}')
+                log.warning('NVIDIA chat API returned HTTP %s', resp.status_code)
+                yield ('error', f'NVIDIA API error ({resp.status_code}). Try again later.')
                 return
             for line in resp.iter_lines(decode_unicode=True):
                 if not line:
@@ -767,8 +767,9 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                         yield ('chunk', chunk)
                 if obj.get('usage'):
                     yield ('usage', obj['usage'])
-    except requests.RequestException as e:
-        yield ('error', f'NVIDIA API request failed: {e}')
+    except requests.RequestException:
+        log.warning('NVIDIA chat API request failed', exc_info=True)
+        yield ('error', 'NVIDIA API request failed. Try again later.')
 
 
 def _attachment_data_url(att):
@@ -796,6 +797,35 @@ def _build_api_message(role, text, attachments):
     for a in images:
         parts.append({'type': 'image_url', 'image_url': {'url': _attachment_data_url(a)}})
     return {'role': role, 'content': parts}
+
+
+def _message_history_cost(message):
+    attachments = list(message.attachments.all())
+    text_chars = len(message.content or '') + sum(
+        len(a.extracted_text or '') for a in attachments if a.kind == Attachment.KIND_DOCUMENT
+    )
+    image_bytes = sum(
+        a.size for a in attachments if a.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED)
+    )
+    return attachments, text_chars, image_bytes
+
+
+def _bounded_history(messages):
+    keep = []
+    text_used = image_bytes_used = 0
+    for message in reversed(messages[-settings.CHAT_HISTORY_MAX_MESSAGES:]):
+        attachments, text_cost, image_cost = _message_history_cost(message)
+        exceeds = (
+            text_used + text_cost > settings.CHAT_HISTORY_MAX_CHARS
+            or image_bytes_used + image_cost > settings.CHAT_HISTORY_MAX_IMAGE_BYTES
+        )
+        if exceeds and keep:
+            break
+        keep.append((message, attachments))
+        text_used += text_cost
+        image_bytes_used += image_cost
+    keep.reverse()
+    return [_build_api_message(m.role, m.content, attachments) for m, attachments in keep]
 
 
 def _resolve_attachments(user, ids):
@@ -850,6 +880,10 @@ def send_message(request, pk):
 
     if not user_text and not attachments:
         return Response({'error': 'content or attachments required'}, status=status.HTTP_400_BAD_REQUEST)
+    if sum(a.size for a in attachments) > settings.CHAT_MAX_ATTACHMENT_BYTES_PER_MESSAGE:
+        return Response({'error': 'Attachments exceed the 20 MB combined message limit.'}, status=400)
+    if sum(len(a.extracted_text or '') for a in attachments) > settings.CHAT_MAX_DOCUMENT_CHARS_PER_MESSAGE:
+        return Response({'error': 'Documents exceed the combined extracted-text limit.'}, status=400)
 
     override_model = request.data.get('model_id')
     if override_model:
@@ -872,17 +906,7 @@ def send_message(request, pk):
         a.save(update_fields=['message'])
 
     all_msgs = list(convo.messages.order_by('created_at').prefetch_related('attachments'))
-    recent = all_msgs[-settings.CHAT_HISTORY_MAX_MESSAGES:]
-    budget = settings.CHAT_HISTORY_MAX_CHARS
-    keep = []
-    used = 0
-    for m in reversed(recent):
-        used += len(m.content or '')
-        if used > budget and keep:
-            break
-        keep.append(m)
-    keep.reverse()
-    history = [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
+    history = _bounded_history(all_msgs)
     if convo.system_prompt:
         history.insert(0, {'role': 'system', 'content': convo.system_prompt})
 
@@ -965,17 +989,7 @@ def _build_history_for(convo, upto_msg_id=None):
         if cutoff is None:
             return []
         all_msgs = all_msgs[:cutoff + 1]
-    recent = all_msgs[-settings.CHAT_HISTORY_MAX_MESSAGES:]
-    budget = settings.CHAT_HISTORY_MAX_CHARS
-    keep = []
-    used = 0
-    for m in reversed(recent):
-        used += len(m.content or '')
-        if used > budget and keep:
-            break
-        keep.append(m)
-    keep.reverse()
-    history = [_build_api_message(m.role, m.content, list(m.attachments.all())) for m in keep]
+    history = _bounded_history(all_msgs)
     if convo.system_prompt:
         history.insert(0, {'role': 'system', 'content': convo.system_prompt})
     return history
@@ -1169,13 +1183,13 @@ def _nvcf_generate(url, payload):
         resp = requests.post(url, json=payload, headers=headers, timeout=45)
         while resp.status_code == 202:
             reqid = resp.headers.get('NVCF-REQID')
-            if not reqid or time.monotonic() > deadline:
+            if not reqid or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', reqid) or time.monotonic() > deadline:
                 log.warning('NVIDIA genai polling gave up (reqid=%s)', reqid)
                 return None, unavailable
             resp = requests.get(f'{settings.NVIDIA_GENAI_STATUS_BASE}/{reqid}', headers=headers, timeout=45)
-    except requests.RequestException as e:
-        log.warning('NVIDIA genai request failed: %s', e)
-        return None, Response({'error': 'NVIDIA image API request failed', 'detail': str(e)},
+    except requests.RequestException:
+        log.warning('NVIDIA genai request failed', exc_info=True)
+        return None, Response({'error': 'NVIDIA image API request failed. Try again later.'},
                               status=status.HTTP_502_BAD_GATEWAY)
 
     if resp.status_code == 504 or resp.headers.get('Nvcf-Status') == 'errored':
@@ -1185,7 +1199,7 @@ def _nvcf_generate(url, payload):
     if resp.status_code >= 400:
         body = resp.text[:1000]
         log.warning('NVIDIA genai HTTP %s — %s', resp.status_code, body[:500])
-        return None, Response({'error': f'NVIDIA image API error ({resp.status_code})', 'detail': body},
+        return None, Response({'error': f'NVIDIA image API error ({resp.status_code}). Try again later.'},
                               status=status.HTTP_502_BAD_GATEWAY)
     try:
         return resp.json(), None
@@ -1229,6 +1243,8 @@ def generate_image(request):
         return Response({'error': 'width and height must be between 256 and 1536'}, status=400)
     if not (1 <= steps <= spec['max_steps']):
         return Response({'error': f'steps must be 1..{spec["max_steps"]} for {spec["name"]}'}, status=400)
+    if not (0 <= seed <= 4_294_967_295):
+        return Response({'error': 'seed must be between 0 and 4294967295'}, status=400)
 
     # Coarse pre-check before paying for an NVIDIA call. Atomic check happens after.
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
@@ -1248,15 +1264,21 @@ def generate_image(request):
     b64 = _extract_image_b64(data)
     if not b64:
         log.warning('NVIDIA genai returned no image: %s', str(data)[:500])
-        return Response({'error': 'NVIDIA image API returned no image data', 'detail': str(data)[:1000]}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({'error': 'NVIDIA image API returned no image data'},
+                        status=status.HTTP_502_BAD_GATEWAY)
 
+    max_encoded = 4 * ((settings.MAX_ATTACHMENT_SIZE + 2) // 3)
+    if len(b64) > max_encoded + 8:
+        return Response({'error': 'Generated image exceeds storage limit'}, status=502)
     try:
-        raw = base64.b64decode(b64)
-    except Exception:
+        raw = base64.b64decode(b64, validate=True)
+    except (ValueError, TypeError):
         return Response({'error': 'Failed to decode generated image'}, status=502)
 
     if len(raw) > settings.MAX_ATTACHMENT_SIZE:
         return Response({'error': 'Generated image exceeds storage limit'}, status=502)
+    if not (len(raw) >= 33 and raw.startswith(b'\x89PNG\r\n\x1a\n') and raw[12:16] == b'IHDR'):
+        return Response({'error': 'Generated image failed validation'}, status=502)
 
     from django.core.files.base import ContentFile
     safe_slug = re.sub(r'[^a-z0-9]+', '-', prompt.lower())[:32].strip('-') or 'image'
