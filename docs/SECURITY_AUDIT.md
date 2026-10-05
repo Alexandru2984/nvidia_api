@@ -127,7 +127,7 @@ is required before describing those controls as complete.
 
 ### Production rollout — 2026-10-05
 
-- Deployed repository state through `6783aee`; database migrations reported no
+- Deployed repository state through `7061771`; database migrations reported no
   pending operations and the production dependency environment passed `pip check`.
 - `pip-audit` and `npm audit --audit-level=low` reported no known vulnerabilities.
 - Applied the nginx template after a successful syntax test. Public and origin
@@ -180,13 +180,26 @@ is required before describing those controls as complete.
   Prior frontend snapshot `aichat.micutu.com_20261005_220524` is private; the
   current public JS/CSS (`index-D9ELShym.js`, `index-Bwtt96bY.css`) and HTML all
   returned 200 while the backend remained active with zero restarts.
+- Before enabling invite-only registration, retained database dump
+  `nvidia_db_20261005_221712_905527868.sql.gz`, frontend snapshot
+  `aichat.micutu.com_20261005_221712`, and a private copy of the prior systemd
+  drop-in. Migration `0013_registration_invite` applied successfully.
+- Production now receives `REGISTRATION_MODE=invite` through its root-owned
+  systemd drop-in. One 72-hour invitation was generated into an owner-only
+  `0600` handoff file; the database contains only its HMAC and metadata.
+- A public synthetic invalid-invite request returned 403, created no account,
+  and did not consume the real invitation. `/auth/me/` advertised invite mode;
+  the new HTML/JS/CSS, health, and `security.txt` returned 200, while `/media/`
+  remained 404 and `/.env` 403. The backend retained zero restarts and no
+  warning-or-higher events, and the updated monitor completed successfully.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
-immediately afterward; actual-token budgets are now implemented. Contract/GPU
-monetary enforcement and entitlement evidence, external security-log retention,
-an admin perimeter control, and encrypted off-site backup remain open.
+immediately afterward; actual-token budgets and invite-only registration are now
+implemented. Contract/GPU monetary enforcement and entitlement evidence,
+external security-log retention, an admin perimeter control, and encrypted
+off-site backup remain open.
 
 ## References
 
