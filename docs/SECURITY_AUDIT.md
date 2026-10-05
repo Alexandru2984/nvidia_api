@@ -1,0 +1,125 @@
+# Security audit
+
+Date: 2026-10-05  
+Scope: Django/DRF backend, React/Vite frontend, PostgreSQL data path, attachment
+processing, nginx, systemd, backup automation, Cloudflare Tunnel, and CI.  
+Decision: **YELLOW — mitigate then ship**. The repository fixes are suitable for
+deployment, but the production verdict remains yellow until the staged nginx and
+systemd configurations are applied and verified, existing backup permissions are
+corrected, and abuse/cost controls become durable across processes.
+
+This is a technical risk assessment, not legal advice. No secrets are reproduced
+in this document.
+
+## Executive summary
+
+The most material pre-audit risks were authenticated-file bypass through a public
+`/media/` route, untrusted PDF/DOCX parsing inside the web process, non-atomic
+file-backed rate counters, insufficient isolation of the shared service account,
+and world-readable database backups. Authentication also had anonymous CSRF and
+session-identifier disclosure weaknesses. Dependency scans found known advisories
+in both Python and Node development dependencies.
+
+The repository now contains ownership-checked attachment downloads, signature and
+archive validation, resource-bounded document parsing in a child process, atomic
+rate counters, stronger authentication/recovery transactions, cleaned session
+handles, updated dependencies, model payload budgets, sanitized upstream errors,
+responsive browser coverage, and hardened nginx/systemd templates. Runtime
+application of the templates is tracked separately because a committed template
+does not secure a running server.
+
+Point-in-time production inventory observed during the audit: 3 active users,
+6 conversations, 16 messages, no attachments, no enabled 2FA records, and one
+staff/superuser account. These counts are operational context, not permanent
+limits.
+
+## Highest risks (STRIDE)
+
+| Priority | Threat | Likelihood | Impact | Blast radius | State |
+|---|---|---:|---:|---|---|
+| 1 | **Elevation/tampering:** a malicious document exploits a parser running as the shared `micu` account | Medium | High | This app plus other files and credentials readable by the same Unix user | Parser isolation fixed in code; dedicated Unix identity remains P0 |
+| 2 | **Information disclosure:** direct media URLs or permissive backup modes expose private content | Medium | High | Attachment owners or the complete database, depending on path reached | Private API fixed; nginx block staged; existing backup modes require rollout |
+| 3 | **Denial of service/cost abuse:** registrations and model generation consume mail, CPU, storage, or NVIDIA quota | High | Medium/High | Availability and provider budget for all users | Per-route limits and payload caps exist; durable quotas and signup challenge remain P0 |
+
+STRIDE coverage also identified spoofing risk at the reverse-proxy boundary,
+repudiation from limited security audit events, and disclosure through raw
+upstream errors. `X-Real-IP` is accepted only from the local tunnel/nginx path and
+upstream responses are now logged server-side while clients receive generic text.
+
+## Findings register
+
+| ID | Severity | Finding | Repository control | Residual action |
+|---|---|---|---|---|
+| A-01 | Critical | `/media/` could bypass object ownership | Authenticated download endpoint and nginx deny template | Apply vhost; assert `/media/*` is 404 externally |
+| A-02 | High | PDF/DOCX handled in the request process | Magic-byte checks, ZIP limits, subprocess timeout and OS resource limits | Move parsing to a dedicated worker/container before higher-volume use |
+| A-03 | High | Shared service user had broad host reach | Restrictive systemd drop-in is staged | Apply it, then migrate to a dedicated `aichat` identity and credentials |
+| A-04 | High | Existing backups were mode `0664` in a `0755` directory | Backup script now uses `umask 077`, atomic output, locks, and gzip verification | Correct existing modes; add encryption, off-site copy, and restore drill |
+| A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
+| A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque session handles | Rotate sessions after any suspected historic disclosure |
+| A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges |
+| A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
+| A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
+| A-10 | Medium | Model history could multiply document/image payload and cost | Per-message and cumulative history byte/character budgets | Add per-user daily token/image budgets and administrative cutoffs |
+| A-11 | Medium | Registration and recovery can be automated | IP/user throttles and non-enumerating responses | Add Turnstile or invite/approval mode; enforce mail and provider budgets |
+| A-12 | Medium | Security event detection is incomplete | Availability monitoring and application warnings exist | Centralize auth/admin/upload events and alert on defined thresholds |
+| A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
+| A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
+
+## Quantitative risk view
+
+There is no measured incident-loss history, so the following is an explicit
+planning estimate rather than an accounting forecast. Assume a 20% annual chance
+of a material abuse or disclosure event before P0 controls, with a single-loss
+expectancy of EUR 12,500 (response time, credential rotation, service disruption,
+provider charges, and professional review). The illustrative annualized loss
+expectancy is therefore `0.20 × EUR 12,500 = EUR 2,500/year`. Recalculate with
+actual provider spend, labor rates, contractual exposure, and user count before
+using it for a budget decision.
+
+## Detection, response, and recovery
+
+The one-minute availability probe gives an outage MTTD near one minute when the
+alert path works, but a confidentiality compromise may currently remain
+undetected. Target security MTTD is 15 minutes for repeated login failures,
+unexpected admin access, rate-limit spikes, backup failures, and abnormal NVIDIA
+usage. Target containment time is 60 minutes after a confirmed high-severity
+alert.
+
+The response procedure is in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md). It must
+be exercised with a tabletop and a database restore test; an untested runbook is
+not evidence of recoverability. Under GDPR Article 33, a qualifying personal-data
+breach generally must be notified to the supervisory authority without undue
+delay and, where feasible, within 72 hours after awareness. Preserve the awareness
+timestamp and obtain appropriate legal/privacy review.
+
+## Vendors and data flows
+
+- NVIDIA receives prompts, selected conversation context, and user-selected
+  images/documents included in model calls. Confirm retention/training terms,
+  regional processing, DPA availability, and incident notification obligations.
+- Cloudflare carries public traffic through Tunnel and may process network and
+  request metadata. Review account security, access logs, DPA, and breach terms.
+- The self-hosted mail system handles addresses and OTP/reset messages. Restrict
+  logs, monitor delivery abuse, and ensure credentials are unique to this app.
+- GitHub hosts source and CI metadata. Keep production secrets out of repository
+  variables unless required and use least-privilege workflow permissions.
+
+No vendor review was evidenced in-repository during this audit; owner confirmation
+is required before describing those controls as complete.
+
+## Verification evidence
+
+- 214 backend tests pass, including ownership, CSRF, concurrency, recovery,
+  payload, and generated-image boundary tests.
+- Frontend lint/build, nine responsive Playwright checks (320–1440 px), and
+  Python/Node dependency audits passed during remediation.
+- Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
+  external route/header probes must be repeated during each production rollout.
+
+## References
+
+- [Django deployment checklist](https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/)
+- [django-ratelimit security considerations](https://django-ratelimit.readthedocs.io/en/stable/security.html)
+- [GDPR consolidated text](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
+- [ICO personal data breach guidance](https://ico.org.uk/for-organisations/report-a-breach/personal-data-breach/personal-data-breaches-a-guide/)
+

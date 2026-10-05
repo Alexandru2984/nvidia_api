@@ -1,0 +1,84 @@
+# Incident response runbook
+
+Use this for suspected account takeover, data disclosure, malicious upload,
+provider-key abuse, host compromise, or unexplained availability/cost spikes.
+Keep commands and evidence out of tickets or chat systems that are not approved
+for sensitive data.
+
+## 1. Declare and preserve
+
+1. Record the time of awareness, reporter, affected domain/account, observed
+   indicators, and incident lead. Use UTC in the incident log.
+2. Preserve relevant nginx, systemd journal, Django, Cloudflare, PostgreSQL, mail,
+   authentication, and provider-usage records. Capture hashes for exported files.
+3. Do not modify original evidence. Work from copies and restrict access to the
+   smallest response group.
+4. Classify severity: SEV-1 for confirmed sensitive-data or host/credential
+   compromise; SEV-2 for contained account compromise or sustained abuse; SEV-3
+   for suspicious but unconfirmed events.
+
+## 2. Contain
+
+- Disable the affected route/account or put the application into maintenance
+  mode if continued exposure is plausible.
+- Revoke suspicious Django sessions and Cloudflare/GitHub/provider tokens.
+- Block confirmed hostile indicators at the closest trusted edge, but preserve
+  the evidence that justified the block.
+- For upload/parser compromise, stop the backend, quarantine the file without
+  opening it on a workstation, and inspect the service account's reachable files.
+- For NVIDIA cost abuse, disable generation or revoke the API key before tuning
+  throttles. A spending incident can continue while the UI appears healthy.
+
+## 3. Assess scope
+
+- Establish the first and last known malicious activity and how access occurred.
+- Query by user/object ownership; never assume one exposed ID means only one
+  affected row.
+- Determine whether prompts, messages, attachments, email addresses, password
+  hashes, TOTP material, session cookies, backups, or provider keys were exposed.
+- Check other services readable by the shared Unix identity. Until a dedicated
+  service user is deployed, host-level blast radius crosses project boundaries.
+- Record which processors received affected data (NVIDIA, Cloudflare, mail
+  infrastructure, GitHub) and consult their incident channels if relevant.
+
+## 4. Eradicate and rotate
+
+Patch the root cause before restoring normal traffic. Rotate affected credentials
+from a known-clean device in dependency order: host/Cloudflare/GitHub control
+plane, database and mail credentials, NVIDIA key, Django sessions, then application
+secrets. Treat `DJANGO_SECRET_KEY` rotation as a planned migration: it invalidates
+signed sessions and currently affects protection/derivation of authentication
+artifacts including TOTP material. Verify consequences before rotation and require
+2FA re-enrollment when decryption or integrity cannot be assured.
+
+## 5. Notify
+
+- Notify affected users promptly when doing so reduces harm; provide concrete
+  actions such as session revocation, password change, or 2FA re-enrollment.
+- Escalate legal/privacy assessment immediately for personal data. Preserve the
+  awareness timestamp; GDPR Article 33 may require supervisory-authority notice
+  within 72 hours where the breach is likely to risk individuals' rights and
+  freedoms.
+- Follow contractual notification terms for processors and infrastructure
+  providers. Do not speculate publicly before scope is supportable.
+
+## 6. Recover and validate
+
+1. Restore only from a backup whose timestamp and integrity are understood.
+2. Apply migrations/configuration, start the backend, validate nginx/systemd, and
+   probe health, authentication, private downloads, CSRF, rate limits, and denial
+   of `/media/` before reopening traffic.
+3. Watch authentication, provider spend, error rates, and database changes at
+   elevated sensitivity for at least 24 hours.
+4. Write a blameless timeline, root cause, affected records, control failures,
+   costs, and owners/dates for corrective actions.
+
+## Exercise schedule
+
+- Quarterly: tabletop for credential theft plus private-attachment disclosure.
+- Quarterly: alert-path test for availability, authentication abuse, and NVIDIA
+  spend.
+- At least twice yearly: restore a selected encrypted backup into an isolated
+  database and validate row counts and application startup.
+- After material architecture changes: repeat the threat model and runbook drill.
+
