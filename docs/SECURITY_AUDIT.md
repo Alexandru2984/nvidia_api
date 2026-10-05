@@ -120,7 +120,7 @@ is required before describing those controls as complete.
   anti-enumeration, transactional mail-failure, provider token reconciliation,
   fail-closed usage validation, SSE byte parsing, retired-model handling,
   payload, and generated-image boundary tests.
-- Frontend lint/build, nine responsive Playwright checks (320–1440 px), and
+- Frontend lint/build, ten responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
   external route/header probes must be repeated during each production rollout.

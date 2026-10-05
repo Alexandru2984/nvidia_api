@@ -149,6 +149,9 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
 - Conversation creation uses that same fallback, while explicit selection,
   sending, or regeneration with a retired model is rejected before consuming a
   request/token reservation.
+- Existing conversations retain their history when a model retires. The UI marks
+  the stale selection as unavailable, blocks generation, and offers a one-click
+  switch to the current available default.
 - `aichat-model-probe.timer` refreshes it weekly. Run the command manually after NVIDIA announces model changes.
 
 Adding brand-new models still means editing `chat/models_catalog.py` (id, name, vendor, context, vision flag).

@@ -776,7 +776,11 @@ export default function App() {
     [models, currentModelId],
   )
 
-  const modelLabel = currentModel ? `${currentModel.name} · ${currentModel.vendor}` : currentModelId
+  const activeModelUnavailable = Boolean(active?.model_id && !currentModel)
+  const defaultModelSpec = models.find((model) => model.id === defaultModel)
+  const modelLabel = currentModel
+    ? `${currentModel.name} · ${currentModel.vendor}`
+    : currentModelId ? `${currentModelId.split('/').pop()} · unavailable` : 'No model available'
   const supportsVision = !!currentModel?.vision
 
   const hasPendingImages = pendingAttachments.some((a) => a.kind === 'image')
@@ -802,6 +806,10 @@ export default function App() {
 
   async function startNewChat(modelId = defaultModel) {
     if (sending) return
+    if (!modelId) {
+      setError('No chat models are currently available.')
+      return
+    }
     try {
       const c = await api.createConversation(modelId)
       setConversations((prev) => [c, ...prev])
@@ -869,7 +877,7 @@ export default function App() {
   async function handleSend(e) {
     e?.preventDefault?.()
     const text = draft.trim()
-    if (sending || imageBlocked) return
+    if (sending || imageBlocked || activeModelUnavailable) return
     if (!text && pendingAttachments.length === 0) return
 
     let convo = active
@@ -997,7 +1005,7 @@ export default function App() {
   }
 
   async function handleRegenerate(msgId) {
-    if (!active || sending) return
+    if (!active || sending || activeModelUnavailable) return
     setSending(true)
     setError(null)
     // Optimistic UI: drop messages from `msgId` onward (or just the last assistant
@@ -1065,6 +1073,7 @@ export default function App() {
       const updated = await api.switchModel(active.id, modelId)
       setActive((c) => ({ ...c, model_id: updated.model_id }))
       setConversations((prev) => prev.map((c) => (c.id === updated.id ? { ...c, model_id: updated.model_id } : c)))
+      setError(null)
     } catch (e) { setError(e.message) }
   }
 
@@ -1124,7 +1133,7 @@ export default function App() {
           <button className="icon sidebar-close" onClick={() => setSidebarOpen(false)} title="Close">×</button>
         </div>
 
-        <button className="new-chat" disabled={sending} onClick={() => startNewChat()}>+ New chat</button>
+        <button className="new-chat" disabled={sending || !defaultModel} onClick={() => startNewChat()}>+ New chat</button>
 
         <input
           className="convo-search"
@@ -1228,6 +1237,11 @@ export default function App() {
                 disabled={sending}
                 title={modelLabel}
               >
+                {activeModelUnavailable && (
+                  <option value={active.model_id} disabled>
+                    Unavailable · {active.model_id.split('/').pop()}
+                  </option>
+                )}
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}{m.vision ? ' · 👁' : ''} · {m.vendor}
@@ -1265,6 +1279,19 @@ export default function App() {
               setShowConvoSettings(false)
             }}
           />
+        )}
+        {activeModelUnavailable && (
+          <div className="model-status-banner" role="alert">
+            <div>
+              <strong>This conversation's model is no longer available.</strong>
+              <span> Choose another model before sending or regenerating.</span>
+            </div>
+            {defaultModelSpec && (
+              <button type="button" className="primary" onClick={() => handleSwitchModel(defaultModel)}>
+                Use {defaultModelSpec.name}
+              </button>
+            )}
+          </div>
         )}
         <div className="chat-area">
           {!active || (active.messages?.length || 0) === 0 ? (
@@ -1328,7 +1355,7 @@ export default function App() {
               className="icon attach-btn"
               onClick={() => fileInputRef.current?.click()}
               title="Attach files (images, PDF, txt, md, docx)"
-              disabled={sending}
+              disabled={sending || activeModelUnavailable}
             >📎</button>
             <textarea
               ref={textareaRef}
@@ -1339,7 +1366,7 @@ export default function App() {
               rows={1}
               maxLength={8000}
               aria-label="Message"
-              disabled={sending}
+              disabled={sending || activeModelUnavailable}
             />
             {sending ? (
               <button
@@ -1352,7 +1379,8 @@ export default function App() {
               <button
                 type="submit"
                 className="primary send"
-                disabled={(!draft.trim() && pendingAttachments.length === 0) || imageBlocked || uploadingCount > 0}
+                disabled={(!draft.trim() && pendingAttachments.length === 0) || imageBlocked
+                  || activeModelUnavailable || uploadingCount > 0}
                 title="Send"
               >↑</button>
             )}

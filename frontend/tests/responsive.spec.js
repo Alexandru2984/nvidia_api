@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
 
-async function mockAPI(page, signedIn = true) {
+async function mockAPI(page, signedIn = true, conversationModel = 'test/model') {
   await page.route('https://analytics.micutu.com/**', (route) => route.abort())
   const conversation = {
-    id: 1, title: 'A useful conversation', model_id: 'test/model', message_count: 2,
+    id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
     messages: [
       { id: 1, role: 'user', content: 'Explain this code', attachments: [] },
       { id: 2, role: 'assistant', content: '```js\nconst value = 42\n```\n\n' + 'longword'.repeat(70)
@@ -12,6 +12,10 @@ async function mockAPI(page, signedIn = true) {
   }
   await page.route('**/api/**', (route) => {
     const path = new URL(route.request().url()).pathname
+    if (path === '/api/conversations/1/' && route.request().method() === 'PATCH') {
+      const patch = route.request().postDataJSON()
+      return route.fulfill({ status: 200, json: { ...conversation, ...patch } })
+    }
     const data = {
       '/api/auth/me/': { username: signedIn ? 'alice' : null },
       '/api/models/': { models: [{ id: 'test/model', name: 'Test model', vendor: 'Test', vision: true }], default: 'test/model' },
@@ -84,4 +88,23 @@ test('mobile drawer closes with Escape and returns keyboard focus', async ({ pag
   await page.keyboard.press('Escape')
   await expect(menu).toHaveAttribute('aria-expanded', 'false')
   await expect(menu).toBeFocused()
+})
+
+test('retired conversation model is explicit and recoverable on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page, true, 'retired/model')
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+
+  await expect(page.getByRole('alert')).toContainText('model is no longer available')
+  await expect(page.getByLabel('Chat model')).toHaveValue('retired/model')
+  await expect(page.getByLabel('Message')).toBeDisabled()
+  await expectNoPageOverflow(page)
+
+  await page.getByRole('button', { name: 'Use Test model' }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByLabel('Chat model')).toHaveValue('test/model')
+  await expect(page.getByLabel('Message')).toBeEnabled()
+  await expectNoPageOverflow(page)
 })
