@@ -20,8 +20,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Detection:** structured security events for auth, recovery, session revocation,
   uploads, admin actions, throttles, provider failures and spend. Alert within 15
   minutes without logging prompts, cookies, OTPs, or secrets.
-- **Recoverability:** encrypt backups with a separately held key, keep a tested
-  off-site copy, alert on job failure, document RPO/RTO, and perform restore drills.
+- **Recoverability:** the repository includes an isolated database restore drill;
+  schedule and monitor it. Encrypt backups with a separately held key, keep a
+  tested off-site copy, alert on job failure, and document RPO/RTO.
 - **Key lifecycle:** version encryption keys for TOTP/recovery artifacts so the
   Django signing key can rotate without silent loss; document forced re-enrollment.
 - **Incident readiness:** execute the runbook and close exercise findings before
@@ -83,4 +84,3 @@ Public share links, team workspaces, plugins/tools, retrieval over user document
 and payment plans amplify authorization and data-retention risk. Design their
 tenant model, revocation, audit logs, quotas, consent, and deletion semantics before
 implementation rather than layering them onto single-user assumptions.
-

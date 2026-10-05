@@ -145,6 +145,8 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   0 4 * * 0  cd /home/micu/nvidia/backend && venv/bin/python manage.py probe_models
   # Postgres backup, gzip, keeps newest 7 (daily)
   30 2 * * * /home/micu/nvidia/scripts/backup_db.sh
+  # Isolated restore/integrity drill (weekly)
+  15 5 * * 0 /home/micu/nvidia/scripts/backup_restore_drill.sh
   ```
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 
