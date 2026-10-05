@@ -211,6 +211,9 @@ and [roadmap](docs/ROADMAP.md).
 - Email verification gates registration. New registrations are limited per IP and
   use a honeypot, but a durable cross-process limiter plus challenge/invite mode is
   still required before opening registration to higher-volume traffic.
+- Django admin never accepts a password-only/direct admin session. Staff must
+  enable 2FA and verify it through the main application in the current session;
+  denied probes and the first valid admin access are security-monitor events.
 
 ## Things to know about the email provider
 

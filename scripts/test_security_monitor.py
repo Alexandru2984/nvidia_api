@@ -35,15 +35,16 @@ class SecurityMonitorTests(unittest.TestCase):
         journal = '\n'.join(
             ['event=auth_failed'] * 10
             + ['event=rate_limit'] * 20
-            + ['event=admin_login', 'event=two_factor_disabled',
+            + ['event=admin_access_denied'] * 10
+            + ['event=admin_access user_id=1', 'event=two_factor_disabled',
                'event=ai_budget_blocked scope=global']
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
         self.assertEqual(
             set(issues),
-            {'auth_burst', 'rate_limit_burst', 'admin_login', 'two_factor_disabled',
-             'global_budget', 'error_burst'},
+            {'auth_burst', 'rate_limit_burst', 'admin_probe_burst', 'admin_access',
+             'two_factor_disabled', 'global_budget', 'error_burst'},
         )
 
     def test_detects_stale_or_permissive_backup(self):

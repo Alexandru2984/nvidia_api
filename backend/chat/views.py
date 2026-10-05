@@ -37,7 +37,12 @@ from .attachments import detect_mime, extract_text, kind_for_mime
 from .model_status import get_status, unavailable_model_ids
 from .models import Attachment, Conversation, EmailVerification, Message, PasswordReset
 from .sessions import stamp_session
-from .twofactor import _revoke_user_sessions, login_requires_2fa, verify_for_login
+from .twofactor import (
+    _revoke_user_sessions,
+    login_requires_2fa,
+    mark_staff_2fa_verified,
+    verify_for_login,
+)
 from .models_catalog import (
     DEFAULT_IMAGE_GEN_MODEL_ID,
     DEFAULT_MODEL_ID,
@@ -119,6 +124,7 @@ def auth_login(request):
     user = authenticate(request, username=username, password=password)
     if user is None:
         return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+    verified_2fa = False
     if login_requires_2fa(user):
         code = (request.data.get('code') or '').strip()
         if not code:
@@ -127,7 +133,10 @@ def auth_login(request):
         if not verify_for_login(user, code):
             return Response({'error': 'Invalid 2FA code.', 'two_factor_required': True},
                             status=status.HTTP_401_UNAUTHORIZED)
+        verified_2fa = True
     django_login(request, user)
+    if verified_2fa:
+        mark_staff_2fa_verified(request, user)
     stamp_session(request)
     return Response({'username': user.username})
 

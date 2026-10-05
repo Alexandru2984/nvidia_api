@@ -16,8 +16,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   per user and globally, plus a configuration kill-switch, are shipped. Add token
   and monetary spend budgets, registration challenge or invite mode, and an admin
   override/audit trail; move burst throttles to Redis/PostgreSQL before scaling.
-- **Protected administration:** place `/admin/` behind Cloudflare Access or a VPN,
-  require staff 2FA, minimize superusers, and alert on every admin login/change.
+- **Protected administration:** password-only Django admin access is blocked;
+  staff must verify 2FA through the main application, and valid/denied access is
+  monitored. Also place `/admin/` behind Cloudflare Access or a VPN, minimize
+  superusers, and add change-level audit records.
 - **Detection:** structured privacy-minimized events and five-minute alerts now
   cover auth bursts, throttles, successful admin access, 2FA disable, global AI
   budget exhaustion, backend error bursts, and backup/restore freshness. Add

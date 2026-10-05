@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 security_log = logging.getLogger('security')
 
 ISSUER = 'AI Chat Hub'
+STAFF_2FA_SESSION_KEY = 'staff_2fa_verified_user_id'
 RECOVERY_CODE_COUNT = 10
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_DURATION = timedelta(minutes=10)
@@ -161,6 +162,21 @@ def login_requires_2fa(user) -> bool:
     return TwoFactor.objects.filter(user=user, enabled=True).exists()
 
 
+def mark_staff_2fa_verified(request, user):
+    if user.is_staff:
+        request.session[STAFF_2FA_SESSION_KEY] = str(user.pk)
+
+
+def staff_2fa_verified(request):
+    user = request.user
+    return (
+        user.is_authenticated
+        and user.is_staff
+        and request.session.get(STAFF_2FA_SESSION_KEY) == str(user.pk)
+        and login_requires_2fa(user)
+    )
+
+
 def _revoke_user_sessions(user, except_key=None):
     """Sign the user out everywhere (optionally keeping one session). Used on
     sensitive auth changes — disable 2FA, regen recovery codes, password reset."""
@@ -242,6 +258,7 @@ def verify_enroll(request):
     tf.failed_attempts = 0
     tf.locked_until = None
     tf.save()
+    mark_staff_2fa_verified(request, request.user)
     security_log.warning('event=two_factor_enabled user_id=%s', request.user.pk)
     return Response({
         'enabled': True,
@@ -267,6 +284,7 @@ def disable(request):
         return Response({'error': 'Wrong 2FA code.'}, status=401)
 
     TwoFactor.objects.filter(user=request.user).delete()
+    request.session.pop(STAFF_2FA_SESSION_KEY, None)
     revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
     security_log.warning('event=two_factor_disabled user_id=%s sessions_revoked=%s',
                          request.user.pk, revoked)

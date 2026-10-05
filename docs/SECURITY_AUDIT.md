@@ -6,8 +6,8 @@ processing, nginx, systemd, backup automation, Cloudflare Tunnel, and CI.
 Decision: **YELLOW — mitigate then ship**. The repository fixes are deployed and
 the request budgets are durable across processes, but the production verdict
 remains yellow until the shared Unix identity is removed, security-event alerting
-is retained externally, staff access is strongly authenticated, and encrypted
-off-site recovery is proven.
+is retained externally, staff access is also restricted at the edge and
+change-audited, and encrypted off-site recovery is proven.
 
 This is a technical risk assessment, not legal advice. No secrets are reproduced
 in this document.
@@ -62,9 +62,10 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps, PostgreSQL daily request budgets per-user/globally, and a kill-switch | Add token/monetary provider-spend budgets and administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated | IP/user throttles and non-enumerating responses | Add Turnstile or invite/approval mode; enforce mail and provider budgets |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate bursts, admin login, 2FA disable, global budget, errors, backup and restore freshness | Add external retention and upload/provider-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, global budget, errors, backup and restore freshness | Add external retention and upload/provider-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
+| A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA, with access alerts | Add Cloudflare Access/VPN and admin change-level audit records |
 
 ## Quantitative risk view
 

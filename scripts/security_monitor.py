@@ -81,13 +81,16 @@ def evaluate(backup_dir, restore_log, journal, now=None):
 
     auth_failures = journal.count('event=auth_failed')
     rate_limits = journal.count('event=rate_limit')
+    admin_denied = journal.count('event=admin_access_denied')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
     if auth_failures >= int(os.environ.get('AUTH_FAILURE_ALERT_THRESHOLD', '10')):
         issues['auth_burst'] = f'{auth_failures} failed logins were detected in six minutes.'
     if rate_limits >= int(os.environ.get('RATE_LIMIT_ALERT_THRESHOLD', '20')):
         issues['rate_limit_burst'] = f'{rate_limits} rate-limit events were detected in six minutes.'
-    if 'event=admin_login' in journal:
-        issues['admin_login'] = 'A successful Django admin login was detected.'
+    if admin_denied >= int(os.environ.get('ADMIN_DENIED_ALERT_THRESHOLD', '10')):
+        issues['admin_probe_burst'] = f'{admin_denied} denied admin requests were detected in six minutes.'
+    if 'event=admin_access ' in journal or 'event=admin_login ' in journal:
+        issues['admin_access'] = 'A successful Django admin access was detected.'
     if 'event=two_factor_disabled' in journal:
         issues['two_factor_disabled'] = 'Two-factor authentication was disabled for an account.'
     if 'event=ai_budget_blocked scope=global' in journal:

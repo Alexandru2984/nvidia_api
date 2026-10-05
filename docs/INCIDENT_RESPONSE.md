@@ -21,7 +21,8 @@ The `aichat-security-monitor` Telegram message contains only an event name and
 count. Confirm it against root-owned timer/service status and the system journal;
 do not paste raw journal lines into Telegram. High-signal rules include a
 successful admin login, 2FA disable, global AI-budget exhaustion, 10 failed
-logins/6 minutes, 20 rate limits/6 minutes, 3 backend errors/6 minutes, a database
+logins/6 minutes, 10 denied admin requests/6 minutes, 20 rate limits/6 minutes,
+3 backend errors/6 minutes, a database
 backup older than 30 hours, or a restore drill older than eight days.
 
 ## 2. Contain
