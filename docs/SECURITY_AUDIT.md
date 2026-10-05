@@ -127,7 +127,7 @@ is required before describing those controls as complete.
 
 ### Production rollout — 2026-10-05
 
-- Deployed repository state through `240e2a3`; database migrations reported no
+- Deployed repository state through `1958440`; database migrations reported no
   pending operations and the production dependency environment passed `pip check`.
 - `pip-audit` and `npm audit --audit-level=low` reported no known vulnerabilities.
 - Applied the nginx template after a successful syntax test. Public and origin
@@ -159,6 +159,23 @@ is required before describing those controls as complete.
   schema/migration checks and row-count queries passed (28 migrations, 3 users,
   6 conversations, 16 messages), and the scratch database was removed. A weekly
   logged drill is now scheduled and its freshness/success marker is monitored.
+- Before the token-budget rollout, retained database dump
+  `nvidia_db_20261005_215934_407285381.sql.gz` and private frontend snapshot
+  `aichat.micutu.com_20261005_215934`. Migration `0012_ai_token_budgets` then
+  applied successfully under the dedicated `aichat` identity.
+- Effective production ceilings are 500,000 tokens per user/day, 2,500,000
+  globally/day, with a 32,768-token fail-closed reservation per streamed call.
+  A synthetic provider probe confirmed terminal prompt/completion/total usage;
+  no user content was used or logged.
+- The updated frontend and security monitor were deployed. Public HTML, current
+  JS/CSS, health, and `security.txt` returned 200; `/media/` returned 404 and
+  `/.env` returned 403. The backend remained active with zero restarts and no
+  warning-or-higher journal events after rollout; the monitor completed
+  successfully and retained its five-minute schedule.
+- Live availability data marked 33 catalog entries unavailable, including the
+  former default, and identified two existing conversations using unavailable
+  models. New chats now select an available fallback, while affected existing
+  chats require an explicit available-model choice before any budget is consumed.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

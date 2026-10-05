@@ -28,8 +28,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   superusers, and add change-level audit records.
 - **Detection:** structured privacy-minimized events and five-minute alerts now
   cover auth bursts, throttles, successful admin access, 2FA disable, global AI
-  budget exhaustion, backend error bursts, and backup/restore freshness. Add
-  upload/parser/provider-spend correlation and an external log sink without
+  budget exhaustion, missing/malformed provider usage, token reservation
+  overruns, backend error bursts, and backup/restore freshness. Add
+  upload/parser/contract-spend correlation and an external log sink without
   logging prompts, cookies, OTPs, filenames, raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;
   schedule and monitor it. Encrypt backups with a separately held key, keep a
