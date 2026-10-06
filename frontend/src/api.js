@@ -71,7 +71,12 @@ export const api = {
   resetPassword: (email, code, password) =>
     request('/auth/reset/', { method: 'POST', body: JSON.stringify({ email, code, password }) }),
   listModels: () => request('/models/'),
-  listConversations: (q) => request(`/conversations/${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  listConversations: (q, view = 'active') => {
+    const params = new URLSearchParams()
+    if (q) params.set('q', q)
+    if (view) params.set('view', view)
+    return request(`/conversations/?${params.toString()}`)
+  },
   getConversation: (id) => request(`/conversations/${id}/`),
   createConversation: (model_id, title = 'New Chat') =>
     request('/conversations/', { method: 'POST', body: JSON.stringify({ model_id, title }) }),

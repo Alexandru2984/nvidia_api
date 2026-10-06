@@ -5,8 +5,10 @@ async function mockAPI(
   page, signedIn = true, conversationModel = 'test/model', registrationMode = 'open',
 ) {
   await page.route('https://analytics.micutu.com/**', (route) => route.abort())
-  const conversation = {
+  let conversation = {
     id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
+    is_pinned: false, archived_at: null,
+    created_at: '2026-10-05T12:00:00Z', updated_at: '2026-10-05T12:00:00Z',
     messages: [
       { id: 1, role: 'user', content: 'Explain this code', attachments: [] },
       { id: 2, role: 'assistant', content: '```js\nconst value = 42\n```\n\n' + 'longword'.repeat(70)
@@ -14,10 +16,30 @@ async function mockAPI(
     ],
   }
   await page.route('**/api/**', (route) => {
-    const path = new URL(route.request().url()).pathname
+    const url = new URL(route.request().url())
+    const path = url.pathname
+    if (path === '/api/conversations/' && route.request().method() === 'GET') {
+      const view = url.searchParams.get('view') || 'active'
+      const visible = view === 'all'
+        || (view === 'archived' ? Boolean(conversation.archived_at) : !conversation.archived_at)
+      return route.fulfill({ status: 200, json: {
+        results: visible ? [conversation] : [],
+        counts: {
+          active: conversation.archived_at ? 0 : 1,
+          archived: conversation.archived_at ? 1 : 0,
+        },
+      } })
+    }
     if (path === '/api/conversations/1/' && route.request().method() === 'PATCH') {
       const patch = route.request().postDataJSON()
-      return route.fulfill({ status: 200, json: { ...conversation, ...patch } })
+      const next = { ...conversation, ...patch, updated_at: '2026-10-05T12:01:00Z' }
+      if (Object.hasOwn(patch, 'archived')) {
+        next.archived_at = patch.archived ? '2026-10-05T12:01:00Z' : null
+        if (patch.archived) next.is_pinned = false
+        delete next.archived
+      }
+      conversation = next
+      return route.fulfill({ status: 200, json: conversation })
     }
     if (path === '/api/attachments/upload/' && route.request().method() === 'POST') {
       return route.fulfill({ status: 201, json: {
@@ -75,7 +97,6 @@ async function mockAPI(
           max_bytes_per_message: 20971520,
         },
       },
-      '/api/conversations/': [conversation],
       '/api/conversations/1/': conversation,
       '/api/images/models/': { models: [], default: '' },
       '/api/attachments/': [],
@@ -149,6 +170,34 @@ test('mobile drawer closes with Escape and returns keyboard focus', async ({ pag
   await page.keyboard.press('Escape')
   await expect(menu).toHaveAttribute('aria-expanded', 'false')
   await expect(menu).toBeFocused()
+})
+
+test('conversation pin and archive controls stay clear and recoverable on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+
+  const actions = page.getByRole('button', { name: 'Conversation actions' })
+  await actions.click()
+  await page.screenshot({ path: 'test-results/conversation-actions-320.png' })
+  await page.getByRole('button', { name: 'Pin', exact: true }).click()
+  await expect(page.getByTitle('Pinned')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('pinned')
+
+  await actions.click()
+  await page.getByRole('button', { name: 'Archive', exact: true }).click()
+  await expect(page.getByText('Conversation moved to Archived.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Archived 1$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /A useful conversation/ })).toHaveCount(0)
+
+  await page.getByRole('button', { name: /^Archived 1$/ }).click()
+  await expect(page.getByRole('button', { name: /A useful conversation/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Conversation actions' }).click()
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(page.getByText('Conversation restored to Active.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Active 1$/ })).toBeVisible()
+  await expectNoPageOverflow(page)
 })
 
 test('retired conversation model is explicit and recoverable on mobile', async ({ page }) => {

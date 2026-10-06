@@ -77,6 +77,32 @@ function attachmentIsCompatible(attachment, capabilities) {
     && (!capabilities.max_image_bytes || attachment.size <= capabilities.max_image_bytes)
 }
 
+function sortConversations(items) {
+  return [...items].sort((left, right) => (
+    Number(Boolean(right.is_pinned)) - Number(Boolean(left.is_pinned))
+    || new Date(right.updated_at || 0).getTime() - new Date(left.updated_at || 0).getTime()
+  ))
+}
+
+function normalizeConversationPage(page, view) {
+  if (!Array.isArray(page)) {
+    return {
+      results: Array.isArray(page?.results) ? page.results : [],
+      counts: {
+        active: Number(page?.counts?.active) || 0,
+        archived: Number(page?.counts?.archived) || 0,
+      },
+    }
+  }
+  return {
+    results: page,
+    counts: {
+      active: view === 'active' ? page.length : 0,
+      archived: view === 'archived' ? page.length : 0,
+    },
+  }
+}
+
 const SUGGESTIONS = [
   'Write a haiku about GPUs warming up at night',
   'Explain mixture-of-experts in three sentences',
@@ -798,6 +824,10 @@ export default function App() {
     catch { return 'dark' }
   })
   const [search, setSearch] = useState('')
+  const [conversationView, setConversationView] = useState('active')
+  const [conversationCounts, setConversationCounts] = useState({ active: 0, archived: 0 })
+  const [conversationMenuId, setConversationMenuId] = useState(null)
+  const [conversationNotice, setConversationNotice] = useState(null)
   const [showConvoSettings, setShowConvoSettings] = useState(false)
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
@@ -830,6 +860,7 @@ export default function App() {
   const abortRef = useRef(null)
   const sidebarRef = useRef(null)
   const menuRef = useRef(null)
+  const conversationMenuButtonRef = useRef(null)
 
   useEffect(() => () => {
     for (const controller of uploadControllersRef.current.values()) controller.abort()
@@ -876,6 +907,22 @@ export default function App() {
   }, [attachmentMenuOpen])
 
   useEffect(() => {
+    if (conversationMenuId == null) return
+    function closeConversationMenu(event) {
+      if (event.type === 'keydown' && event.key !== 'Escape') return
+      if (event.type === 'pointerdown' && event.target.closest?.('[data-conversation-menu]')) return
+      setConversationMenuId(null)
+      if (event.type === 'keydown') conversationMenuButtonRef.current?.focus()
+    }
+    document.addEventListener('keydown', closeConversationMenu)
+    document.addEventListener('pointerdown', closeConversationMenu)
+    return () => {
+      document.removeEventListener('keydown', closeConversationMenu)
+      document.removeEventListener('pointerdown', closeConversationMenu)
+    }
+  }, [conversationMenuId])
+
+  useEffect(() => {
     let cancelled = false
     api.me()
       .then((u) => {
@@ -907,7 +954,9 @@ export default function App() {
         setDefaultModel(m.default)
         setAvailabilityCheckedAt(m.availability_checked_at || null)
         setAttachmentLimits((limits) => ({ ...limits, ...(m.attachment_limits || {}) }))
-        setConversations(c)
+        const conversationPage = normalizeConversationPage(c, 'active')
+        setConversations(conversationPage.results)
+        setConversationCounts(conversationPage.counts)
         setImageModels(im.models || [])
         setImageModel(im.default || (im.models?.[0]?.id) || '')
         setImageGallery(gallery || [])
@@ -926,13 +975,19 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return
+    let cancelled = false
     const t = setTimeout(() => {
-      api.listConversations(search.trim() || undefined)
-        .then(setConversations)
+      api.listConversations(search.trim() || undefined, conversationView)
+        .then((page) => {
+          if (cancelled) return
+          const normalized = normalizeConversationPage(page, conversationView)
+          setConversations(normalized.results)
+          setConversationCounts(normalized.counts)
+        })
         .catch(() => {})
     }, 300)
-    return () => clearTimeout(t)
-  }, [search, user])
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [search, user, conversationView])
 
   useEffect(() => {
     if (!activeId) return
@@ -1030,6 +1085,10 @@ export default function App() {
     try {
       const c = await api.createConversation(modelId)
       setConversations((prev) => [c, ...prev])
+      setConversationCounts((counts) => ({ ...counts, active: counts.active + 1 }))
+      setConversationView('active')
+      setSearch('')
+      setConversationNotice(null)
       setActiveId(c.id)
       setActive(c)
       setError(null)
@@ -1276,6 +1335,9 @@ export default function App() {
       try {
         convo = await api.createConversation(currentModelId || defaultModel)
         setConversations((prev) => [convo, ...prev])
+        setConversationCounts((counts) => ({ ...counts, active: counts.active + 1 }))
+        setConversationView('active')
+        setSearch('')
         setActiveId(convo.id)
         setActive(convo)
       } catch (err) { setError(err.message); return }
@@ -1333,7 +1395,7 @@ export default function App() {
         }))
         setConversations((prev) => {
           const others = prev.filter((p) => p.id !== convo.id)
-          return [final.conversation, ...others]
+          return sortConversations([final.conversation, ...others])
         })
       },
       onError: (msg) => {
@@ -1356,8 +1418,12 @@ export default function App() {
         try {
           const fresh = await api.getConversation(convo.id)
           setActive(fresh)
-          const refreshed = await api.listConversations()
-          setConversations(refreshed)
+          const refreshed = normalizeConversationPage(
+            await api.listConversations(search.trim() || undefined, conversationView),
+            conversationView,
+          )
+          setConversations(refreshed.results)
+          setConversationCounts(refreshed.counts)
         } catch { /* keep optimistic state */ }
       },
     }, controller.signal)
@@ -1379,14 +1445,58 @@ export default function App() {
     } catch (e) { setError(e.message) }
   }
 
-  async function handleDelete(id, ev) {
+  async function handlePin(c, ev) {
     ev?.stopPropagation?.()
-    if (!confirm('Delete this conversation?')) return
+    setConversationMenuId(null)
     try {
-      await api.deleteConversation(id)
-      setConversations((prev) => prev.filter((c) => c.id !== id))
-      if (activeId === id) { setActiveId(null); setActive(null) }
+      const updated = await api.updateConversation(c.id, { is_pinned: !c.is_pinned })
+      setConversations((prev) => sortConversations(
+        prev.map((item) => (item.id === c.id ? { ...item, ...updated } : item)),
+      ))
+      if (activeId === c.id) setActive((current) => (current ? { ...current, ...updated } : current))
+      setConversationNotice(updated.is_pinned ? 'Conversation pinned.' : 'Conversation unpinned.')
     } catch (e) { setError(e.message) }
+  }
+
+  async function handleArchive(c, ev) {
+    ev?.stopPropagation?.()
+    setConversationMenuId(null)
+    const wasArchived = Boolean(c.archived_at)
+    try {
+      await api.updateConversation(c.id, { archived: !wasArchived })
+      setConversations((prev) => prev.filter((item) => item.id !== c.id))
+      setConversationCounts((counts) => ({
+        active: Math.max(0, counts.active + (wasArchived ? 1 : -1)),
+        archived: Math.max(0, counts.archived + (wasArchived ? -1 : 1)),
+      }))
+      if (activeId === c.id) { setActiveId(null); setActive(null) }
+      setConversationNotice(
+        wasArchived ? 'Conversation restored to Active.' : 'Conversation moved to Archived.',
+      )
+    } catch (e) { setError(e.message) }
+  }
+
+  async function handleDelete(c, ev) {
+    ev?.stopPropagation?.()
+    setConversationMenuId(null)
+    if (!confirm('Permanently delete this conversation? This cannot be undone.')) return
+    try {
+      await api.deleteConversation(c.id)
+      setConversations((prev) => prev.filter((item) => item.id !== c.id))
+      const countKey = c.archived_at ? 'archived' : 'active'
+      setConversationCounts((counts) => ({
+        ...counts,
+        [countKey]: Math.max(0, counts[countKey] - 1),
+      }))
+      if (activeId === c.id) { setActiveId(null); setActive(null) }
+      setConversationNotice('Conversation permanently deleted.')
+    } catch (e) { setError(e.message) }
+  }
+
+  function showConversationView(view) {
+    setConversationView(view)
+    setConversationMenuId(null)
+    setConversationNotice(null)
   }
 
   async function handleEditMessage(msgId, newContent) {
@@ -1484,6 +1594,10 @@ export default function App() {
     } catch {}
     setUser(null)
     setConversations([])
+    setConversationCounts({ active: 0, archived: 0 })
+    setConversationView('active')
+    setConversationMenuId(null)
+    setConversationNotice(null)
     setActive(null)
     setActiveId(null)
     setImageGallery([])
@@ -1546,37 +1660,87 @@ export default function App() {
           className="convo-search"
           type="search"
           aria-label="Search conversations"
-          placeholder="Search conversations…"
+          placeholder={`Search ${conversationView}…`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
 
+        <div className="convo-filters" role="group" aria-label="Conversation folders">
+          <button
+            type="button"
+            aria-pressed={conversationView === 'active'}
+            className={conversationView === 'active' ? 'selected' : ''}
+            onClick={() => showConversationView('active')}
+          >
+            Active <span>{conversationCounts.active}</span>
+          </button>
+          <button
+            type="button"
+            aria-pressed={conversationView === 'archived'}
+            className={conversationView === 'archived' ? 'selected' : ''}
+            onClick={() => showConversationView('archived')}
+          >
+            Archived <span>{conversationCounts.archived}</span>
+          </button>
+        </div>
+
+        {conversationNotice && <div className="convo-notice" role="status">{conversationNotice}</div>}
+
         <div className="convo-list">
           {conversations.length === 0 ? (
             <div className="empty-list">
-              {search.trim() ? <>No results for “{search.trim()}”.</> : <>No conversations yet.<br/>Start one below.</>}
+              {search.trim()
+                ? <>No {conversationView} results for “{search.trim()}”.</>
+                : conversationView === 'archived'
+                  ? <>No archived conversations.</>
+                  : <>No conversations yet.<br/>Start one above.</>}
             </div>
           ) : (
             conversations.map((c) => (
               <div
                 key={c.id}
-                className={`convo-item ${c.id === activeId ? 'active' : ''}`}
+                className={`convo-item ${c.id === activeId ? 'active' : ''} ${c.is_pinned ? 'pinned' : ''}`}
+                data-conversation-menu
+                role="group"
+                aria-label={c.title || 'Untitled conversation'}
               >
                 <button className="convo-open" disabled={sending} aria-current={c.id === activeId ? 'page' : undefined} onClick={() => selectConversation(c.id)}>
-                  <div className="convo-title">{c.title || 'Untitled'}</div>
+                  <div className="convo-title">
+                    {c.is_pinned && <span className="pin-mark" title="Pinned" aria-label="Pinned">●</span>}
+                    {c.title || 'Untitled'}
+                  </div>
                   <div className="convo-meta">{(c.model_id || '').split('/').pop()} · {c.message_count} msg</div>
                 </button>
                 <button
-                  className="icon rename"
-                  title="Rename"
-                  onClick={(ev) => handleRename(c, ev)}
-                >✎</button>
-                <button
-                  className="icon danger delete"
-                  title="Delete"
+                  className="icon convo-action-toggle"
+                  title="Conversation actions"
+                  aria-label="Conversation actions"
+                  aria-expanded={conversationMenuId === c.id}
                   disabled={sending}
-                  onClick={(ev) => handleDelete(c.id, ev)}
-                >×</button>
+                  onClick={(ev) => {
+                    ev.stopPropagation()
+                    conversationMenuButtonRef.current = ev.currentTarget
+                    setConversationMenuId((current) => current === c.id ? null : c.id)
+                  }}
+                >•••</button>
+                {conversationMenuId === c.id && (
+                  <div className="convo-action-panel" role="group" aria-label={`Actions for ${c.title || 'Untitled'}`}>
+                    {!c.archived_at && (
+                      <button type="button" onClick={(ev) => handlePin(c, ev)}>
+                        {c.is_pinned ? 'Unpin' : 'Pin'}
+                      </button>
+                    )}
+                    <button type="button" onClick={(ev) => { setConversationMenuId(null); handleRename(c, ev) }}>
+                      Rename
+                    </button>
+                    <button type="button" onClick={(ev) => handleArchive(c, ev)}>
+                      {c.archived_at ? 'Restore' : 'Archive'}
+                    </button>
+                    <button type="button" className="danger" onClick={(ev) => handleDelete(c, ev)}>
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}
