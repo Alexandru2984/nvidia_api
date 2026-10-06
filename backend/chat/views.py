@@ -785,10 +785,10 @@ def conversations(request):
         q = (request.query_params.get('q') or '').strip()
         if q:
             qs = qs.filter(Q(title__icontains=q) | Q(messages__content__icontains=q)).distinct()
-        return Response({
-            'results': ConversationListSerializer(qs, many=True).data,
-            'counts': counts,
-        })
+        results = ConversationListSerializer(qs, many=True).data
+        if request.query_params.get('include_counts') == '1':
+            return Response({'results': results, 'counts': counts})
+        return Response(results)
 
     if (r := _rate_limited(request)): return r
     title = (request.data.get('title') or 'New Chat').strip()[:200] or 'New Chat'

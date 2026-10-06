@@ -20,7 +20,7 @@ class TestConversationsList:
     def test_lists_only_own(self, auth_client, other_client, user, other_user):
         Conversation.objects.create(user=user, title='mine', model_id=DEFAULT_MODEL_ID)
         Conversation.objects.create(user=other_user, title='theirs', model_id=DEFAULT_MODEL_ID)
-        r = auth_client.get('/api/conversations/')
+        r = auth_client.get('/api/conversations/?include_counts=1')
         assert r.status_code == 200
         titles = [c['title'] for c in r.json()['results']]
         assert titles == ['mine']
@@ -43,9 +43,11 @@ class TestConversationsList:
             archived_at=timezone.now(),
         )
 
-        default_body = auth_client.get('/api/conversations/').json()
-        archived_body = auth_client.get('/api/conversations/?view=archived').json()
-        all_body = auth_client.get('/api/conversations/?view=all').json()
+        default_body = auth_client.get('/api/conversations/?include_counts=1').json()
+        archived_body = auth_client.get(
+            '/api/conversations/?view=archived&include_counts=1',
+        ).json()
+        all_body = auth_client.get('/api/conversations/?view=all&include_counts=1').json()
 
         assert [item['id'] for item in default_body['results']] == [active.id]
         assert [item['id'] for item in archived_body['results']] == [archived.id]
@@ -59,7 +61,7 @@ class TestConversationsList:
         )
         Conversation.objects.filter(pk=regular.pk).update(updated_at=timezone.now())
 
-        body = auth_client.get('/api/conversations/').json()
+        body = auth_client.get('/api/conversations/?include_counts=1').json()
 
         assert [item['id'] for item in body['results']] == [pinned.id, regular.id]
         assert body['results'][0]['is_pinned'] is True
@@ -67,6 +69,14 @@ class TestConversationsList:
     def test_rejects_invalid_view(self, auth_client):
         r = auth_client.get('/api/conversations/?view=trash')
         assert r.status_code == 400
+
+    def test_legacy_list_shape_remains_available(self, auth_client, user):
+        Conversation.objects.create(user=user, title='legacy', model_id=DEFAULT_MODEL_ID)
+
+        body = auth_client.get('/api/conversations/').json()
+
+        assert isinstance(body, list)
+        assert [item['title'] for item in body] == ['legacy']
 
 
 @pytest.mark.django_db
@@ -481,29 +491,29 @@ class TestConversationSearch:
     def test_search_by_title(self, auth_client, user):
         self._mk(user, 'Django tips')
         self._mk(user, 'Cooking pasta')
-        r = auth_client.get('/api/conversations/?q=django')
+        r = auth_client.get('/api/conversations/?q=django&include_counts=1')
         assert [c['title'] for c in r.json()['results']] == ['Django tips']
 
     def test_search_by_message_content(self, auth_client, user):
         self._mk(user, 'Untitled A', msg='how do I use gunicorn workers?')
         self._mk(user, 'Untitled B', msg='banana bread recipe')
-        r = auth_client.get('/api/conversations/?q=gunicorn')
+        r = auth_client.get('/api/conversations/?q=gunicorn&include_counts=1')
         assert [c['title'] for c in r.json()['results']] == ['Untitled A']
 
     def test_search_does_not_leak_other_users(self, auth_client, user, other_user):
         self._mk(other_user, 'Secret gunicorn talk', msg='gunicorn secrets')
-        r = auth_client.get('/api/conversations/?q=gunicorn')
+        r = auth_client.get('/api/conversations/?q=gunicorn&include_counts=1')
         assert r.json()['results'] == []
 
     def test_search_no_duplicates_when_title_and_content_match(self, auth_client, user):
         self._mk(user, 'gunicorn', msg='more gunicorn text')
-        r = auth_client.get('/api/conversations/?q=gunicorn')
+        r = auth_client.get('/api/conversations/?q=gunicorn&include_counts=1')
         assert len(r.json()['results']) == 1
 
     def test_empty_q_returns_all(self, auth_client, user):
         self._mk(user, 'One')
         self._mk(user, 'Two')
-        r = auth_client.get('/api/conversations/?q=')
+        r = auth_client.get('/api/conversations/?q=&include_counts=1')
         assert len(r.json()['results']) == 2
 
     def test_search_stays_within_selected_view(self, auth_client, user):
@@ -512,9 +522,11 @@ class TestConversationSearch:
         archived.archived_at = timezone.now()
         archived.save(update_fields=['archived_at'])
 
-        active_results = auth_client.get('/api/conversations/?q=match').json()['results']
+        active_results = auth_client.get(
+            '/api/conversations/?q=match&include_counts=1',
+        ).json()['results']
         archived_results = auth_client.get(
-            '/api/conversations/?q=match&view=archived',
+            '/api/conversations/?q=match&view=archived&include_counts=1',
         ).json()['results']
 
         assert [item['title'] for item in active_results] == ['active match']

@@ -75,6 +75,7 @@ export const api = {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (view) params.set('view', view)
+    params.set('include_counts', '1')
     return request(`/conversations/?${params.toString()}`)
   },
   getConversation: (id) => request(`/conversations/${id}/`),
