@@ -60,6 +60,7 @@ async function mockAPI(
           },
         ],
         default: 'test/model',
+        availability_checked_at: '2026-10-06T00:19:57Z',
         attachment_limits: {
           max_files_per_message: 8, max_file_bytes: 10485760,
           max_bytes_per_message: 20971520,
@@ -217,4 +218,73 @@ test('switching models makes incompatible pending images explicit and recoverabl
   await expect(warning).toHaveCount(0)
   await expect(page.getByAltText('diagram.png')).toHaveCount(0)
   await expectNoPageOverflow(page)
+})
+
+test('model explorer searches, favorites, compares, and persists safely on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+
+  const trigger = page.getByRole('button', { name: 'Open model explorer' })
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a model' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('2 available', { exact: false })).toBeVisible()
+  const search = page.getByPlaceholder('Search name, vendor, capability…')
+  await expect(search).toBeFocused()
+
+  await dialog.getByRole('button', { name: 'Add Text Only to favorites' }).click()
+  await search.fill('Text Only')
+  await expect(dialog.getByRole('button', { name: 'Use Text Only' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Use Test Vision' })).toHaveCount(0)
+  await dialog.getByRole('checkbox', { name: 'Compare Text Only' }).check()
+  await search.clear()
+  await dialog.getByRole('checkbox', { name: 'Compare Test Vision' }).check()
+  await expect(dialog.getByText('2/3 selected')).toBeVisible()
+  await page.screenshot({ path: 'test-results/model-explorer-320.png' })
+  await expectNoPageOverflow(page)
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await trigger.click()
+  await dialog.getByRole('button', { name: '★ Favorites' }).click()
+  await expect(dialog.getByRole('button', { name: 'Use Text Only' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Use Test Vision' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Use Text Only' }).click()
+  await expect(page.getByLabel('Chat model')).toHaveValue('text/model')
+
+  const stored = await page.evaluate(() => localStorage.getItem('aichat-model-preferences-v1'))
+  expect(stored).toContain('text/model')
+  expect(stored).not.toContain('A useful conversation')
+})
+
+test('model explorer ignores malformed local preferences', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    localStorage.setItem('aichat-model-preferences-v1', '{not-json')
+  })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open model explorer' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a model' })
+  await expect(dialog.getByRole('button', { name: 'Use Test Vision' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Use Text Only' })).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('model comparison remains usable on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open model explorer' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a model' })
+  await dialog.getByRole('checkbox', { name: 'Compare Test Vision' }).check()
+  await dialog.getByRole('checkbox', { name: 'Compare Text Only' }).check()
+  await expect(dialog.getByText('2/3 selected')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Use model' })).toHaveCount(1)
+  await expectNoPageOverflow(page)
+  await page.screenshot({ path: 'test-results/model-explorer-1440.png' })
 })

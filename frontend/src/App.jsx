@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
+import ModelExplorer from './ModelExplorer'
 const Settings = lazy(() => import('./Settings'))
 const MarkdownBody = lazy(() => import('./MarkdownBody'))
 
@@ -701,6 +702,7 @@ export default function App() {
   const [registrationMode, setRegistrationMode] = useState('closed')
   const [models, setModels] = useState([])
   const [defaultModel, setDefaultModel] = useState('')
+  const [availabilityCheckedAt, setAvailabilityCheckedAt] = useState(null)
   const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
   const [active, setActive] = useState(null)
@@ -807,6 +809,7 @@ export default function App() {
         if (cancelled) return
         setModels(m.models)
         setDefaultModel(m.default)
+        setAvailabilityCheckedAt(m.availability_checked_at || null)
         setAttachmentLimits((limits) => ({ ...limits, ...(m.attachment_limits || {}) }))
         setConversations(c)
         setImageModels(im.models || [])
@@ -1213,14 +1216,18 @@ export default function App() {
   async function handleSwitchModel(modelId) {
     if (!active) {
       setDefaultModel(modelId)
-      return
+      return true
     }
     try {
       const updated = await api.switchModel(active.id, modelId)
       setActive((c) => ({ ...c, model_id: updated.model_id }))
       setConversations((prev) => prev.map((c) => (c.id === updated.id ? { ...c, model_id: updated.model_id } : c)))
       setError(null)
-    } catch (e) { setError(e.message) }
+      return true
+    } catch (e) {
+      setError(e.message)
+      return false
+    }
   }
 
   async function handleLogout() {
@@ -1379,42 +1386,53 @@ export default function App() {
               >⬇</a>
             </>
           )}
-          <div className="model-select-wrap">
-            {mode === 'chat' ? (
-              <select
-                value={currentModelId}
-                aria-label="Chat model"
-                aria-describedby={currentModel ? 'model-capability-summary' : undefined}
-                onChange={(e) => handleSwitchModel(e.target.value)}
+          <div className="model-select-controls">
+            <div className="model-select-wrap">
+              {mode === 'chat' ? (
+                <select
+                  value={currentModelId}
+                  aria-label="Chat model"
+                  aria-describedby={currentModel ? 'model-capability-summary' : undefined}
+                  onChange={(e) => handleSwitchModel(e.target.value)}
+                  disabled={sending}
+                  title={modelLabel}
+                >
+                  {activeModelUnavailable && (
+                    <option value={active.model_id} disabled>
+                      Unavailable · {active.model_id.split('/').pop()}
+                    </option>
+                  )}
+                  {groupedModels.map((group) => (
+                    <optgroup key={group.purpose} label={group.label}>
+                      {group.models.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}{model.vision ? ' · Vision' : ''} · {model.vendor}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  value={imageModel}
+                  aria-label="Image model"
+                  onChange={(e) => handleSwitchImageModel(e.target.value)}
+                  disabled={imageBusy}
+                >
+                  {imageModels.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name} · {m.vendor}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            {mode === 'chat' && (
+              <ModelExplorer
+                models={models}
+                currentModelId={currentModelId}
+                availabilityCheckedAt={availabilityCheckedAt}
                 disabled={sending}
-                title={modelLabel}
-              >
-                {activeModelUnavailable && (
-                  <option value={active.model_id} disabled>
-                    Unavailable · {active.model_id.split('/').pop()}
-                  </option>
-                )}
-                {groupedModels.map((group) => (
-                  <optgroup key={group.purpose} label={group.label}>
-                    {group.models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}{model.vision ? ' · Vision' : ''} · {model.vendor}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            ) : (
-              <select
-                value={imageModel}
-                aria-label="Image model"
-                onChange={(e) => handleSwitchImageModel(e.target.value)}
-                disabled={imageBusy}
-              >
-                {imageModels.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name} · {m.vendor}</option>
-                ))}
-              </select>
+                onSelect={handleSwitchModel}
+              />
             )}
           </div>
         </div>
