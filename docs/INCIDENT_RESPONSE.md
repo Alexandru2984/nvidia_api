@@ -24,8 +24,8 @@ successful admin login, any privileged admin change, any admin-audit integrity
 failure, 2FA disable, global AI-budget exhaustion, 10 failed logins/6 minutes,
 10 denied admin requests/6 minutes, 20 rate limits/6 minutes, 5 rejected
 invitations/6 minutes, any invitation consumption or verified new account,
-3 backend errors/6 minutes, a database backup older than 30 hours, or a restore
-drill older than eight days.
+5 incompatible attachment/model rejections/6 minutes, 3 backend errors/6 minutes,
+a database backup older than 30 hours, or a restore drill older than eight days.
 
 ## 2. Contain
 

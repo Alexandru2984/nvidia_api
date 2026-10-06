@@ -1,6 +1,6 @@
 # Security audit
 
-Date: 2026-10-05  
+Date: 2026-10-06
 Scope: Django/DRF backend, React/Vite frontend, PostgreSQL data path, attachment
 processing, nginx, systemd, backup automation, Cloudflare Tunnel, and CI.  
 Decision: **YELLOW — mitigate then ship**. The repository fixes are deployed and
@@ -61,10 +61,10 @@ upstream responses are now logged server-side while clients receive generic text
 | A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque session handles | Rotate sessions after any suspected historic disclosure |
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
-| A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
-| A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
+| A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
+| A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and upload/contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
@@ -88,8 +88,9 @@ alert path works. The security timer targets MTTD under six minutes for repeated
 login failures, unexpected admin access, rate-limit spikes, backup/restore
 failures, 2FA disable, backend error bursts, missing provider usage, token
 reservation overruns, privileged admin changes or audit-integrity failures, and
-global NVIDIA budget exhaustion. External log retention and contractual/GPU-spend
-signals remain open. Target
+global NVIDIA budget exhaustion. Five incompatible attachment/model rejections in
+six minutes now use the same alert path. External log retention and contractual/
+GPU-spend signals remain open. Target
 containment time is 60 minutes after a confirmed high-severity alert.
 
 The response procedure is in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md). It must
@@ -119,12 +120,12 @@ is required before describing those controls as complete.
 
 ## Verification evidence
 
-- 278 backend tests pass, including ownership, CSRF, concurrency, recovery,
+- 288 backend tests pass, including ownership, CSRF, concurrency, recovery,
   anti-enumeration, transactional mail-failure, provider token reconciliation,
   fail-closed usage validation, atomic invite consumption, privacy-safe admin
   auditing and tamper detection, SSE byte parsing, retired-model handling,
-  payload, and generated-image boundary tests.
-- Frontend lint/build, twelve responsive Playwright checks (320–1440 px), and
+  payload, per-model attachment capabilities, and generated-image boundary tests.
+- Frontend lint/build, fourteen responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
   external route/header probes must be repeated during each production rollout.
@@ -220,6 +221,35 @@ is required before describing those controls as complete.
   retention remains required. A `DJANGO_SECRET_KEY` rotation must re-tag retained
   audit rows in a controlled migration or their integrity checks will fail.
 
+### Model-capability rollout — 2026-10-06
+
+- Deployed repository states `87e03b3` and `b7d419a` after retaining database dump
+  `nvidia_db_20261006_031801_600666837.sql.gz`, frontend snapshot
+  `aichat.micutu.com_20261006_031806_155909071`, and a private copy of the prior
+  runtime model status. There were no schema changes or pending migrations.
+- The catalog now treats capabilities as a server-enforced security contract:
+  purpose/recommendation metadata, document-as-text behavior, image MIME allowlist,
+  image-count ceiling, and provider-specific byte ceiling. Upload and send paths
+  reject incompatible combinations before persistence or provider dispatch;
+  history keeps document text but strips images unsupported by the current model.
+- The responsive attachment picker shows only applicable image/document actions,
+  limits, context and model purpose. Model changes surface incompatible pending
+  files and allow their removal instead of silently sending or discarding them.
+- A fresh production probe found 4/39 endpoints responding: Meta Llama 3.2 11B
+  Vision, Meta Llama 3.2 90B Vision, NVIDIA Nemotron 3 Super 120B, and OpenAI
+  GPT-OSS 20B. The other 35 are hidden fail-closed after 410, 500, or repeated
+  timeout results; the recommended default is Llama 3.2 11B Vision.
+- Public health, HTML, hashed JS/CSS and `security.txt` returned 200. Anonymous
+  `/api/models/`, `/admin/`, `.env`, and `.git` probes returned 403; arbitrary
+  `/media/` returned 404. The monitor completed successfully, backend logs had no
+  warning-or-higher entries, automatic restarts remained zero, and systemd
+  exposure remained 2.9 `OK`.
+- Residual risks are unchanged in class: untrusted parsers still need stronger
+  isolation/malware scanning before public uploads, provider capability metadata
+  can drift between catalog updates, and model probing cannot distinguish a
+  sustained transient outage from retirement. Runtime probing therefore hides
+  failures rather than widening accepted inputs.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
@@ -236,3 +266,5 @@ remain open.
 - [GDPR consolidated text](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
 - [ICO personal data breach guidance](https://ico.org.uk/for-organisations/report-a-breach/personal-data-breach/personal-data-breaches-a-guide/)
 - [NVIDIA NIM product and licensing FAQ](https://docs.api.nvidia.com/nim/docs/product)
+- [NVIDIA vision-language model support](https://docs.nvidia.com/nim/vision-language-models/2.0.10-variant/introduction.html)
+- [NVIDIA Nemotron Nano 12B V2 VL model contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-nemotron-nano-12b-v2-vl)

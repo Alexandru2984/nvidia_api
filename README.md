@@ -125,13 +125,13 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists opaque session handles and revokes selected/other sessions. |
 | GET | `/account/usage/` | — | session | Storage totals plus today's durable chat/image budgets and UTC reset. |
-| GET | `/models/` | — | session | Returns validated NVIDIA models. |
+| GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose metadata, per-model input/attachment capabilities, the selected default, probe timestamp, and global attachment limits. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |
 | GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–2, tokens 64–8192, prompt ≤4000 chars. |
-| POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA, persists both messages. Vision images allowed only on vision-capable models. |
+| POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA and persists both messages. The effective model is validated before any override is saved; incompatible type, MIME, byte size, or image count fails closed. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
-| POST | `/attachments/upload/` | `multipart` field `file` | session | Whitelist: jpg/png/webp/gif, pdf, txt, md, docx. 10 MB/file, 100 MB/user. Document text is extracted on upload. |
+| POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Empty or image-only documents are rejected after bounded extraction. |
 | DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
 | GET | `/attachments/<id>/download/` | — | session | Ownership-checked private download; never expose `MEDIA_ROOT` directly. |
 | GET | `/images/models/` | — | session | List image-generation catalog (FLUX schnell/dev; each entry includes `allowed_dims`). |
@@ -165,6 +165,14 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
 
 - `python manage.py probe_models` probes every catalog model with a 1-token completion (with one retry for cold starts) and writes the private runtime file `backend/.cache/model_status.json`.
 - `/api/models/` subtracts the unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
+- Each catalog row exposes `purpose`, `recommended`, and a conservative
+  `capabilities` contract. The UI groups assistant/coding/translation/safety/
+  specialized models and derives its image/document picker from that contract;
+  the backend independently enforces the same MIME, byte, and image-count rules.
+- Documents are provided to models as bounded extracted text. Images are sent
+  only to explicitly documented vision endpoints; incompatible pending files
+  block sending, and incompatible historical images are omitted when switching
+  to a text-only model.
 - Conversation creation uses that same fallback, while explicit selection,
   sending, or regeneration with a retired model is rejected before consuming a
   request/token reservation.
@@ -173,7 +181,9 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   switch to the current available default.
 - `aichat-model-probe.timer` refreshes it weekly. Run the command manually after NVIDIA announces model changes.
 
-Adding brand-new models still means editing `chat/models_catalog.py` (id, name, vendor, context, vision flag).
+Adding a brand-new model means editing `chat/models_catalog.py` and verifying its
+ID, description, context window, purpose, recommendation status, input modalities,
+accepted image MIME types, maximum image count/bytes, and live probe result.
 
 ## Production deploy
 
