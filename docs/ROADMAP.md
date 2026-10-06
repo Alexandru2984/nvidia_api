@@ -62,9 +62,10 @@ timed evidence.
   Add measured latency and explicit “best for” guidance. Expose reasoning, tool
   use, structured output, and output modality controls only when verified and
   declared by the selected model.
-- Add drag/drop and clipboard image paste, upload progress/cancel/retry, duplicate
-  detection, document extraction preview, per-file inclusion toggles, and a clear
-  explanation of why a file/model combination is rejected.
+- **Resilient attachment intake is shipped:** picker, drag/drop, clipboard image
+  paste, per-file progress/cancel/retry/dismiss, capability rejection, and
+  session-bound state clearing share one bounded queue. Add content-hash duplicate
+  detection, document extraction preview, and per-file inclusion toggles.
 - Cursor pagination for conversations/messages/attachments and indexed search.
 - Pinned, archived, and foldered conversations with bulk move/delete/export.
 - Conversation branching and explicit alternative responses on regeneration.

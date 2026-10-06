@@ -125,7 +125,7 @@ is required before describing those controls as complete.
   fail-closed usage validation, atomic invite consumption, privacy-safe admin
   auditing and tamper detection, SSE byte parsing, retired-model handling,
   payload, per-model attachment capabilities, and generated-image boundary tests.
-- Frontend lint/build, seventeen responsive Playwright checks (320–1440 px), and
+- Frontend lint/build, twenty-two responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
   external route/header probes must be repeated during each production rollout.
@@ -267,6 +267,30 @@ is required before describing those controls as complete.
   `/media/` remained 404 and anonymous admin/model/configuration probes remained
   403. CSP and security headers were unchanged, the backend retained zero
   automatic restarts, and no warning-or-higher journal entries appeared.
+
+### Resilient-upload rollout — 2026-10-06
+
+- Deployed frontend state `c721a6f` after retaining private webroot snapshot
+  `aichat.micutu.com_20261006_164607_199242552`; the backend schema and services
+  were unchanged.
+- Picker, drag/drop, and clipboard file paths now converge on the same bounded,
+  model-aware queue. XMLHttpRequest is used only to expose per-file progress and
+  cancellation while retaining same-origin credentials and CSRF protection;
+  server-side signature, ownership, storage, count, byte, and capability checks
+  remain authoritative.
+- Failed uploads can be retried without reselecting the local file, and canceled
+  or failed jobs reserve their client-side file/byte slots until dismissed. A
+  session logout or authentication failure aborts active upload/generation work,
+  clears retained `File` objects, pending attachment previews, drafts, and private
+  image-gallery state, preventing browser-memory state from crossing accounts.
+- A late cancel can race with a server commit. Such a file remains owner-scoped,
+  unlinked, visible through the private attachment library, manually deletable,
+  and eligible for the daily 30-day orphan cleanup; instant deletion is not
+  claimed. A future upload-attempt identifier could close this residual window.
+- Public HTML, the new hashed JS/CSS, health, and `security.txt` returned 200;
+  `/media/` remained 404 and anonymous admin/model/configuration probes remained
+  403. The backend remained active with zero automatic restarts and no
+  warning-or-higher journal entries.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

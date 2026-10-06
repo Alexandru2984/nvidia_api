@@ -137,6 +137,14 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET | `/images/models/` | — | session | List image-generation catalog (FLUX schnell/dev; each entry includes `allowed_dims`). |
 | POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Saves the generated image to local media storage. |
 
+The composer accepts picker, drag/drop, and clipboard image inputs through one
+capability-aware queue. Each file has progress, cancel, retry, and dismiss state;
+failed files remain browser-local until retried or dismissed. Logout/session loss
+aborts in-flight work and clears pending previews so attachment state cannot cross
+accounts in a shared browser. An upload canceled after the server has already
+committed can remain as an owner-scoped, unlinked attachment and is covered by the
+normal attachment library/deletion flow and scheduled orphan cleanup.
+
 Chat, regeneration, and image calls reserve daily PostgreSQL-backed counters
 before contacting NVIDIA. Limits apply per user and globally across all gunicorn
 workers; exhausted user budgets return `429`, while a service-wide budget returns
