@@ -29,7 +29,9 @@ responsive browser coverage, and hardened nginx/systemd templates. Runtime
 application of the templates is tracked separately because a committed template
 does not secure a running server. Privileged admin changes are now mirrored into
 a privacy-minimized, HMAC-validated 365-day audit trail and monitored for changes,
-missing mirrors, and integrity failures.
+missing mirrors, and integrity failures. Attachment duplicate detection now uses
+secret-keyed, owner-scoped fingerprints, while document previews are owner-scoped,
+truncated, no-store responses rendered as inert browser text.
 
 Point-in-time production inventory observed during the audit: 3 active users,
 6 conversations, 16 messages, no attachments, no enabled 2FA records, and one
@@ -69,6 +71,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
+| A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
 
 ## Quantitative risk view
 
@@ -120,12 +123,12 @@ is required before describing those controls as complete.
 
 ## Verification evidence
 
-- 288 backend tests pass, including ownership, CSRF, concurrency, recovery,
+- 297 backend tests pass, including ownership, CSRF, concurrency, recovery,
   anti-enumeration, transactional mail-failure, provider token reconciliation,
   fail-closed usage validation, atomic invite consumption, privacy-safe admin
   auditing and tamper detection, SSE byte parsing, retired-model handling,
   payload, per-model attachment capabilities, and generated-image boundary tests.
-- Frontend lint/build, twenty-two responsive Playwright checks (320–1440 px), and
+- Frontend lint/build, twenty-five responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
   external route/header probes must be repeated during each production rollout.
@@ -291,6 +294,42 @@ is required before describing those controls as complete.
   `/media/` remained 404 and anonymous admin/model/configuration probes remained
   403. The backend remained active with zero automatic restarts and no
   warning-or-higher journal entries.
+
+### Attachment-control rollout — 2026-10-06
+
+- Deployed repository states `e15df8d` and `11966a9` after retaining database dump
+  `nvidia_db_20261006_170649_134260332.sql.gz` and private frontend snapshot
+  `aichat.micutu.com_20261006_170701_161075609`. Migration
+  `0015_attachment_content_sha256` applied successfully under the dedicated
+  `aichat` identity; PostgreSQL introspection confirmed the owner/fingerprint
+  partial unique constraint. Production contained no attachment rows requiring a
+  legacy-fingerprint transition.
+- Identical unlinked uploads are reused only within the authenticated owner. The
+  stored value is HMAC-SHA256 over a versioned owner domain and file bytes, keyed
+  by the server secret, so identical content cannot be correlated across account
+  rows and known files cannot be confirmed from a leaked fingerprint list. It is
+  excluded from every serializer and log path.
+- Document preview fetches only the owner's extracted text, caps the response at
+  4,000 characters, rate-limits requests, and sends `private, no-store`. React
+  inserts the response into a `pre` text node; an executable-tag regression test
+  confirms it remains inert. The responsive modal traps focus, closes with Escape,
+  and restores focus to its trigger.
+- Pending files can be excluded and re-included without deletion. Excluded files
+  do not trigger model-capability blocks and their IDs are omitted from provider
+  requests; logout/session loss clears this state. Duplicate responses reuse one
+  tile and explain that the private copy was reused.
+- All 297 backend tests and 25 browser tests passed, along with lint, build,
+  migration-drift, Django system, and import checks. Public HTML and the new
+  `index-CfhHbnZW.js`/`index-oeSxBa46.css` assets returned 200; `/media/` returned
+  404 and anonymous preview/model/admin/configuration probes returned 403. The
+  backend and security monitor remained healthy with zero automatic restarts.
+- The first public health request issued immediately after the deliberate backend
+  restart landed inside its startup window and returned 502; the retry returned
+  200 and remained stable. Deploy automation should poll local backend readiness
+  before considering a restart complete. Django's deploy check otherwise reported
+  only the deliberate `SECURE_HSTS_PRELOAD=False` warning; one-year HSTS with
+  subdomains is active, while preload enrollment remains a separate domain-wide
+  owner decision.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

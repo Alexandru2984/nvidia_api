@@ -131,19 +131,24 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–2, tokens 64–8192, prompt ≤4000 chars. |
 | POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA and persists both messages. The effective model is validated before any override is saved; incompatible type, MIME, byte size, or image count fails closed. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
-| POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Empty or image-only documents are rejected after bounded extraction. |
+| POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Empty or image-only documents are rejected after bounded extraction. An identical pending upload for the same owner is reused with `deduplicated: true`. |
 | DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
+| GET | `/attachments/<id>/preview/` | — | session | Ownership-checked, 4,000-character extracted-text preview for documents; returned with private/no-store cache policy. |
 | GET | `/attachments/<id>/download/` | — | session | Ownership-checked private download; never expose `MEDIA_ROOT` directly. |
 | GET | `/images/models/` | — | session | List image-generation catalog (FLUX schnell/dev; each entry includes `allowed_dims`). |
 | POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Saves the generated image to local media storage. |
 
 The composer accepts picker, drag/drop, and clipboard image inputs through one
 capability-aware queue. Each file has progress, cancel, retry, and dismiss state;
-failed files remain browser-local until retried or dismissed. Logout/session loss
-aborts in-flight work and clears pending previews so attachment state cannot cross
-accounts in a shared browser. An upload canceled after the server has already
-committed can remain as an owner-scoped, unlinked attachment and is covered by the
-normal attachment library/deletion flow and scheduled orphan cleanup.
+pending files can be included or excluded from the next request without deletion,
+and extracted document text can be previewed as inert text. Identical unlinked
+content is deduplicated with a secret-keyed, owner-scoped fingerprint that is never
+serialized or logged. Failed files remain browser-local until retried or dismissed.
+Logout/session loss aborts in-flight work and clears pending previews so attachment
+state cannot cross accounts in a shared browser. An upload canceled after the
+server has already committed can remain as an owner-scoped, unlinked attachment and
+is covered by the normal attachment library/deletion flow and scheduled orphan
+cleanup.
 
 Chat, regeneration, and image calls reserve daily PostgreSQL-backed counters
 before contacting NVIDIA. Limits apply per user and globally across all gunicorn

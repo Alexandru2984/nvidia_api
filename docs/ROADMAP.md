@@ -64,8 +64,10 @@ timed evidence.
   declared by the selected model.
 - **Resilient attachment intake is shipped:** picker, drag/drop, clipboard image
   paste, per-file progress/cancel/retry/dismiss, capability rejection, and
-  session-bound state clearing share one bounded queue. Add content-hash duplicate
-  detection, document extraction preview, and per-file inclusion toggles.
+  session-bound state clearing share one bounded queue. Secret-keyed owner-scoped
+  duplicate detection, no-store extracted-text preview, and per-file inclusion
+  toggles are also shipped. Add upload-attempt identifiers to reconcile late
+  cancellation and background processing for large documents.
 - Cursor pagination for conversations/messages/attachments and indexed search.
 - Pinned, archived, and foldered conversations with bulk move/delete/export.
 - Conversation branching and explicit alternative responses on regeneration.
