@@ -28,12 +28,16 @@ class MessageSerializer(serializers.ModelSerializer):
 
 
 class ConversationListSerializer(serializers.ModelSerializer):
-    message_count = serializers.IntegerField(source='messages.count', read_only=True)
+    message_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
         fields = ['id', 'title', 'model_id', 'is_pinned', 'archived_at',
                   'created_at', 'updated_at', 'message_count']
+
+    def get_message_count(self, obj):
+        annotated = getattr(obj, 'message_count', None)
+        return annotated if annotated is not None else obj.messages.count()
 
 
 class ConversationDetailSerializer(serializers.ModelSerializer):

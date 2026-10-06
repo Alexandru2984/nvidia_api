@@ -78,6 +78,94 @@ class TestConversationsList:
         assert isinstance(body, list)
         assert [item['title'] for item in body] == ['legacy']
 
+    def test_signed_cursor_paginates_without_duplicates(self, auth_client, user):
+        created = [
+            Conversation.objects.create(
+                user=user,
+                title=f'conversation {index}',
+                model_id=DEFAULT_MODEL_ID,
+                is_pinned=index == 0,
+            )
+            for index in range(5)
+        ]
+        expected = list(
+            Conversation.objects.filter(user=user)
+            .order_by('-is_pinned', '-updated_at', '-id')
+            .values_list('id', flat=True)
+        )
+        assert created
+
+        returned = []
+        cursor = None
+        while True:
+            url = '/api/conversations/?include_counts=1&limit=2'
+            if cursor:
+                url += f'&cursor={cursor}'
+            response = auth_client.get(url)
+            assert response.status_code == 200
+            body = response.json()
+            returned.extend(item['id'] for item in body['results'])
+            cursor = body['next_cursor']
+            if cursor is None:
+                break
+
+        assert returned == expected
+        assert len(returned) == len(set(returned)) == 5
+
+    def test_cursor_is_bound_to_owner_view_and_search(
+        self, auth_client, other_client, user, other_user,
+    ):
+        for owner in (user, other_user):
+            Conversation.objects.create(user=owner, title='match one', model_id=DEFAULT_MODEL_ID)
+            Conversation.objects.create(user=owner, title='match two', model_id=DEFAULT_MODEL_ID)
+        first = auth_client.get(
+            '/api/conversations/?include_counts=1&limit=1&q=match&view=active',
+        ).json()
+        cursor = first['next_cursor']
+        assert cursor
+
+        assert other_client.get(
+            f'/api/conversations/?include_counts=1&limit=1&q=match&view=active&cursor={cursor}',
+        ).status_code == 400
+        assert auth_client.get(
+            f'/api/conversations/?include_counts=1&limit=1&q=different&view=active&cursor={cursor}',
+        ).status_code == 400
+        assert auth_client.get(
+            f'/api/conversations/?include_counts=1&limit=1&q=match&view=all&cursor={cursor}',
+        ).status_code == 400
+
+    def test_rejects_tampered_or_unbounded_pagination_input(self, auth_client, user):
+        Conversation.objects.create(user=user, title='one', model_id=DEFAULT_MODEL_ID)
+        Conversation.objects.create(user=user, title='two', model_id=DEFAULT_MODEL_ID)
+        cursor = auth_client.get(
+            '/api/conversations/?include_counts=1&limit=1',
+        ).json()['next_cursor']
+
+        assert auth_client.get(
+            f'/api/conversations/?include_counts=1&limit=1&cursor={cursor}x',
+        ).status_code == 400
+        for limit in ('0', '51', 'many'):
+            assert auth_client.get(
+                f'/api/conversations/?include_counts=1&limit={limit}',
+            ).status_code == 400
+        assert auth_client.get(
+            '/api/conversations/?include_counts=1&q=' + ('x' * 201),
+        ).status_code == 400
+        assert auth_client.get(
+            f'/api/conversations/?cursor={cursor}',
+        ).status_code == 400
+
+    def test_legacy_response_is_bounded(self, auth_client, user):
+        Conversation.objects.bulk_create([
+            Conversation(user=user, title=f'legacy {index}', model_id=DEFAULT_MODEL_ID)
+            for index in range(105)
+        ])
+
+        body = auth_client.get('/api/conversations/').json()
+
+        assert isinstance(body, list)
+        assert len(body) == 100
+
 
 @pytest.mark.django_db
 class TestConversationCreate:

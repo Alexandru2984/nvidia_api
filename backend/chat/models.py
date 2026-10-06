@@ -1,6 +1,7 @@
 import secrets
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -104,6 +105,11 @@ class Conversation(models.Model):
                 fields=['user', 'archived_at', '-is_pinned', '-updated_at'],
                 name='chat_convo_owner_view_idx',
             ),
+            GinIndex(
+                fields=['title'],
+                name='chat_convo_title_trgm',
+                opclasses=['gin_trgm_ops'],
+            ),
         ]
 
     def __str__(self):
@@ -181,6 +187,13 @@ class Message(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        indexes = [
+            GinIndex(
+                fields=['content'],
+                name='chat_msg_content_trgm',
+                opclasses=['gin_trgm_ops'],
+            ),
+        ]
 
     def __str__(self):
         return f'{self.role}: {self.content[:40]}'

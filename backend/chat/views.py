@@ -24,14 +24,16 @@ from django.contrib.auth import (
     logout as django_logout,
 )
 from django.contrib.auth.password_validation import validate_password
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Exists, OuterRef, Q, Sum
 from django.http import FileResponse, Http404, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django_ratelimit.decorators import ratelimit
 from rest_framework import status
@@ -762,13 +764,38 @@ def health(request):
 
 
 @api_view(['GET', 'POST'])
+@ratelimit(key='user', method='GET', rate='120/m', block=False)
 @ratelimit(key='user', method='POST', rate='20/m', block=False)
 def conversations(request):
     if request.method == 'GET':
+        if (r := _rate_limited(request)): return r
         view = (request.query_params.get('view') or 'active').strip().lower()
         if view not in {'active', 'archived', 'all'}:
             return Response(
                 {'error': 'view must be active, archived, or all'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        q = (request.query_params.get('q') or '').strip()
+        if len(q) > 200:
+            return Response(
+                {'error': 'q must be at most 200 characters'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        paginated = request.query_params.get('include_counts') == '1'
+        if request.query_params.get('cursor') and not paginated:
+            return Response(
+                {'error': 'cursor requires include_counts=1'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        raw_limit = request.query_params.get('limit', '30')
+        try:
+            page_size = int(raw_limit)
+        except (TypeError, ValueError):
+            return Response({'error': 'limit must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 1 <= page_size <= 50:
+            return Response(
+                {'error': 'limit must be between 1 and 50'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -782,12 +809,78 @@ def conversations(request):
             qs = qs.filter(archived_at__isnull=True)
         elif view == 'archived':
             qs = qs.filter(archived_at__isnull=False)
-        q = (request.query_params.get('q') or '').strip()
         if q:
-            qs = qs.filter(Q(title__icontains=q) | Q(messages__content__icontains=q)).distinct()
-        results = ConversationListSerializer(qs, many=True).data
-        if request.query_params.get('include_counts') == '1':
-            return Response({'results': results, 'counts': counts})
+            message_matches = Message.objects.filter(
+                conversation_id=OuterRef('pk'),
+                content__icontains=q,
+            )
+            qs = qs.filter(Q(title__icontains=q) | Exists(message_matches))
+        qs = qs.annotate(message_count=Count('messages')).order_by(
+            '-is_pinned', '-updated_at', '-id',
+        )
+
+        cursor_token = request.query_params.get('cursor')
+        if cursor_token:
+            if len(cursor_token) > 1000:
+                return Response({'error': 'Invalid or expired cursor'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                cursor = signing.loads(
+                    cursor_token,
+                    salt='chat.conversation.cursor.v1',
+                    max_age=24 * 60 * 60,
+                )
+                cursor_time = parse_datetime(cursor['updated_at'])
+                valid_cursor = (
+                    isinstance(cursor, dict)
+                    and cursor.get('user_id') == request.user.pk
+                    and cursor.get('view') == view
+                    and cursor.get('query_hash') == hashlib.sha256(q.encode()).hexdigest()[:20]
+                    and isinstance(cursor.get('is_pinned'), bool)
+                    and isinstance(cursor.get('id'), int)
+                    and not isinstance(cursor.get('id'), bool)
+                    and cursor['id'] > 0
+                    and cursor_time is not None
+                    and timezone.is_aware(cursor_time)
+                )
+                if not valid_cursor:
+                    raise signing.BadSignature
+            except (KeyError, TypeError, ValueError, signing.BadSignature):
+                return Response(
+                    {'error': 'Invalid or expired cursor'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            same_pin_older = Q(is_pinned=cursor['is_pinned']) & (
+                Q(updated_at__lt=cursor_time)
+                | Q(updated_at=cursor_time, id__lt=cursor['id'])
+            )
+            if cursor['is_pinned']:
+                qs = qs.filter(Q(is_pinned=False) | same_pin_older)
+            else:
+                qs = qs.filter(same_pin_older)
+
+        fetch_size = page_size if paginated else 100
+        page = list(qs[:fetch_size + 1])
+        has_more = len(page) > fetch_size
+        page = page[:fetch_size]
+        results = ConversationListSerializer(page, many=True).data
+        if paginated:
+            next_cursor = None
+            if has_more and page:
+                last = page[-1]
+                next_cursor = signing.dumps({
+                    'user_id': request.user.pk,
+                    'view': view,
+                    'query_hash': hashlib.sha256(q.encode()).hexdigest()[:20],
+                    'is_pinned': last.is_pinned,
+                    'updated_at': last.updated_at.isoformat(),
+                    'id': last.pk,
+                }, salt='chat.conversation.cursor.v1')
+            return Response({
+                'results': results,
+                'counts': counts,
+                'next_cursor': next_cursor,
+            })
         return Response(results)
 
     if (r := _rate_limited(request)): return r
