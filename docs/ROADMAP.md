@@ -70,7 +70,10 @@ timed evidence.
   toggles are also shipped. Add upload-attempt identifiers to reconcile late
   cancellation and background processing for large documents.
 - Cursor pagination for conversations/messages/attachments and indexed search.
-- Pinned, archived, and foldered conversations with bulk move/delete/export.
+- **Pinned and archived conversations are shipped:** owner-scoped filters and
+  counts, explicit restore, pin-first ordering, labeled mobile actions, and a
+  legacy-compatible rollout contract are covered by backend and browser tests.
+  Add user-defined folders plus owner-scoped bulk move/delete/export.
 - Conversation branching and explicit alternative responses on regeneration.
 - Saved prompt library with variables, favorites, tags, and safe import/export.
 - Per-user preferences: default model, generation parameters, theme, language,

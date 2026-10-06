@@ -361,6 +361,38 @@ is required before describing those controls as complete.
   `/media/` returned 404 and anonymous model/admin/configuration probes returned
   403. Backend and security monitor remained healthy with zero automatic restarts.
 
+### Conversation-organization rollout — 2026-10-06
+
+- Deployed repository states `545005e`, `c4130a3`, and `8dc3aaa` after retaining
+  validated database dump `nvidia_db_20261006_225408_099541025.sql.gz` and private
+  frontend snapshot `aichat.micutu.com_20261006_225413_398232334`. Migration
+  `0016_conversation_archived_at_conversation_is_pinned_and_more` applied under
+  the dedicated `aichat` identity and created the owner/view/order index.
+- Pin, archive, restore, filter, search, count, detail, and mutation paths remain
+  scoped to the authenticated owner. Archive is reversible and clears pin state;
+  archived rows cannot be pinned until restored. JSON booleans are validated
+  strictly, destructive deletion remains separately confirmed, and archive never
+  claims to be retention or secure erasure.
+- The new counted response is opt-in through `include_counts=1`; the default list
+  response remains compatible with already-loaded clients during a rolling
+  deploy. Counts are computed from the complete owner-scoped set rather than the
+  current search result, making moves between Active and Archived explicit.
+- The 320 px UI uses two labeled folders and a single contextual action trigger
+  per row. Expanded actions use full labels and large touch targets, status text
+  explains each move, empty states name the selected folder, Escape closes the
+  action panel and restores focus, and permanent deletion explicitly states that
+  it cannot be undone.
+- All 315 backend tests and 26 responsive browser tests passed, along with lint,
+  production build, migration-drift, and the targeted legacy-contract test. A
+  read-only live check across two accounts confirmed exact owner results/counts
+  and returned 404 for a cross-owner detail lookup.
+- Public health, HTML, `security.txt`, and the new
+  `index-CFbkpR-l.js`/`index-DiXTS-q9.css` assets returned 200; `/media/` remained
+  404 and anonymous model/conversation/configuration probes remained 403. CSP,
+  one-year HSTS with subdomains, Permissions Policy, referrer policy, and MIME
+  sniffing protection remain present. Backend and security monitor completed
+  healthy with zero automatic restarts.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
