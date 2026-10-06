@@ -25,15 +25,18 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   model into alerts and a hard monetary circuit breaker.
 - **Protected administration:** password-only Django admin access is blocked;
   staff must verify 2FA through the main application, and valid/denied access is
-  monitored. Also place `/admin/` behind Cloudflare Access or a VPN, minimize
-  superusers, and add change-level audit records.
+  monitored. Privacy-minimized add/change/delete records now retain actor,
+  object, model, action, and changed field names for 365 days with HMAC integrity
+  validation. Also place `/admin/` behind Cloudflare Access or a VPN, minimize
+  superusers, and retain the security journal externally.
 - **Detection:** structured privacy-minimized events and five-minute alerts now
   cover auth bursts, throttles, successful admin access, 2FA disable, global AI
   budget exhaustion, missing/malformed provider usage, token reservation
   overruns, invalid-invite bursts, invitation consumption, verified
-  registrations, backend error bursts, and backup/restore freshness. Add
-  upload/parser/contract-spend correlation and an external log sink without
-  logging prompts, cookies, OTPs, filenames, raw IPs, or secrets.
+  registrations, privileged admin changes, admin-audit integrity failures,
+  backend error bursts, and backup/restore freshness. Add upload/parser/
+  contract-spend correlation and an external log sink without logging prompts,
+  cookies, OTPs, filenames, raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;
   schedule and monitor it. Encrypt backups with a separately held key, keep a
   tested off-site copy, alert on job failure, and document RPO/RTO.

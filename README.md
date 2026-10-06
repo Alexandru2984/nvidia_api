@@ -194,9 +194,10 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   ```
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
-  privacy-minimized auth/admin/rate/budget events plus backup and restore freshness
-  every five minutes. It uses the host's existing Telegram channel, keeps cooldown
-  state under `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
+  privacy-minimized auth/admin/rate/budget events, privileged changes, audit
+  integrity, and backup/restore freshness every five minutes. It uses the host's
+  existing Telegram channel, keeps cooldown state under
+  `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 
 Deploy steps after a code change:
 
@@ -271,6 +272,16 @@ and [roadmap](docs/ROADMAP.md).
 - Django admin never accepts a password-only/direct admin session. Staff must
   enable 2FA and verify it through the main application in the current session;
   denied probes and the first valid admin access are security-monitor events.
+- Every Django admin add/change/delete is written to the sanitized native log and
+  a privacy-minimized `AdminAuditEvent` mirror. The mirror stores actor/object IDs,
+  model/action, and changed field names, but no titles, emails, message content,
+  filenames, or changed values. Its HMAC is checked by daily maintenance; any
+  privileged change or integrity failure alerts within the five-minute monitor
+  cycle. Both audit stores retain 365 days by default via
+  `ADMIN_AUDIT_RETENTION_DAYS`.
+- `DJANGO_SECRET_KEY` protects nonnumeric audit references and integrity tags.
+  Rotate it only with a reviewed re-tagging migration; otherwise existing audit
+  events intentionally fail integrity validation.
 
 ## Things to know about the email provider
 

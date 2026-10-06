@@ -7,7 +7,7 @@ Decision: **YELLOW — mitigate then ship**. The repository fixes are deployed a
 the request budgets are durable across processes and the request-serving process
 has a dedicated Unix identity. The production verdict remains yellow until
 security-event alerting is retained externally, staff access is also restricted
-at the edge and change-audited, and encrypted off-site recovery is proven.
+at the edge, and encrypted off-site recovery is proven.
 
 This is a technical risk assessment, not legal advice. No secrets are reproduced
 in this document.
@@ -27,7 +27,9 @@ rate counters, stronger authentication/recovery transactions, cleaned session
 handles, updated dependencies, model payload budgets, sanitized upstream errors,
 responsive browser coverage, and hardened nginx/systemd templates. Runtime
 application of the templates is tracked separately because a committed template
-does not secure a running server.
+does not secure a running server. Privileged admin changes are now mirrored into
+a privacy-minimized, HMAC-validated 365-day audit trail and monitored for changes,
+missing mirrors, and integrity failures.
 
 Point-in-time production inventory observed during the audit: 3 active users,
 6 conversations, 16 messages, no attachments, no enabled 2FA records, and one
@@ -62,10 +64,10 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension could be misleading | File signatures, safe stored names, PNG validation, download headers | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, 2FA disable, invite rejection/consumption and verified signup, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and upload/contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and upload/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
-| A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA, with access alerts | Add Cloudflare Access/VPN and admin change-level audit records |
+| A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 
 ## Quantitative risk view
@@ -85,8 +87,9 @@ The one-minute availability probe gives an outage MTTD near one minute when the
 alert path works. The security timer targets MTTD under six minutes for repeated
 login failures, unexpected admin access, rate-limit spikes, backup/restore
 failures, 2FA disable, backend error bursts, missing provider usage, token
-reservation overruns, and global NVIDIA budget exhaustion. External log
-retention and contractual/GPU-spend signals remain open. Target
+reservation overruns, privileged admin changes or audit-integrity failures, and
+global NVIDIA budget exhaustion. External log retention and contractual/GPU-spend
+signals remain open. Target
 containment time is 60 minutes after a confirmed high-severity alert.
 
 The response procedure is in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md). It must
@@ -116,10 +119,11 @@ is required before describing those controls as complete.
 
 ## Verification evidence
 
-- 270 backend tests pass, including ownership, CSRF, concurrency, recovery,
+- 278 backend tests pass, including ownership, CSRF, concurrency, recovery,
   anti-enumeration, transactional mail-failure, provider token reconciliation,
-  fail-closed usage validation, atomic invite consumption, SSE byte parsing,
-  retired-model handling, payload, and generated-image boundary tests.
+  fail-closed usage validation, atomic invite consumption, privacy-safe admin
+  auditing and tamper detection, SSE byte parsing, retired-model handling,
+  payload, and generated-image boundary tests.
 - Frontend lint/build, twelve responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
@@ -193,13 +197,37 @@ is required before describing those controls as complete.
   remained 404 and `/.env` 403. The backend retained zero restarts and no
   warning-or-higher events, and the updated monitor completed successfully.
 
+### Privileged-audit rollout — 2026-10-06
+
+- Deployed repository state `db50d51` after retaining database dump
+  `nvidia_db_20261006_025817_106974728.sql.gz`; migration
+  `0014_admin_audit_event` applied successfully under the dedicated `aichat`
+  identity. There were no historical Django admin rows requiring sanitization.
+- Every registered admin model now uses the privacy-audit mixin, including users
+  and groups. Object representations and change messages are stripped to model,
+  pseudonymous/numeric object reference, action, actor ID, and field names before
+  persistence; bulk deletions are logged individually. No changed values, titles,
+  emails, filenames, prompts, or message content are stored or alerted.
+- Daily maintenance reported zero invalid HMACs and zero missing mirrors. The
+  monitor now reads both backend and maintenance journals and alerts on every
+  privileged change or integrity failure; its post-install execution succeeded.
+- The backend remained active with zero automatic restarts, the systemd exposure
+  score remained 2.9 `OK`, and no warning-or-higher journal events appeared.
+  Public probes returned 200 for health/security.txt, 403 for anonymous admin and
+  `.env`, and 404 for arbitrary `/media/` paths.
+- The trail is tamper-evident rather than independently immutable. Deleting both
+  local copies could evade the database consistency check, so external log
+  retention remains required. A `DJANGO_SECRET_KEY` rotation must re-tag retained
+  audit rows in a controlled migration or their integrity checks will fail.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
 immediately afterward; actual-token budgets and invite-only registration are now
-implemented. Contract/GPU monetary enforcement and entitlement evidence,
-external security-log retention, an admin perimeter control, and encrypted
-off-site backup remain open.
+implemented, and privileged changes are now privacy-minimized and integrity
+checked. Contract/GPU monetary enforcement and entitlement evidence, external
+security-log retention, an admin perimeter control, and encrypted off-site backup
+remain open.
 
 ## References
 

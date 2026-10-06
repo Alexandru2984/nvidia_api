@@ -20,11 +20,12 @@ for sensitive data.
 The `aichat-security-monitor` Telegram message contains only an event name and
 count. Confirm it against root-owned timer/service status and the system journal;
 do not paste raw journal lines into Telegram. High-signal rules include a
-successful admin login, 2FA disable, global AI-budget exhaustion, 10 failed
-logins/6 minutes, 10 denied admin requests/6 minutes, 20 rate limits/6 minutes,
-5 rejected invitations/6 minutes, any invitation consumption or verified new
-account, 3 backend errors/6 minutes, a database
-backup older than 30 hours, or a restore drill older than eight days.
+successful admin login, any privileged admin change, any admin-audit integrity
+failure, 2FA disable, global AI-budget exhaustion, 10 failed logins/6 minutes,
+10 denied admin requests/6 minutes, 20 rate limits/6 minutes, 5 rejected
+invitations/6 minutes, any invitation consumption or verified new account,
+3 backend errors/6 minutes, a database backup older than 30 hours, or a restore
+drill older than eight days.
 
 ## 2. Contain
 
@@ -40,6 +41,10 @@ backup older than 30 hours, or a restore drill older than eight days.
 - For registration abuse, set `REGISTRATION_MODE=closed`, restart the backend,
   delete unused invitation rows through the verified-2FA admin, and preserve the
   relevant privacy-minimized events before reopening invite mode.
+- For an unexpected admin change or integrity failure, disable the affected staff
+  account, revoke its sessions, preserve `AdminAuditEvent`, Django `LogEntry`, and
+  journal evidence, and verify all retained HMACs before allowing further admin
+  mutations. Do not delete the suspected audit rows during containment.
 
 ## 3. Assess scope
 
@@ -48,8 +53,8 @@ backup older than 30 hours, or a restore drill older than eight days.
   affected row.
 - Determine whether prompts, messages, attachments, email addresses, password
   hashes, TOTP material, session cookies, backups, or provider keys were exposed.
-- Check other services readable by the shared Unix identity. Until a dedicated
-  service user is deployed, host-level blast radius crosses project boundaries.
+- Verify the `aichat` service sandbox and dedicated database role still exclude
+  other projects; treat any observed cross-project access as host compromise.
 - Record which processors received affected data (NVIDIA, Cloudflare, mail
   infrastructure, GitHub) and consult their incident channels if relevant.
 
@@ -61,7 +66,10 @@ plane, database and mail credentials, NVIDIA key, Django sessions, then applicat
 secrets. Treat `DJANGO_SECRET_KEY` rotation as a planned migration: it invalidates
 signed sessions and currently affects protection/derivation of authentication
 artifacts including TOTP material. Verify consequences before rotation and require
-2FA re-enrollment when decryption or integrity cannot be assured.
+2FA re-enrollment when decryption or integrity cannot be assured. Existing admin
+audit HMACs and pseudonymous nonnumeric object references also depend on this key;
+re-tag them through a reviewed migration before rotation or preserve the old key
+for evidence validation.
 
 ## 5. Notify
 
