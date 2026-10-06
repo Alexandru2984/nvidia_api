@@ -393,6 +393,41 @@ is required before describing those controls as complete.
   sniffing protection remain present. Backend and security monitor completed
   healthy with zero automatic restarts.
 
+### Conversation-pagination rollout — 2026-10-06
+
+- Deployed repository states `0182007`, `012f9f0`, and `167e038` after retaining
+  validated database dump `nvidia_db_20261006_230809_724835472.sql.gz` and private
+  frontend snapshot `aichat.micutu.com_20261006_230817_783214284`. Migration
+  `0017_conversation_search_indexes` applied successfully.
+- Cursors are opaque Django signatures with a 24-hour timestamp and are bound to
+  user ID, Active/Archived view, and a SHA-256-derived search identifier. Their
+  timestamp, pin flag, and row ID are type-checked; invalid, expired, oversized,
+  cross-owner, cross-view, or cross-search cursors receive the same generic 400.
+- New clients request 30 rows and may choose only 1–50. Search is capped at 200
+  characters and list GETs at 120/user/minute. The compatibility list remains
+  available for already-loaded clients but is capped at 100 rows, removing the
+  prior unbounded response and serializer N+1 query pattern.
+- PostgreSQL `pg_trgm` 1.6 was installed once by the DBA. The unprivileged
+  `nvidia_user` role was not granted database `CREATE`. Migration indexes on
+  conversation titles and message content were built concurrently; live
+  `EXPLAIN` checks confirmed both GIN indexes are usable by their `ILIKE` paths.
+- The mobile sidebar deduplicates appended pages, discards late responses after a
+  folder/search change, resets stale cursors, limits search input, and exposes a
+  labeled loading action. A 35-row 320 px browser scenario completed without
+  document overflow.
+- All 319 backend tests and 27 responsive browser tests passed, along with lint,
+  production build, migration-drift, Django system checks, and cursor isolation
+  tests. A read-only live probe returned disjoint pages and rejected reuse of one
+  account's cursor by another account with 400.
+- Public health, HTML, `security.txt`, and the new
+  `index-N-hIImMG.js`/`index-C7ogxLB2.css` assets returned 200; `/media/` remained
+  404 and anonymous conversation/configuration probes remained 403. Backend and
+  security monitor remained healthy with zero automatic restarts.
+- Cursor pagination is a moving view, not a snapshot transaction. Concurrent
+  updates can move rows between page boundaries; the client deduplicates repeated
+  IDs and a filter/search refresh obtains a new first page. No data is deleted or
+  made inaccessible by cursor expiry.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

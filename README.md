@@ -264,6 +264,18 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now aichat-security-monitor.timer
 ```
 
+Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
+once as the database administrator before migration `0017`; do not grant the
+application role database-level `CREATE` solely for this operation:
+
+```bash
+sudo -u postgres psql --dbname=<app-database> --set=ON_ERROR_STOP=1 \
+  --command='CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+```
+
+The migration creates the title/content GIN indexes concurrently so normal chat
+writes are not held behind an index build.
+
 One-time service-identity bootstrap (take configuration and database backups
 first):
 
