@@ -288,3 +288,124 @@ test('model comparison remains usable on desktop', async ({ page }) => {
   await expectNoPageOverflow(page)
   await page.screenshot({ path: 'test-results/model-explorer-1440.png' })
 })
+
+test('drag and drop attaches a capability-compatible image', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  const composer = page.locator('.composer-wrap')
+  await composer.evaluate((element) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(
+      [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])],
+      'dropped.png',
+      { type: 'image/png' },
+    ))
+    window.__attachmentTransfer = transfer
+    element.dispatchEvent(new DragEvent('dragenter', {
+      bubbles: true, cancelable: true, dataTransfer: transfer,
+    }))
+  })
+  await expect(page.getByText('Drop to attach')).toBeVisible()
+  await composer.evaluate((element) => {
+    element.dispatchEvent(new DragEvent('drop', {
+      bubbles: true, cancelable: true, dataTransfer: window.__attachmentTransfer,
+    }))
+    delete window.__attachmentTransfer
+  })
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+  await expect(page.getByText('Drop to attach')).toHaveCount(0)
+  await expectNoPageOverflow(page)
+})
+
+test('pasting an image respects the selected model capability', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByLabel('Chat model').selectOption('text/model')
+  await page.getByLabel('Message').evaluate((element) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(
+      [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])],
+      'pasted.png',
+      { type: 'image/png' },
+    ))
+    element.dispatchEvent(new ClipboardEvent('paste', {
+      bubbles: true, cancelable: true, clipboardData: transfer,
+    }))
+  })
+  await expect(page.getByText(".png isn't supported here.")).toBeVisible()
+  await expect(page.getByAltText('diagram.png')).toHaveCount(0)
+})
+
+test('failed upload is retryable without choosing the file again', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  let attempts = 0
+  await page.route('**/api/attachments/upload/', (route) => {
+    attempts += 1
+    if (attempts === 1) {
+      return route.fulfill({ status: 503, json: { error: 'Temporary upload failure.' } })
+    }
+    return route.fulfill({ status: 201, json: {
+      id: 901, kind: 'image', original_name: 'retry.png', mime_type: 'image/png',
+      size: 68, url: '/api/attachments/901/download/', has_text: false, deletable: true,
+    } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'retry.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await expect(page.getByText('Temporary upload failure.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await page.screenshot({ path: 'test-results/upload-retry-390.png' })
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByAltText('retry.png')).toBeVisible()
+  expect(attempts).toBe(2)
+  await expectNoPageOverflow(page)
+})
+
+test('in-flight upload can be canceled without becoming pending', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.route('**/api/attachments/upload/', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    try {
+      await route.fulfill({ status: 201, json: {
+        id: 902, kind: 'image', original_name: 'slow.png', mime_type: 'image/png',
+        size: 68, url: '/api/attachments/902/download/', has_text: false, deletable: true,
+      } })
+    } catch { /* the browser canceled the intercepted request */ }
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'slow.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByText('Upload canceled')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByAltText('slow.png')).toHaveCount(0)
+})
+
+test('logout clears pending attachment previews from browser memory', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'private.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Sign out').click()
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+  await expect(page.getByAltText('diagram.png')).toHaveCount(0)
+})

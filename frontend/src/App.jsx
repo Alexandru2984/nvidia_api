@@ -21,6 +21,20 @@ function fileExt(name) {
   return i >= 0 ? name.slice(i + 1).toLowerCase() : ''
 }
 
+function uploadExtension(file) {
+  const extension = fileExt(file?.name)
+  if (extension) return extension
+  return {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'application/pdf': 'pdf',
+    'text/plain': 'txt',
+    'text/markdown': 'md',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  }[file?.type] || ''
+}
+
 function humanSize(bytes) {
   if (!bytes) return '0 B'
   if (bytes < 1024) return `${bytes} B`
@@ -563,6 +577,39 @@ function AttachmentTile({ att, onRemove, compact }) {
   )
 }
 
+function UploadJobTile({ job, onCancel, onRetry, onDismiss }) {
+  const retryable = job.status === 'error' || job.status === 'canceled'
+  return (
+    <div className={`upload-job ${job.status}`} role="status">
+      <div className="upload-job-meta">
+        <strong title={job.name}>{job.name}</strong>
+        <small>
+          {job.status === 'uploading' && `Uploading · ${job.progress}%`}
+          {job.status === 'queued' && 'Waiting to upload'}
+          {job.status === 'error' && (job.error || 'Upload failed')}
+          {job.status === 'canceled' && 'Upload canceled'}
+        </small>
+      </div>
+      <progress
+        max="100"
+        value={job.status === 'error' || job.status === 'canceled' ? 0 : job.progress}
+        aria-label={`Upload progress for ${job.name}`}
+      />
+      <div className="upload-job-actions">
+        {job.status === 'uploading' && (
+          <button type="button" className="link" onClick={() => onCancel(job.key)}>Cancel</button>
+        )}
+        {retryable && (
+          <button type="button" className="link" onClick={() => onRetry(job.key)}>Retry</button>
+        )}
+        {retryable && (
+          <button type="button" className="link" onClick={() => onDismiss(job.key)}>Dismiss</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ConvoSettingsPanel({ convo, onSaved, onClose }) {
   const [systemPrompt, setSystemPrompt] = useState(convo.system_prompt || '')
   const [temperature, setTemperature] = useState(convo.temperature ?? 0.7)
@@ -719,7 +766,8 @@ export default function App() {
   const [showConvoSettings, setShowConvoSettings] = useState(false)
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
-  const [uploadingCount, setUploadingCount] = useState(0)
+  const [uploadJobs, setUploadJobs] = useState([])
+  const [draggingFiles, setDraggingFiles] = useState(false)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
   const [attachmentLimits, setAttachmentLimits] = useState({
     max_files_per_message: 8,
@@ -737,9 +785,18 @@ export default function App() {
   const imageInputRef = useRef(null)
   const documentInputRef = useRef(null)
   const attachButtonRef = useRef(null)
+  const uploadFilesRef = useRef(new Map())
+  const uploadControllersRef = useRef(new Map())
+  const uploadSequenceRef = useRef(0)
   const abortRef = useRef(null)
   const sidebarRef = useRef(null)
   const menuRef = useRef(null)
+
+  useEffect(() => () => {
+    for (const controller of uploadControllersRef.current.values()) controller.abort()
+    uploadControllersRef.current.clear()
+    uploadFilesRef.current.clear()
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -818,7 +875,11 @@ export default function App() {
       })
       .catch((e) => {
         if (cancelled) return
-        if (e.status === 401 || e.status === 403) { setUser(null); return }
+        if (e.status === 401 || e.status === 403) {
+          clearAttachmentWork()
+          setUser(null)
+          return
+        }
         setBootError(e.message)
       })
     return () => { cancelled = true }
@@ -873,11 +934,14 @@ export default function App() {
   const imageAccept = imageExtensions.map((extension) => `.${extension}`).join(',')
   const pendingImages = pendingAttachments.filter((attachment) =>
     ['image', 'generated_image'].includes(attachment.kind))
+  const queuedImages = uploadJobs.filter((job) => job.kind === 'image')
+  const uploadingCount = uploadJobs.filter((job) => job.status === 'uploading').length
   const incompatiblePending = pendingAttachments.filter((attachment) =>
     !attachmentIsCompatible(attachment, currentCapabilities))
   const attachmentsBlocked = incompatiblePending.length > 0
-  const imageLimitReached = pendingImages.length >= currentCapabilities.max_images
-  const fileLimitReached = pendingAttachments.length + uploadingCount
+  const imageLimitReached = pendingImages.length + queuedImages.length
+    >= currentCapabilities.max_images
+  const fileLimitReached = pendingAttachments.length + uploadJobs.length
     >= attachmentLimits.max_files_per_message
   const maxImageBytes = Math.min(
     attachmentLimits.max_file_bytes,
@@ -929,65 +993,162 @@ export default function App() {
     }
   }
 
-  async function handlePickFiles(e, requestedKind) {
-    const files = Array.from(e.target.files || [])
-    e.target.value = ''
+  async function startUpload(job) {
+    const stored = uploadFilesRef.current.get(job.key)
+    if (!stored) return
+    const controller = new AbortController()
+    uploadControllersRef.current.set(job.key, controller)
+    setUploadJobs((jobs) => jobs.map((item) => item.key === job.key
+      ? { ...item, status: 'uploading', progress: 0, error: null }
+      : item))
+    try {
+      const attachment = await api.uploadAttachment(stored.file, job.modelId, {
+        signal: controller.signal,
+        onProgress: (progress) => setUploadJobs((jobs) => jobs.map((item) =>
+          item.key === job.key ? { ...item, progress } : item)),
+      })
+      setPendingAttachments((attachments) => [...attachments, attachment])
+      setUploadJobs((jobs) => jobs.filter((item) => item.key !== job.key))
+      uploadFilesRef.current.delete(job.key)
+    } catch (uploadError) {
+      setUploadJobs((jobs) => jobs.map((item) => item.key === job.key
+        ? {
+            ...item,
+            status: uploadError.name === 'AbortError' ? 'canceled' : 'error',
+            error: uploadError.name === 'AbortError' ? null : uploadError.message,
+          }
+        : item))
+    } finally {
+      uploadControllersRef.current.delete(job.key)
+    }
+  }
+
+  function queueFiles(rawFiles, requestedKind = null) {
+    const files = Array.from(rawFiles || [])
     if (!files.length) return
     setAttachmentMenuOpen(false)
+    setDraggingFiles(false)
     setError(null)
+    if (sending) {
+      setError('Wait for the current response to finish before adding files.')
+      return
+    }
     if (!currentModel) {
       setError('Choose an available model before adding files.')
       return
     }
-    const allowedExtensions = requestedKind === 'image'
-      ? imageExtensions
-      : currentCapabilities.document_extensions
+
     let fileSlots = Math.max(
       0,
-      attachmentLimits.max_files_per_message - pendingAttachments.length - uploadingCount,
+      attachmentLimits.max_files_per_message - pendingAttachments.length - uploadJobs.length,
     )
-    let imageSlots = Math.max(0, currentCapabilities.max_images - pendingImages.length)
+    let imageSlots = Math.max(
+      0,
+      currentCapabilities.max_images - pendingImages.length - queuedImages.length,
+    )
     let bytesAvailable = Math.max(
       0,
       attachmentLimits.max_bytes_per_message
-        - pendingAttachments.reduce((total, attachment) => total + attachment.size, 0),
+        - pendingAttachments.reduce((total, attachment) => total + attachment.size, 0)
+        - uploadJobs.reduce((total, job) => total + job.size, 0),
     )
-    for (const f of files) {
-      const ext = fileExt(f.name)
+    const accepted = []
+    const rejected = []
+
+    for (const file of files) {
+      const extension = uploadExtension(file)
+      const kind = requestedKind || (DOCUMENT_EXTENSIONS.includes(extension) ? 'document' : 'image')
+      const allowedExtensions = kind === 'image'
+        ? imageExtensions
+        : currentCapabilities.document_extensions
       if (fileSlots <= 0) {
-        setError(`You can attach at most ${attachmentLimits.max_files_per_message} files per message.`)
+        rejected.push(`At most ${attachmentLimits.max_files_per_message} files are allowed per message.`)
         break
       }
-      if (!allowedExtensions.includes(ext)) {
-        setError(`.${ext || '?'} isn't supported here. Allowed: ${allowedExtensions.join(', ')}`)
+      if (!allowedExtensions.includes(extension)) {
+        rejected.push(`.${extension || '?'} isn't supported here.`)
         continue
       }
-      if (requestedKind === 'image' && imageSlots <= 0) {
-        setError(`${currentModel.name} accepts at most ${currentCapabilities.max_images} image(s) per request.`)
-        break
-      }
-      const maxBytes = requestedKind === 'image' ? maxImageBytes : attachmentLimits.max_file_bytes
-      if (f.size > maxBytes) {
-        setError(`${f.name} is larger than this model's ${humanSize(maxBytes)} limit.`)
+      if (kind === 'image' && imageSlots <= 0) {
+        rejected.push(`${currentModel.name} accepts at most ${currentCapabilities.max_images} image(s).`)
         continue
       }
-      if (f.size > bytesAvailable) {
-        setError(`Attachments exceed the ${humanSize(attachmentLimits.max_bytes_per_message)} message limit.`)
+      const maxBytes = kind === 'image' ? maxImageBytes : attachmentLimits.max_file_bytes
+      if (file.size > maxBytes) {
+        rejected.push(`${file.name || 'This file'} exceeds the ${humanSize(maxBytes)} limit.`)
         continue
       }
-      setUploadingCount((n) => n + 1)
-      try {
-        const att = await api.uploadAttachment(f, currentModelId)
-        setPendingAttachments((prev) => [...prev, att])
-        fileSlots -= 1
-        bytesAvailable -= att.size
-        if (requestedKind === 'image') imageSlots -= 1
-      } catch (err) {
-        setError(err.message)
-      } finally {
-        setUploadingCount((n) => n - 1)
+      if (file.size > bytesAvailable) {
+        rejected.push(`Attachments exceed the ${humanSize(attachmentLimits.max_bytes_per_message)} message limit.`)
+        continue
       }
+
+      const key = `upload-${Date.now()}-${uploadSequenceRef.current += 1}`
+      const job = {
+        key,
+        name: (file.name || `pasted-image.${extension || 'png'}`).slice(0, 120),
+        size: file.size,
+        kind,
+        modelId: currentModelId,
+        progress: 0,
+        status: 'queued',
+        error: null,
+      }
+      uploadFilesRef.current.set(key, { file })
+      accepted.push(job)
+      fileSlots -= 1
+      bytesAvailable -= file.size
+      if (kind === 'image') imageSlots -= 1
     }
+
+    if (rejected.length) {
+      setError(`${rejected[0]}${rejected.length > 1 ? ` (${rejected.length - 1} more rejected)` : ''}`)
+    }
+    if (!accepted.length) return
+    setUploadJobs((jobs) => [...jobs, ...accepted])
+    for (const job of accepted) startUpload(job)
+  }
+
+  function handlePickFiles(event, requestedKind) {
+    queueFiles(event.target.files, requestedKind)
+    event.target.value = ''
+  }
+
+  function cancelUpload(key) {
+    uploadControllersRef.current.get(key)?.abort()
+  }
+
+  function retryUpload(key) {
+    const job = uploadJobs.find((item) => item.key === key)
+    if (!job || !uploadFilesRef.current.has(key)) return
+    startUpload({ ...job, modelId: currentModelId })
+  }
+
+  function dismissUpload(key) {
+    uploadControllersRef.current.get(key)?.abort()
+    uploadControllersRef.current.delete(key)
+    uploadFilesRef.current.delete(key)
+    setUploadJobs((jobs) => jobs.filter((item) => item.key !== key))
+  }
+
+  function clearAttachmentWork() {
+    abortRef.current?.abort()
+    abortRef.current = null
+    for (const controller of uploadControllersRef.current.values()) controller.abort()
+    uploadControllersRef.current.clear()
+    uploadFilesRef.current.clear()
+    setUploadJobs([])
+    setPendingAttachments([])
+    setDraggingFiles(false)
+    setAttachmentMenuOpen(false)
+    setDraft('')
+  }
+
+  function handleComposerPaste(event) {
+    const files = Array.from(event.clipboardData?.files || [])
+    if (!files.length) return
+    event.preventDefault()
+    queueFiles(files)
   }
 
   async function removePending(id) {
@@ -1231,6 +1392,7 @@ export default function App() {
   }
 
   async function handleLogout() {
+    clearAttachmentWork()
     try {
       await api.logout()
     } catch {}
@@ -1238,6 +1400,7 @@ export default function App() {
     setConversations([])
     setActive(null)
     setActiveId(null)
+    setImageGallery([])
     setSidebarOpen(false)
   }
 
@@ -1516,15 +1679,48 @@ export default function App() {
 
         {error && <div className="error-banner">{error}</div>}
 
-        <form className="composer-wrap" onSubmit={handleSend}>
-          {(pendingAttachments.length > 0 || uploadingCount > 0) && (
+        <form
+          className={`composer-wrap ${draggingFiles ? 'dragging-files' : ''}`}
+          onSubmit={handleSend}
+          onPaste={handleComposerPaste}
+          onDragEnter={(event) => {
+            if (event.dataTransfer?.types?.includes('Files')) {
+              event.preventDefault()
+              setDraggingFiles(true)
+            }
+          }}
+          onDragOver={(event) => {
+            if (event.dataTransfer?.types?.includes('Files')) event.preventDefault()
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setDraggingFiles(false)
+          }}
+          onDrop={(event) => {
+            if (!event.dataTransfer?.files?.length) return
+            event.preventDefault()
+            queueFiles(event.dataTransfer?.files)
+          }}
+        >
+          {draggingFiles && (
+            <div className="attachment-drop-overlay" role="status">
+              <strong>Drop to attach</strong>
+              <span>Files are checked against {currentModel?.name || 'the selected model'}.</span>
+            </div>
+          )}
+          {(pendingAttachments.length > 0 || uploadJobs.length > 0) && (
             <div className="pending-row">
               {pendingAttachments.map((a) => (
                 <AttachmentTile key={a.id} att={a} onRemove={removePending} compact />
               ))}
-              {uploadingCount > 0 && (
-                <div className="att-tile uploading">Uploading…</div>
-              )}
+              {uploadJobs.map((job) => (
+                <UploadJobTile
+                  key={job.key}
+                  job={job}
+                  onCancel={cancelUpload}
+                  onRetry={retryUpload}
+                  onDismiss={dismissUpload}
+                />
+              ))}
             </div>
           )}
           {attachmentsBlocked && (
@@ -1543,7 +1739,7 @@ export default function App() {
               <button
                 type="button"
                 className="attachment-choice"
-                disabled={!supportsVision || imageLimitReached || fileLimitReached || uploadingCount > 0}
+                disabled={!supportsVision || imageLimitReached || fileLimitReached}
                 onClick={() => imageInputRef.current?.click()}
               >
                 <span className="attachment-choice-icon" aria-hidden="true">▧</span>
@@ -1559,7 +1755,7 @@ export default function App() {
               <button
                 type="button"
                 className="attachment-choice"
-                disabled={fileLimitReached || uploadingCount > 0}
+                disabled={fileLimitReached}
                 onClick={() => documentInputRef.current?.click()}
               >
                 <span className="attachment-choice-icon" aria-hidden="true">≡</span>
@@ -1631,9 +1827,9 @@ export default function App() {
           </div>
           <div className="hint">
             {draft.length > 0 && <span>{draft.length.toLocaleString()} / 8,000 · </span>}
-            Enter to send · Shift+Enter for newline · {pendingAttachments.length}/{attachmentLimits.max_files_per_message} files
+            Enter to send · Shift+Enter for newline · {pendingAttachments.length + uploadJobs.length}/{attachmentLimits.max_files_per_message} files
           </div>
-          <div className="privacy-hint">Messages and attached content are sent to NVIDIA to generate responses.</div>
+          <div className="privacy-hint">Drop files or paste an image · attached content is sent to NVIDIA only when you send.</div>
         </form>
         </>)}
 

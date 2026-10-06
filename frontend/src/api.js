@@ -131,11 +131,49 @@ export const api = {
     }
   },
   listAttachments: (kind) => request(`/attachments/${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
-  uploadAttachment: (file, modelId) => {
+  uploadAttachment: (file, modelId, { onProgress, signal } = {}) => {
     const fd = new FormData()
     fd.append('file', file)
     if (modelId) fd.append('model_id', modelId)
-    return request('/attachments/upload/', { method: 'POST', body: fd })
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      let settled = false
+      const finish = (callback, value) => {
+        if (settled) return
+        settled = true
+        signal?.removeEventListener('abort', abort)
+        callback(value)
+      }
+      const abort = () => xhr.abort()
+
+      xhr.open('POST', `${BASE}/attachments/upload/`)
+      xhr.withCredentials = true
+      const csrf = getCookie('csrftoken')
+      if (csrf) xhr.setRequestHeader('X-CSRFToken', csrf)
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100))
+      }
+      xhr.onload = () => {
+        let body = null
+        try { body = JSON.parse(xhr.responseText) } catch {}
+        if (xhr.status >= 200 && xhr.status < 300) {
+          finish(resolve, body)
+          return
+        }
+        const error = new Error(body?.error || body?.detail || `HTTP ${xhr.status}`)
+        error.status = xhr.status
+        error.body = body
+        finish(reject, error)
+      }
+      xhr.onerror = () => finish(reject, new Error('Upload failed. Check your connection and retry.'))
+      xhr.onabort = () => finish(reject, new DOMException('Upload canceled', 'AbortError'))
+      signal?.addEventListener('abort', abort, { once: true })
+      if (signal?.aborted) {
+        finish(reject, new DOMException('Upload canceled', 'AbortError'))
+        return
+      }
+      xhr.send(fd)
+    })
   },
   deleteAttachment: (id) => request(`/attachments/${id}/`, { method: 'DELETE' }),
   listImageModels: () => request('/images/models/'),
