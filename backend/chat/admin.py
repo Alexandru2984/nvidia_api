@@ -31,7 +31,8 @@ class AuditedGroupAdmin(PrivacyAuditAdminMixin, GroupAdmin):
 
 @admin.register(Conversation)
 class ConversationAdmin(PrivacyAuditAdminMixin, admin.ModelAdmin):
-    list_display = ('id', 'title', 'model_id', 'updated_at')
+    list_display = ('id', 'title', 'model_id', 'is_pinned', 'archived_at', 'updated_at')
+    list_filter = ('is_pinned', 'archived_at')
     search_fields = ('title', 'model_id')
 
 

@@ -22,8 +22,51 @@ class TestConversationsList:
         Conversation.objects.create(user=other_user, title='theirs', model_id=DEFAULT_MODEL_ID)
         r = auth_client.get('/api/conversations/')
         assert r.status_code == 200
-        titles = [c['title'] for c in r.json()]
+        titles = [c['title'] for c in r.json()['results']]
         assert titles == ['mine']
+        assert r.json()['counts'] == {'active': 1, 'archived': 0}
+
+    def test_filters_archived_and_reports_owner_scoped_counts(
+        self, auth_client, user, other_user,
+    ):
+        active = Conversation.objects.create(user=user, title='active', model_id=DEFAULT_MODEL_ID)
+        archived = Conversation.objects.create(
+            user=user,
+            title='archived',
+            model_id=DEFAULT_MODEL_ID,
+            archived_at=timezone.now(),
+        )
+        Conversation.objects.create(
+            user=other_user,
+            title='other archived',
+            model_id=DEFAULT_MODEL_ID,
+            archived_at=timezone.now(),
+        )
+
+        default_body = auth_client.get('/api/conversations/').json()
+        archived_body = auth_client.get('/api/conversations/?view=archived').json()
+        all_body = auth_client.get('/api/conversations/?view=all').json()
+
+        assert [item['id'] for item in default_body['results']] == [active.id]
+        assert [item['id'] for item in archived_body['results']] == [archived.id]
+        assert {item['id'] for item in all_body['results']} == {active.id, archived.id}
+        assert archived_body['counts'] == {'active': 1, 'archived': 1}
+
+    def test_pinned_conversations_sort_first(self, auth_client, user):
+        regular = Conversation.objects.create(user=user, title='newer', model_id=DEFAULT_MODEL_ID)
+        pinned = Conversation.objects.create(
+            user=user, title='pinned', model_id=DEFAULT_MODEL_ID, is_pinned=True,
+        )
+        Conversation.objects.filter(pk=regular.pk).update(updated_at=timezone.now())
+
+        body = auth_client.get('/api/conversations/').json()
+
+        assert [item['id'] for item in body['results']] == [pinned.id, regular.id]
+        assert body['results'][0]['is_pinned'] is True
+
+    def test_rejects_invalid_view(self, auth_client):
+        r = auth_client.get('/api/conversations/?view=trash')
+        assert r.status_code == 400
 
 
 @pytest.mark.django_db
@@ -116,6 +159,65 @@ class TestConversationDetail:
         c = Conversation.objects.create(user=other_user, title='theirs', model_id=DEFAULT_MODEL_ID)
         r = auth_client.delete(f'/api/conversations/{c.id}/')
         assert r.status_code == 404
+
+    def test_pin_archive_and_restore(self, auth_client, convo):
+        pinned = auth_client.patch(
+            f'/api/conversations/{convo.id}/', {'is_pinned': True}, format='json',
+        )
+        assert pinned.status_code == 200
+        assert pinned.json()['is_pinned'] is True
+
+        archived = auth_client.patch(
+            f'/api/conversations/{convo.id}/', {'archived': True}, format='json',
+        )
+        assert archived.status_code == 200
+        assert archived.json()['archived_at'] is not None
+        assert archived.json()['is_pinned'] is False
+
+        restored = auth_client.patch(
+            f'/api/conversations/{convo.id}/', {'archived': False}, format='json',
+        )
+        assert restored.status_code == 200
+        assert restored.json()['archived_at'] is None
+
+    @pytest.mark.parametrize('field,value', [
+        ('is_pinned', 'true'),
+        ('is_pinned', 1),
+        ('is_pinned', None),
+        ('archived', 'false'),
+        ('archived', 0),
+        ('archived', None),
+    ])
+    def test_pin_and_archive_require_json_booleans(self, auth_client, convo, field, value):
+        r = auth_client.patch(
+            f'/api/conversations/{convo.id}/', {field: value}, format='json',
+        )
+        assert r.status_code == 400
+
+    def test_cannot_pin_archived_conversation(self, auth_client, convo):
+        convo.archived_at = timezone.now()
+        convo.save(update_fields=['archived_at'])
+
+        r = auth_client.patch(
+            f'/api/conversations/{convo.id}/', {'is_pinned': True}, format='json',
+        )
+
+        assert r.status_code == 409
+        convo.refresh_from_db()
+        assert convo.is_pinned is False
+
+    def test_cannot_modify_other_users_archive_state(self, auth_client, other_user):
+        other = Conversation.objects.create(
+            user=other_user, title='theirs', model_id=DEFAULT_MODEL_ID,
+        )
+
+        r = auth_client.patch(
+            f'/api/conversations/{other.id}/', {'archived': True}, format='json',
+        )
+
+        assert r.status_code == 404
+        other.refresh_from_db()
+        assert other.archived_at is None
 
 
 def _stream_ok(*args, **kwargs):
@@ -380,29 +482,43 @@ class TestConversationSearch:
         self._mk(user, 'Django tips')
         self._mk(user, 'Cooking pasta')
         r = auth_client.get('/api/conversations/?q=django')
-        assert [c['title'] for c in r.json()] == ['Django tips']
+        assert [c['title'] for c in r.json()['results']] == ['Django tips']
 
     def test_search_by_message_content(self, auth_client, user):
         self._mk(user, 'Untitled A', msg='how do I use gunicorn workers?')
         self._mk(user, 'Untitled B', msg='banana bread recipe')
         r = auth_client.get('/api/conversations/?q=gunicorn')
-        assert [c['title'] for c in r.json()] == ['Untitled A']
+        assert [c['title'] for c in r.json()['results']] == ['Untitled A']
 
     def test_search_does_not_leak_other_users(self, auth_client, user, other_user):
         self._mk(other_user, 'Secret gunicorn talk', msg='gunicorn secrets')
         r = auth_client.get('/api/conversations/?q=gunicorn')
-        assert r.json() == []
+        assert r.json()['results'] == []
 
     def test_search_no_duplicates_when_title_and_content_match(self, auth_client, user):
         self._mk(user, 'gunicorn', msg='more gunicorn text')
         r = auth_client.get('/api/conversations/?q=gunicorn')
-        assert len(r.json()) == 1
+        assert len(r.json()['results']) == 1
 
     def test_empty_q_returns_all(self, auth_client, user):
         self._mk(user, 'One')
         self._mk(user, 'Two')
         r = auth_client.get('/api/conversations/?q=')
-        assert len(r.json()) == 2
+        assert len(r.json()['results']) == 2
+
+    def test_search_stays_within_selected_view(self, auth_client, user):
+        self._mk(user, 'active match')
+        archived = self._mk(user, 'archived match')
+        archived.archived_at = timezone.now()
+        archived.save(update_fields=['archived_at'])
+
+        active_results = auth_client.get('/api/conversations/?q=match').json()['results']
+        archived_results = auth_client.get(
+            '/api/conversations/?q=match&view=archived',
+        ).json()['results']
+
+        assert [item['title'] for item in active_results] == ['active match']
+        assert [item['title'] for item in archived_results] == ['archived match']
 
 
 @pytest.mark.django_db

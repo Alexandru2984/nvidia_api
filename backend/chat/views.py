@@ -765,11 +765,30 @@ def health(request):
 @ratelimit(key='user', method='POST', rate='20/m', block=False)
 def conversations(request):
     if request.method == 'GET':
-        qs = Conversation.objects.filter(user=request.user)
+        view = (request.query_params.get('view') or 'active').strip().lower()
+        if view not in {'active', 'archived', 'all'}:
+            return Response(
+                {'error': 'view must be active, archived, or all'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        owned = Conversation.objects.filter(user=request.user)
+        counts = {
+            'active': owned.filter(archived_at__isnull=True).count(),
+            'archived': owned.filter(archived_at__isnull=False).count(),
+        }
+        qs = owned
+        if view == 'active':
+            qs = qs.filter(archived_at__isnull=True)
+        elif view == 'archived':
+            qs = qs.filter(archived_at__isnull=False)
         q = (request.query_params.get('q') or '').strip()
         if q:
             qs = qs.filter(Q(title__icontains=q) | Q(messages__content__icontains=q)).distinct()
-        return Response(ConversationListSerializer(qs, many=True).data)
+        return Response({
+            'results': ConversationListSerializer(qs, many=True).data,
+            'counts': counts,
+        })
 
     if (r := _rate_limited(request)): return r
     title = (request.data.get('title') or 'New Chat').strip()[:200] or 'New Chat'
@@ -798,6 +817,22 @@ def conversation_detail(request, pk):
         return Response(status=status.HTTP_204_NO_CONTENT)
     title = request.data.get('title')
     model_id = request.data.get('model_id')
+    has_archive = 'archived' in request.data
+    has_pin = 'is_pinned' in request.data
+    requested_archive = request.data.get('archived')
+    requested_pin = request.data.get('is_pinned')
+    if has_archive and not isinstance(requested_archive, bool):
+        return Response({'error': 'archived must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+    if has_pin and not isinstance(requested_pin, bool):
+        return Response({'error': 'is_pinned must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+    will_be_archived = (has_archive and requested_archive) or (
+        not has_archive and convo.archived_at is not None
+    )
+    if requested_pin is True and will_be_archived:
+        return Response(
+            {'error': 'Restore the conversation before pinning it.'},
+            status=status.HTTP_409_CONFLICT,
+        )
     if title is not None:
         convo.title = title.strip()[:200] or convo.title
     if model_id is not None:
@@ -827,6 +862,12 @@ def conversation_detail(request, pk):
         if not (64 <= mt <= 8192):
             return Response({'error': 'max_tokens must be between 64 and 8192'}, status=400)
         convo.max_tokens = mt
+    if has_archive:
+        convo.archived_at = timezone.now() if requested_archive else None
+        if requested_archive:
+            convo.is_pinned = False
+    if has_pin:
+        convo.is_pinned = requested_pin
     convo.save()
     return Response(ConversationDetailSerializer(convo).data)
 

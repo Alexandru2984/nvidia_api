@@ -32,7 +32,8 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Conversation
-        fields = ['id', 'title', 'model_id', 'created_at', 'updated_at', 'message_count']
+        fields = ['id', 'title', 'model_id', 'is_pinned', 'archived_at',
+                  'created_at', 'updated_at', 'message_count']
 
 
 class ConversationDetailSerializer(serializers.ModelSerializer):
@@ -41,4 +42,4 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = ['id', 'title', 'model_id', 'system_prompt', 'temperature', 'max_tokens',
-                  'created_at', 'updated_at', 'messages']
+                  'is_pinned', 'archived_at', 'created_at', 'updated_at', 'messages']

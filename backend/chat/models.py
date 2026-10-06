@@ -92,11 +92,19 @@ class Conversation(models.Model):
     system_prompt = models.TextField(blank=True, default='')
     temperature = models.FloatField(default=0.7)
     max_tokens = models.PositiveIntegerField(default=1024)
+    is_pinned = models.BooleanField(default=False)
+    archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-updated_at']
+        ordering = ['-is_pinned', '-updated_at']
+        indexes = [
+            models.Index(
+                fields=['user', 'archived_at', '-is_pinned', '-updated_at'],
+                name='chat_convo_owner_view_idx',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.title} ({self.model_id})'
