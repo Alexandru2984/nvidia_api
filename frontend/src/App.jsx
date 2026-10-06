@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
+import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
 const Settings = lazy(() => import('./Settings'))
 const MarkdownBody = lazy(() => import('./MarkdownBody'))
@@ -548,15 +549,25 @@ function MessageBody({ role, content }) {
   )
 }
 
-function AttachmentTile({ att, onRemove, compact }) {
+function AttachmentTile({ att, onRemove, compact, included = true, onToggle, onPreview }) {
   const isImage = att.kind === 'image' || att.kind === 'generated_image'
   const url = mediaUrl(att.url)
   if (isImage) {
     return (
-      <div className={`att-tile image ${compact ? 'compact' : ''}`}>
+      <div className={`att-tile image ${compact ? 'compact' : ''} ${included ? '' : 'excluded'}`}>
         <a href={url} target="_blank" rel="noreferrer">
           <img src={url} alt={att.original_name} />
         </a>
+        {onToggle && (
+          <label className="att-include" title={included ? 'Exclude from next message' : 'Include in next message'}>
+            <input
+              type="checkbox"
+              checked={included}
+              onChange={() => onToggle(att.id)}
+              aria-label={`Include ${att.original_name} in next message`}
+            />
+          </label>
+        )}
         {onRemove && (
           <button type="button" className="att-remove" onClick={() => onRemove(att.id)} title="Remove">×</button>
         )}
@@ -564,12 +575,29 @@ function AttachmentTile({ att, onRemove, compact }) {
     )
   }
   return (
-    <div className={`att-tile doc ${compact ? 'compact' : ''}`}>
+    <div className={`att-tile doc ${compact ? 'compact' : ''} ${included ? '' : 'excluded'}`}>
       <div className="att-doc-icon">{(fileExt(att.original_name) || 'DOC').toUpperCase()}</div>
       <div className="att-doc-meta">
         <a className="att-doc-name" href={url} title={att.original_name} download>{att.original_name}</a>
         <div className="att-doc-size">{humanSize(att.size)}{att.has_text ? ' · text extracted' : ''}</div>
+        {onPreview && att.has_text && (
+          <button
+            type="button"
+            className="link att-preview"
+            onClick={(event) => onPreview(att, event.currentTarget)}
+          >Preview text</button>
+        )}
       </div>
+      {onToggle && (
+        <label className="att-include" title={included ? 'Exclude from next message' : 'Include in next message'}>
+          <input
+            type="checkbox"
+            checked={included}
+            onChange={() => onToggle(att.id)}
+            aria-label={`Include ${att.original_name} in next message`}
+          />
+        </label>
+      )}
       {onRemove && (
         <button type="button" className="att-remove" onClick={() => onRemove(att.id)} title="Remove">×</button>
       )}
@@ -766,6 +794,9 @@ export default function App() {
   const [showConvoSettings, setShowConvoSettings] = useState(false)
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
+  const [excludedAttachmentIds, setExcludedAttachmentIds] = useState([])
+  const [attachmentNotice, setAttachmentNotice] = useState(null)
+  const [previewAttachment, setPreviewAttachment] = useState(null)
   const [uploadJobs, setUploadJobs] = useState([])
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
@@ -788,6 +819,7 @@ export default function App() {
   const uploadFilesRef = useRef(new Map())
   const uploadControllersRef = useRef(new Map())
   const uploadSequenceRef = useRef(0)
+  const previewReturnFocusRef = useRef(null)
   const abortRef = useRef(null)
   const sidebarRef = useRef(null)
   const menuRef = useRef(null)
@@ -934,9 +966,16 @@ export default function App() {
   const imageAccept = imageExtensions.map((extension) => `.${extension}`).join(',')
   const pendingImages = pendingAttachments.filter((attachment) =>
     ['image', 'generated_image'].includes(attachment.kind))
+  const excludedAttachmentSet = useMemo(
+    () => new Set(excludedAttachmentIds),
+    [excludedAttachmentIds],
+  )
+  const includedPendingAttachments = pendingAttachments.filter(
+    (attachment) => !excludedAttachmentSet.has(attachment.id),
+  )
   const queuedImages = uploadJobs.filter((job) => job.kind === 'image')
   const uploadingCount = uploadJobs.filter((job) => job.status === 'uploading').length
-  const incompatiblePending = pendingAttachments.filter((attachment) =>
+  const incompatiblePending = includedPendingAttachments.filter((attachment) =>
     !attachmentIsCompatible(attachment, currentCapabilities))
   const attachmentsBlocked = incompatiblePending.length > 0
   const imageLimitReached = pendingImages.length + queuedImages.length
@@ -1007,7 +1046,15 @@ export default function App() {
         onProgress: (progress) => setUploadJobs((jobs) => jobs.map((item) =>
           item.key === job.key ? { ...item, progress } : item)),
       })
-      setPendingAttachments((attachments) => [...attachments, attachment])
+      setPendingAttachments((attachments) => (
+        attachments.some((item) => item.id === attachment.id)
+          ? attachments
+          : [...attachments, attachment]
+      ))
+      setExcludedAttachmentIds((ids) => ids.filter((id) => id !== attachment.id))
+      if (attachment.deduplicated) {
+        setAttachmentNotice(`${attachment.original_name} was already uploaded, so the existing private copy was reused.`)
+      }
       setUploadJobs((jobs) => jobs.filter((item) => item.key !== job.key))
       uploadFilesRef.current.delete(job.key)
     } catch (uploadError) {
@@ -1029,6 +1076,7 @@ export default function App() {
     setAttachmentMenuOpen(false)
     setDraggingFiles(false)
     setError(null)
+    setAttachmentNotice(null)
     if (sending) {
       setError('Wait for the current response to finish before adding files.')
       return
@@ -1139,6 +1187,10 @@ export default function App() {
     uploadFilesRef.current.clear()
     setUploadJobs([])
     setPendingAttachments([])
+    setExcludedAttachmentIds([])
+    setAttachmentNotice(null)
+    setPreviewAttachment(null)
+    previewReturnFocusRef.current = null
     setDraggingFiles(false)
     setAttachmentMenuOpen(false)
     setDraft('')
@@ -1154,6 +1206,8 @@ export default function App() {
   async function removePending(id) {
     try { await api.deleteAttachment(id) } catch {}
     setPendingAttachments((prev) => prev.filter((a) => a.id !== id))
+    setExcludedAttachmentIds((ids) => ids.filter((attachmentId) => attachmentId !== id))
+    if (previewAttachment?.id === id) closeDocumentPreview()
   }
 
   async function removeIncompatibleAttachments() {
@@ -1162,6 +1216,26 @@ export default function App() {
     }))
     const incompatibleIds = new Set(incompatiblePending.map((attachment) => attachment.id))
     setPendingAttachments((items) => items.filter((attachment) => !incompatibleIds.has(attachment.id)))
+    setExcludedAttachmentIds((ids) => ids.filter((id) => !incompatibleIds.has(id)))
+  }
+
+  function toggleAttachmentInclusion(id) {
+    setAttachmentNotice(null)
+    setExcludedAttachmentIds((ids) => (
+      ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]
+    ))
+  }
+
+  function openDocumentPreview(attachment, trigger) {
+    previewReturnFocusRef.current = trigger
+    setPreviewAttachment(attachment)
+  }
+
+  function closeDocumentPreview() {
+    const returnFocus = previewReturnFocusRef.current
+    setPreviewAttachment(null)
+    previewReturnFocusRef.current = null
+    requestAnimationFrame(() => returnFocus?.isConnected && returnFocus.focus())
   }
 
   async function handleGenerate(e) {
@@ -1188,7 +1262,7 @@ export default function App() {
     e?.preventDefault?.()
     const text = draft.trim()
     if (sending || attachmentsBlocked || activeModelUnavailable) return
-    if (!text && pendingAttachments.length === 0) return
+    if (!text && includedPendingAttachments.length === 0) return
 
     let convo = active
     if (!convo) {
@@ -1204,8 +1278,10 @@ export default function App() {
     setSending(true)
     setDraft('')
 
-    const sendingAttachments = pendingAttachments
-    setPendingAttachments([])
+    const sendingAttachments = includedPendingAttachments
+    setPendingAttachments((attachments) => attachments.filter(
+      (attachment) => excludedAttachmentSet.has(attachment.id),
+    ))
 
     const tmpUserId = `tmp-user-${Date.now()}`
     const streamingId = `streaming-${Date.now()}`
@@ -1255,7 +1331,10 @@ export default function App() {
       },
       onError: (msg) => {
         setError(msg)
-        setPendingAttachments(sendingAttachments)
+        setPendingAttachments((attachments) => {
+          const existingIds = new Set(attachments.map((attachment) => attachment.id))
+          return [...attachments, ...sendingAttachments.filter((attachment) => !existingIds.has(attachment.id))]
+        })
         setActive((c) => ({
           ...c,
           messages: (c?.messages || []).filter(
@@ -1710,7 +1789,15 @@ export default function App() {
           {(pendingAttachments.length > 0 || uploadJobs.length > 0) && (
             <div className="pending-row">
               {pendingAttachments.map((a) => (
-                <AttachmentTile key={a.id} att={a} onRemove={removePending} compact />
+                <AttachmentTile
+                  key={a.id}
+                  att={a}
+                  onRemove={removePending}
+                  onToggle={toggleAttachmentInclusion}
+                  onPreview={openDocumentPreview}
+                  included={!excludedAttachmentSet.has(a.id)}
+                  compact
+                />
               ))}
               {uploadJobs.map((job) => (
                 <UploadJobTile
@@ -1722,6 +1809,9 @@ export default function App() {
                 />
               ))}
             </div>
+          )}
+          {attachmentNotice && (
+            <div className="attachment-notice" role="status">{attachmentNotice}</div>
           )}
           {attachmentsBlocked && (
             <div className="vision-warn attachment-warn" role="alert">
@@ -1819,7 +1909,7 @@ export default function App() {
               <button
                 type="submit"
                 className="primary send"
-                disabled={(!draft.trim() && pendingAttachments.length === 0) || attachmentsBlocked
+                disabled={(!draft.trim() && includedPendingAttachments.length === 0) || attachmentsBlocked
                   || activeModelUnavailable || uploadingCount > 0}
                 title="Send"
               >↑</button>
@@ -1827,7 +1917,8 @@ export default function App() {
           </div>
           <div className="hint">
             {draft.length > 0 && <span>{draft.length.toLocaleString()} / 8,000 · </span>}
-            Enter to send · Shift+Enter for newline · {pendingAttachments.length + uploadJobs.length}/{attachmentLimits.max_files_per_message} files
+            Enter to send · Shift+Enter for newline · {includedPendingAttachments.length} selected ·{' '}
+            {pendingAttachments.length + uploadJobs.length}/{attachmentLimits.max_files_per_message} files
           </div>
           <div className="privacy-hint">Drop files or paste an image · attached content is sent to NVIDIA only when you send.</div>
         </form>
@@ -1926,6 +2017,9 @@ export default function App() {
               )}
             </div>
           </div>
+        )}
+        {previewAttachment && (
+          <DocumentPreview attachment={previewAttachment} onClose={closeDocumentPreview} />
         )}
         </>
         )}

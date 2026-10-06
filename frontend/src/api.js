@@ -176,6 +176,7 @@ export const api = {
     })
   },
   deleteAttachment: (id) => request(`/attachments/${id}/`, { method: 'DELETE' }),
+  previewAttachment: (id) => request(`/attachments/${id}/preview/`),
   listImageModels: () => request('/images/models/'),
   generateImage: (params) =>
     request('/images/generate/', { method: 'POST', body: JSON.stringify(params) }),

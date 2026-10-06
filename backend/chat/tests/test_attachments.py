@@ -1,14 +1,10 @@
 """Tests for attachment upload, MIME sniffing, quota, text extraction."""
-import io
-import os
-import threading
-from unittest.mock import patch
+import hashlib
 
 import pytest
-from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from chat.attachments import detect_mime, kind_for_mime, extract_text
+from chat.attachments import content_sha256, detect_mime, extract_text, kind_for_mime
 from chat.models import Attachment, Message
 
 
@@ -38,8 +34,11 @@ class TestUploadHappyPath:
         assert body['mime_type'] == 'image/png'
         assert body['size'] > 0
         assert body['has_text'] is False
+        assert body['deduplicated'] is False
+        assert 'content_sha256' not in body
         att = Attachment.objects.get(pk=body['id'])
         assert att.user == user
+        assert len(att.content_sha256) == 64
         # File written under /attachments/<user_id>/<rand>/...
         assert f'/{user.id}/' in att.file.name
 
@@ -89,7 +88,7 @@ class TestQuota:
         f1 = SimpleUploadedFile('a.txt', b'x' * 30, content_type='text/plain')
         assert auth_client.post('/api/attachments/upload/', {'file': f1}, format='multipart').status_code == 201
         # Second 30B upload pushes total over 50B → 413
-        f2 = SimpleUploadedFile('b.txt', b'x' * 30, content_type='text/plain')
+        f2 = SimpleUploadedFile('b.txt', b'y' * 30, content_type='text/plain')
         r2 = auth_client.post('/api/attachments/upload/', {'file': f2}, format='multipart')
         assert r2.status_code == 413
         # Only the first upload exists
@@ -102,6 +101,48 @@ class TestQuota:
         # Other user has separate quota
         f2 = SimpleUploadedFile('b.txt', b'x' * 40, content_type='text/plain')
         assert other_client.post('/api/attachments/upload/', {'file': f2}, format='multipart').status_code == 201
+
+
+@pytest.mark.django_db
+class TestUploadDeduplication:
+    def test_reuses_same_users_unlinked_content(self, auth_client, user):
+        first = auth_client.post('/api/attachments/upload/', {'file': _img_upload('one.png')}, format='multipart')
+        second = auth_client.post('/api/attachments/upload/', {'file': _img_upload('two.png')}, format='multipart')
+
+        assert first.status_code == 201
+        assert second.status_code == 200
+        assert second.json()['deduplicated'] is True
+        assert second.json()['id'] == first.json()['id']
+        assert Attachment.objects.filter(user=user).count() == 1
+
+    def test_duplicate_does_not_consume_quota_again(self, auth_client, user, settings):
+        settings.MAX_USER_STORAGE = len(_png_bytes()) + 1
+        first = auth_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
+        second = auth_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
+
+        assert first.status_code == 201
+        assert second.status_code == 200
+        assert Attachment.objects.filter(user=user).count() == 1
+
+    def test_deduplication_never_crosses_users(self, auth_client, other_client):
+        first = auth_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
+        second = other_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
+
+        assert first.status_code == 201
+        assert second.status_code == 201
+        assert first.json()['id'] != second.json()['id']
+
+    def test_linked_attachment_is_not_reused(self, auth_client, user, convo):
+        first = auth_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
+        attachment = Attachment.objects.get(pk=first.json()['id'])
+        message = Message.objects.create(conversation=convo, role='user', content='sent')
+        attachment.message = message
+        attachment.save(update_fields=['message'])
+
+        second = auth_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
+        assert second.status_code == 201
+        assert second.json()['id'] != first.json()['id']
+        assert Attachment.objects.filter(user=user).count() == 2
 
 
 @pytest.mark.django_db
@@ -120,6 +161,49 @@ class TestListAttachments:
         assert r.status_code == 200
         assert len(r.json()) == 1
         assert r.json()[0]['kind'] == 'image'
+        assert 'content_sha256' not in r.json()[0]
+
+
+@pytest.mark.django_db
+class TestDocumentPreview:
+    def test_owner_can_preview_extracted_text_without_caching(self, auth_client):
+        uploaded = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _txt_upload(text='private preview text')},
+            format='multipart',
+        )
+        response = auth_client.get(f'/api/attachments/{uploaded.json()["id"]}/preview/')
+
+        assert response.status_code == 200
+        assert response.json() == {
+            'text': 'private preview text',
+            'characters': 20,
+            'truncated': False,
+        }
+        assert 'private' in response['Cache-Control']
+        assert 'no-store' in response['Cache-Control']
+        assert response['Pragma'] == 'no-cache'
+
+    def test_preview_is_truncated_at_dedicated_limit(self, auth_client, settings):
+        settings.ATTACHMENT_PREVIEW_MAX_CHARS = 8
+        uploaded = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _txt_upload(text='abcdefghijkl')},
+            format='multipart',
+        )
+        response = auth_client.get(f'/api/attachments/{uploaded.json()["id"]}/preview/')
+
+        assert response.json() == {'text': 'abcdefgh', 'characters': 12, 'truncated': True}
+
+    def test_preview_is_owner_scoped(self, auth_client, other_client):
+        uploaded = auth_client.post('/api/attachments/upload/', {'file': _txt_upload()}, format='multipart')
+        response = other_client.get(f'/api/attachments/{uploaded.json()["id"]}/preview/')
+        assert response.status_code == 404
+
+    def test_image_has_no_text_preview(self, auth_client):
+        uploaded = auth_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
+        response = auth_client.get(f'/api/attachments/{uploaded.json()["id"]}/preview/')
+        assert response.status_code == 400
 
 
 @pytest.mark.django_db
@@ -161,6 +245,12 @@ class TestMimeSniffing:
         assert kind_for_mime('image/png') == 'image'
         assert kind_for_mime('application/pdf') == 'document'
         assert kind_for_mime('application/x-evil') is None
+
+    def test_content_hash_rewinds_upload(self):
+        upload = _img_upload()
+        expected = hashlib.sha256(_png_bytes()).hexdigest()
+        assert content_sha256(upload) == expected
+        assert upload.read() == _png_bytes()
 
 
 @pytest.mark.django_db

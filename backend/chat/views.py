@@ -40,7 +40,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .attachments import detect_mime, extract_text, kind_for_mime
+from .attachments import content_sha256, detect_mime, extract_text, kind_for_mime
 from .model_status import get_status, unavailable_model_ids
 from .models import (
     Attachment,
@@ -840,6 +840,12 @@ def _attachment_capability_response(request, model_id, issue, response_status=40
     }, status=response_status)
 
 
+def _attachment_upload_response(attachment, *, deduplicated, response_status):
+    data = dict(AttachmentSerializer(attachment).data)
+    data['deduplicated'] = deduplicated
+    return Response(data, status=response_status)
+
+
 @api_view(['POST'])
 @parser_classes([MultiPartParser])
 @ratelimit(key='user', rate='30/m', block=False)
@@ -870,6 +876,15 @@ def upload_attachment(request):
         if issue:
             return _attachment_capability_response(request, model_id, issue)
 
+    content_hash = content_sha256(f)
+    duplicate = Attachment.objects.filter(
+        user=request.user,
+        message__isnull=True,
+        content_sha256=content_hash,
+    ).first()
+    if duplicate:
+        return _attachment_upload_response(duplicate, deduplicated=True, response_status=200)
+
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
     if used + f.size > settings.MAX_USER_STORAGE:
         return Response({'error': 'Storage quota exceeded.'}, status=413)
@@ -898,6 +913,13 @@ def upload_attachment(request):
     try:
         with transaction.atomic():
             User.objects.select_for_update().filter(pk=request.user.pk).first()
+            duplicate = Attachment.objects.filter(
+                user=request.user,
+                message__isnull=True,
+                content_sha256=content_hash,
+            ).first()
+            if duplicate:
+                return _attachment_upload_response(duplicate, deduplicated=True, response_status=200)
             used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
             if used + f.size > settings.MAX_USER_STORAGE:
                 return Response({
@@ -912,11 +934,32 @@ def upload_attachment(request):
                 size=f.size,
                 kind=kind,
                 extracted_text=extracted,
+                content_sha256=content_hash,
             )
     except Exception:
         log.exception('Upload failed for user_id=%s', request.user.pk)
         return Response({'error': 'Upload failed.'}, status=500)
-    return Response(AttachmentSerializer(att).data, status=201)
+    return _attachment_upload_response(att, deduplicated=False, response_status=201)
+
+
+@api_view(['GET'])
+@ratelimit(key='user', rate='60/m', block=False)
+def attachment_preview(request, pk):
+    if (r := _rate_limited(request)): return r
+    attachment = get_object_or_404(Attachment, pk=pk, user=request.user)
+    if attachment.kind != Attachment.KIND_DOCUMENT:
+        return Response({'error': 'Text preview is available only for documents.'}, status=400)
+    if not attachment.extracted_text:
+        return Response({'error': 'No extracted text is available for this document.'}, status=404)
+    limit = settings.ATTACHMENT_PREVIEW_MAX_CHARS
+    response = Response({
+        'text': attachment.extracted_text[:limit],
+        'characters': len(attachment.extracted_text),
+        'truncated': len(attachment.extracted_text) > limit,
+    })
+    response['Cache-Control'] = 'private, no-store'
+    response['Pragma'] = 'no-cache'
+    return response
 
 
 @api_view(['DELETE'])

@@ -23,9 +23,10 @@ async function mockAPI(
       return route.fulfill({ status: 201, json: {
         id: 900, kind: 'image', original_name: 'diagram.png', mime_type: 'image/png',
         size: 68, url: '/api/attachments/900/download/', has_text: false, deletable: true,
+        deduplicated: false,
       } })
     }
-    if (path === '/api/attachments/900/' && route.request().method() === 'DELETE') {
+    if (/^\/api\/attachments\/(900|910)\/$/.test(path) && route.request().method() === 'DELETE') {
       return route.fulfill({ status: 204, body: '' })
     }
     const data = {
@@ -70,6 +71,11 @@ async function mockAPI(
       '/api/conversations/1/': conversation,
       '/api/images/models/': { models: [], default: '' },
       '/api/attachments/': [],
+      '/api/attachments/910/preview/': {
+        text: 'Safe text <script>window.__previewExecuted = true</script>',
+        characters: 58,
+        truncated: false,
+      },
       '/api/account/usage/': {
         storage_bytes: 5242880, storage_limit_bytes: 104857600, attachments: 0, conversations: 1, messages: 2,
         ai_today: {
@@ -217,6 +223,80 @@ test('switching models makes incompatible pending images explicit and recoverabl
   await page.getByRole('button', { name: 'Remove incompatible' }).click()
   await expect(warning).toHaveCount(0)
   await expect(page.getByAltText('diagram.png')).toHaveCount(0)
+  await expectNoPageOverflow(page)
+})
+
+test('a pending file can be excluded without deleting it or blocking the selected model', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'diagram.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+
+  await page.getByLabel('Chat model').selectOption('text/model')
+  await expect(page.getByRole('alert')).toContainText('is not compatible')
+  await page.getByRole('checkbox', { name: 'Include diagram.png in next message' }).uncheck()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Send without the excluded image')
+  await expect(page.getByTitle('Send')).toBeEnabled()
+  await expect(page.getByText('0 selected', { exact: false })).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('document preview renders extracted content as inert text and restores focus', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.route('**/api/attachments/upload/', (route) => route.fulfill({ status: 201, json: {
+    id: 910, kind: 'document', original_name: 'private.txt', mime_type: 'text/plain',
+    size: 58, url: '/api/attachments/910/download/', has_text: true, deletable: true,
+    deduplicated: false,
+  } }))
+  await page.goto('/')
+  await page.getByLabel('Choose documents').setInputFiles({
+    name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('private text'),
+  })
+
+  const trigger = page.getByRole('button', { name: 'Preview text' })
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: 'Extracted text preview' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('pre')).toContainText('<script>window.__previewExecuted = true</script>')
+  await expect(dialog.locator('script')).toHaveCount(0)
+  expect(await page.evaluate(() => window.__previewExecuted)).toBeUndefined()
+  await expectNoPageOverflow(page)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+})
+
+test('deduplicated uploads reuse one pending tile and explain the result', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  let attempts = 0
+  await page.route('**/api/attachments/upload/', (route) => {
+    attempts += 1
+    return route.fulfill({ status: attempts === 1 ? 201 : 200, json: {
+      id: 910, kind: 'document', original_name: 'notes.txt', mime_type: 'text/plain',
+      size: 10, url: '/api/attachments/910/download/', has_text: true, deletable: true,
+      deduplicated: attempts > 1,
+    } })
+  })
+  await page.goto('/')
+  const input = page.getByLabel('Choose documents')
+  const file = { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('same bytes') }
+  await input.setInputFiles(file)
+  await expect(page.locator('.att-tile.doc')).toHaveCount(1)
+  await input.setInputFiles(file)
+
+  await expect(page.locator('.att-tile.doc')).toHaveCount(1)
+  await expect(page.getByRole('status')).toContainText('existing private copy was reused')
+  expect(attempts).toBe(2)
   await expectNoPageOverflow(page)
 })
 

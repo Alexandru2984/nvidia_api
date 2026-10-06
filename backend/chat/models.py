@@ -211,11 +211,20 @@ class Attachment(models.Model):
     size = models.PositiveIntegerField()
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     extracted_text = models.TextField(blank=True, default='')
+    # Internal-only owner-scoped deduplication key. Never expose this through an API.
+    content_sha256 = models.CharField(max_length=64, blank=True, default='', editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
         indexes = [models.Index(fields=['user', 'created_at'])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'content_sha256'],
+                condition=models.Q(message__isnull=True) & ~models.Q(content_sha256=''),
+                name='unique_pending_attachment_content_per_user',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.kind}:{self.original_name} ({self.size}B)'

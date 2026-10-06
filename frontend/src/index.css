@@ -1093,6 +1093,10 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   background: var(--bg-elev);
   overflow: hidden;
 }
+.att-tile.excluded {
+  opacity: .55;
+  border-style: dashed;
+}
 .att-tile.image {
   width: 120px;
   height: 120px;
@@ -1143,6 +1147,38 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   font-size: 11px;
   color: var(--text-dim);
 }
+.att-preview {
+  align-self: flex-start;
+  padding: 1px 0;
+  font-size: 11px;
+}
+.att-include {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(10, 13, 18, .88);
+  cursor: pointer;
+}
+.att-include input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.att-tile.doc .att-include {
+  position: static;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  background: var(--bg);
+}
 .att-tile.uploading {
   display: grid;
   place-items: center;
@@ -1185,7 +1221,83 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 }
 .attachment-warn { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .attachment-warn .link { flex: 0 0 auto; color: inherit; }
+.attachment-notice {
+  max-width: 760px;
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(118, 185, 0, .35);
+  border-radius: 8px;
+  background: rgba(118, 185, 0, .08);
+  color: var(--text);
+  font-size: 12px;
+}
 .history-media-notice { justify-content: flex-start; }
+
+.document-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 6, 10, .78);
+  backdrop-filter: blur(5px);
+}
+.document-preview {
+  width: min(780px, 100%);
+  max-height: min(760px, calc(100dvh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-elev);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .45);
+}
+.document-preview > header,
+.document-preview > footer {
+  flex: 0 0 auto;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.document-preview > header { border-bottom: 1px solid var(--border); }
+.document-preview > footer { border-top: 1px solid var(--border); }
+.document-preview h2 { margin: 0; font-size: 17px; }
+.document-preview header > div { min-width: 0; }
+.document-preview header p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-preview-body {
+  min-height: 180px;
+  padding: 16px;
+  overflow: auto;
+}
+.document-preview-meta {
+  margin-bottom: 10px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.document-preview pre {
+  margin: 0;
+  padding: 14px;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.document-preview footer span { color: var(--text-dim); font-size: 11px; }
 
 .image-mode {
   flex: 1;
@@ -1452,6 +1564,18 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   .attachment-choice { min-height: 62px; }
   .attachment-warn { align-items: stretch; flex-direction: column; }
   .attachment-warn .link { min-height: 40px; }
+  .document-preview-backdrop { padding: 0; }
+  .document-preview {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+  .document-preview > header, .document-preview > footer { padding: 12px; }
+  .document-preview-body { padding: 12px; }
+  .document-preview footer { align-items: stretch; flex-direction: column; }
+  .document-preview footer button { min-height: 44px; }
   .convo-item .delete, .copy-btn { opacity: 1; }
   .hint { font-size: 10px; }
 }

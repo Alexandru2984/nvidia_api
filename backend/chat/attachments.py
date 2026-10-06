@@ -1,11 +1,12 @@
 """Attachment type checks and resource-bounded document extraction."""
+import hashlib
 import io
 import logging
 import os
-from pathlib import Path
 import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
 from django.conf import settings
 
@@ -18,6 +19,16 @@ _EXT_TO_MIME = {
     '.txt': 'text/plain', '.md': 'text/markdown', '.markdown': 'text/markdown',
     '.docx': DOCX_MIME,
 }
+
+
+def content_sha256(uploaded_file) -> str:
+    """Hash an upload without retaining its bytes or changing its read position."""
+    digest = hashlib.sha256()
+    uploaded_file.seek(0)
+    for chunk in uploaded_file.chunks():
+        digest.update(chunk)
+    uploaded_file.seek(0)
+    return digest.hexdigest()
 
 
 def detect_mime(uploaded_file) -> str:
