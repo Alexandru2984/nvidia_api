@@ -92,6 +92,7 @@ function normalizeConversationPage(page, view) {
         active: Number(page?.counts?.active) || 0,
         archived: Number(page?.counts?.archived) || 0,
       },
+      nextCursor: typeof page?.next_cursor === 'string' ? page.next_cursor : null,
     }
   }
   return {
@@ -100,6 +101,7 @@ function normalizeConversationPage(page, view) {
       active: view === 'active' ? page.length : 0,
       archived: view === 'archived' ? page.length : 0,
     },
+    nextCursor: null,
   }
 }
 
@@ -826,6 +828,8 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [conversationView, setConversationView] = useState('active')
   const [conversationCounts, setConversationCounts] = useState({ active: 0, archived: 0 })
+  const [conversationNextCursor, setConversationNextCursor] = useState(null)
+  const [conversationLoadingMore, setConversationLoadingMore] = useState(false)
   const [conversationMenuId, setConversationMenuId] = useState(null)
   const [conversationNotice, setConversationNotice] = useState(null)
   const [showConvoSettings, setShowConvoSettings] = useState(false)
@@ -861,6 +865,8 @@ export default function App() {
   const sidebarRef = useRef(null)
   const menuRef = useRef(null)
   const conversationMenuButtonRef = useRef(null)
+  const conversationQueryKeyRef = useRef('active\u0000')
+  conversationQueryKeyRef.current = `${conversationView}\u0000${search.trim()}`
 
   useEffect(() => () => {
     for (const controller of uploadControllersRef.current.values()) controller.abort()
@@ -957,6 +963,8 @@ export default function App() {
         const conversationPage = normalizeConversationPage(c, 'active')
         setConversations(conversationPage.results)
         setConversationCounts(conversationPage.counts)
+        setConversationNextCursor(conversationPage.nextCursor)
+        setConversationLoadingMore(false)
         setImageModels(im.models || [])
         setImageModel(im.default || (im.models?.[0]?.id) || '')
         setImageGallery(gallery || [])
@@ -983,8 +991,10 @@ export default function App() {
           const normalized = normalizeConversationPage(page, conversationView)
           setConversations(normalized.results)
           setConversationCounts(normalized.counts)
+          setConversationNextCursor(normalized.nextCursor)
+          setConversationLoadingMore(false)
         })
-        .catch(() => {})
+        .catch(() => { if (!cancelled) setConversationLoadingMore(false) })
     }, 300)
     return () => { cancelled = true; clearTimeout(t) }
   }, [search, user, conversationView])
@@ -1424,6 +1434,7 @@ export default function App() {
           )
           setConversations(refreshed.results)
           setConversationCounts(refreshed.counts)
+          setConversationNextCursor(refreshed.nextCursor)
         } catch { /* keep optimistic state */ }
       },
     }, controller.signal)
@@ -1495,8 +1506,36 @@ export default function App() {
 
   function showConversationView(view) {
     setConversationView(view)
+    setConversationNextCursor(null)
+    setConversationLoadingMore(false)
     setConversationMenuId(null)
     setConversationNotice(null)
+  }
+
+  async function loadMoreConversations() {
+    if (!conversationNextCursor || conversationLoadingMore) return
+    const query = search.trim()
+    const view = conversationView
+    const queryKey = `${view}\u0000${query}`
+    setConversationLoadingMore(true)
+    try {
+      const page = normalizeConversationPage(
+        await api.listConversations(query || undefined, view, conversationNextCursor),
+        view,
+      )
+      if (conversationQueryKeyRef.current !== queryKey) return
+      setConversations((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]))
+        for (const item of page.results) byId.set(item.id, item)
+        return sortConversations([...byId.values()])
+      })
+      setConversationCounts(page.counts)
+      setConversationNextCursor(page.nextCursor)
+    } catch (loadError) {
+      if (conversationQueryKeyRef.current === queryKey) setError(loadError.message)
+    } finally {
+      if (conversationQueryKeyRef.current === queryKey) setConversationLoadingMore(false)
+    }
   }
 
   async function handleEditMessage(msgId, newContent) {
@@ -1595,6 +1634,8 @@ export default function App() {
     setUser(null)
     setConversations([])
     setConversationCounts({ active: 0, archived: 0 })
+    setConversationNextCursor(null)
+    setConversationLoadingMore(false)
     setConversationView('active')
     setConversationMenuId(null)
     setConversationNotice(null)
@@ -1661,8 +1702,13 @@ export default function App() {
           type="search"
           aria-label="Search conversations"
           placeholder={`Search ${conversationView}…`}
+          maxLength={200}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setConversationNextCursor(null)
+            setConversationLoadingMore(false)
+          }}
         />
 
         <div className="convo-filters" role="group" aria-label="Conversation folders">
@@ -1696,7 +1742,8 @@ export default function App() {
                   : <>No conversations yet.<br/>Start one above.</>}
             </div>
           ) : (
-            conversations.map((c) => (
+            <>
+            {conversations.map((c) => (
               <div
                 key={c.id}
                 className={`convo-item ${c.id === activeId ? 'active' : ''} ${c.is_pinned ? 'pinned' : ''}`}
@@ -1742,7 +1789,18 @@ export default function App() {
                   </div>
                 )}
               </div>
-            ))
+            ))}
+            {conversationNextCursor && (
+              <button
+                type="button"
+                className="convo-load-more"
+                disabled={conversationLoadingMore}
+                onClick={loadMoreConversations}
+              >
+                {conversationLoadingMore ? 'Loading…' : 'Load more conversations'}
+              </button>
+            )}
+            </>
           )}
         </div>
 

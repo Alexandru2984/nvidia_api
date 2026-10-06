@@ -28,6 +28,7 @@ async function mockAPI(
           active: conversation.archived_at ? 0 : 1,
           archived: conversation.archived_at ? 1 : 0,
         },
+        next_cursor: null,
       } })
     }
     if (path === '/api/conversations/1/' && route.request().method() === 'PATCH') {
@@ -197,6 +198,43 @@ test('conversation pin and archive controls stay clear and recoverable on mobile
   await page.getByRole('button', { name: 'Restore', exact: true }).click()
   await expect(page.getByText('Conversation restored to Active.')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Active 1$/ })).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('conversation history loads signed-cursor pages without mobile overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  const conversations = Array.from({ length: 35 }, (_, index) => ({
+    id: index + 10,
+    title: `History item ${String(index + 1).padStart(2, '0')}`,
+    model_id: 'test/model',
+    message_count: index,
+    is_pinned: false,
+    archived_at: null,
+    created_at: `2026-10-05T11:${String(index).padStart(2, '0')}:00Z`,
+    updated_at: `2026-10-05T11:${String(index).padStart(2, '0')}:00Z`,
+  }))
+  await page.route('**/api/conversations/**', (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.pathname !== '/api/conversations/' || request.method() !== 'GET') {
+      return route.fallback()
+    }
+    const secondPage = url.searchParams.get('cursor') === 'second-page'
+    return route.fulfill({ status: 200, json: {
+      results: secondPage ? conversations.slice(30) : conversations.slice(0, 30),
+      counts: { active: 35, archived: 0 },
+      next_cursor: secondPage ? null : 'second-page',
+    } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await expect(page.locator('.convo-item')).toHaveCount(30)
+  await expect(page.getByRole('button', { name: /^Active 35$/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Load more conversations' }).click()
+  await expect(page.locator('.convo-item')).toHaveCount(35)
+  await expect(page.getByRole('button', { name: 'Load more conversations' })).toHaveCount(0)
   await expectNoPageOverflow(page)
 })
 

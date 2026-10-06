@@ -71,10 +71,12 @@ export const api = {
   resetPassword: (email, code, password) =>
     request('/auth/reset/', { method: 'POST', body: JSON.stringify({ email, code, password }) }),
   listModels: () => request('/models/'),
-  listConversations: (q, view = 'active') => {
+  listConversations: (q, view = 'active', cursor = null) => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (view) params.set('view', view)
+    if (cursor) params.set('cursor', cursor)
+    params.set('limit', '30')
     params.set('include_counts', '1')
     return request(`/conversations/?${params.toString()}`)
   },
