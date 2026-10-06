@@ -690,19 +690,49 @@ def auth_delete_account(request):
 
 @api_view(['GET'])
 def list_models(request):
+    runtime_status = get_status()
     down = unavailable_model_ids()
-    models = [m for m in NVIDIA_MODELS if m['id'] not in down]
+    probe_results = runtime_status.get('results', {})
+    models = []
+    for catalog_model in NVIDIA_MODELS:
+        if catalog_model['id'] in down:
+            continue
+        model = dict(catalog_model)
+        result = probe_results.get(model['id'])
+        model['performance'] = _public_model_performance(result)
+        models.append(model)
     default = _preferred_model_id(models)
     return Response({
         'models': models,
         'default': default,
-        'availability_checked_at': get_status().get('checked_at'),
+        'availability_checked_at': runtime_status.get('checked_at'),
         'attachment_limits': {
             'max_files_per_message': settings.CHAT_MAX_ATTACHMENTS_PER_MESSAGE,
             'max_file_bytes': settings.MAX_ATTACHMENT_SIZE,
             'max_bytes_per_message': settings.CHAT_MAX_ATTACHMENT_BYTES_PER_MESSAGE,
         },
     })
+
+
+def _public_model_performance(result):
+    """Expose a coarse successful-probe sample, never private failure details."""
+    if not isinstance(result, dict) or result.get('outcome') != 'available':
+        return None
+    latency_ms = result.get('latency_ms')
+    if not isinstance(latency_ms, int) or isinstance(latency_ms, bool):
+        return None
+    rounded_ms = max(100, min(120_000, round(latency_ms / 100) * 100))
+    if rounded_ms < 2_000:
+        band = 'fast'
+    elif rounded_ms < 8_000:
+        band = 'moderate'
+    else:
+        band = 'slow'
+    return {
+        'probe_latency_ms': rounded_ms,
+        'latency_band': band,
+        'sample': 'synthetic_1_token',
+    }
 
 
 def _preferred_model_id(models):

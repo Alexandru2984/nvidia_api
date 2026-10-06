@@ -374,6 +374,22 @@ def _capabilities_for(model_id):
     }
 
 
+def _best_for(model_id):
+    """Conservative guidance derived only from declared app capabilities."""
+    purpose = _purpose_for(model_id)
+    if purpose == 'safety':
+        return 'Safety classification and policy checks'
+    if purpose == 'translation':
+        return 'Translation workflows'
+    if purpose == 'coding':
+        return 'Code generation and debugging'
+    if purpose == 'specialized':
+        return 'Specialized evaluation workflows'
+    if model_id in VISION_MODEL_IDS:
+        return 'Image and document analysis'
+    return 'General chat and document analysis'
+
+
 MODEL_BY_ID = {model['id']: model for model in NVIDIA_MODELS}
 
 # Keep the legacy `vision` flag while exposing an extensible capability contract.
@@ -381,6 +397,7 @@ for _m in NVIDIA_MODELS:
     _m['vision'] = _m['id'] in VISION_MODEL_IDS
     _m['purpose'] = _purpose_for(_m['id'])
     _m['recommended'] = _m['purpose'] in {'assistant', 'coding'}
+    _m['best_for'] = _best_for(_m['id'])
     _m['capabilities'] = _capabilities_for(_m['id'])
 
 

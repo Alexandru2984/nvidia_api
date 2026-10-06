@@ -40,6 +40,10 @@ async function mockAPI(
             id: 'test/model', name: 'Test Vision', vendor: 'Test', vision: true,
             purpose: 'assistant', recommended: true, context: 128000,
             description: 'A capable test model with image input.',
+            best_for: 'Image and document analysis',
+            performance: {
+              probe_latency_ms: 2400, latency_band: 'moderate', sample: 'synthetic_1_token',
+            },
             capabilities: {
               input_modalities: ['text', 'document', 'image'],
               attachment_extensions: ['pdf', 'txt', 'md', 'docx', 'jpg', 'jpeg', 'png'],
@@ -52,6 +56,10 @@ async function mockAPI(
             id: 'text/model', name: 'Text Only', vendor: 'Test', vision: false,
             purpose: 'assistant', recommended: true, context: 32000,
             description: 'A fast text-only test model.',
+            best_for: 'General chat and document analysis',
+            performance: {
+              probe_latency_ms: 900, latency_band: 'fast', sample: 'synthetic_1_token',
+            },
             capabilities: {
               input_modalities: ['text', 'document'],
               attachment_extensions: ['pdf', 'txt', 'md', 'docx'],
@@ -190,6 +198,8 @@ test('model capabilities drive the mobile attachment picker', async ({ page }) =
 
   await expect(page.getByText('Images · max 1')).toBeVisible()
   await expect(page.getByText('128K context')).toBeVisible()
+  await expect(page.getByText('Probe 2.4s')).toBeVisible()
+  await expect(page.getByText('Best for:', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Add attachments' }).click()
   await expect(page.getByRole('button', { name: 'Add images' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Add documents' })).toBeEnabled()
@@ -314,6 +324,11 @@ test('model explorer searches, favorites, compares, and persists safely on mobil
   await expect(dialog.getByText('2 available', { exact: false })).toBeVisible()
   const search = page.getByPlaceholder('Search name, vendor, capability…')
   await expect(search).toBeFocused()
+
+  await dialog.getByLabel('Sort models').selectOption('fastest')
+  await expect(dialog.locator('.model-card-title strong').first()).toHaveText('Text Only')
+  await expect(dialog.getByText('0.9s probe').first()).toBeVisible()
+  await expect(dialog.getByText('Probe latency is one synthetic 1-token availability check')).toBeVisible()
 
   await dialog.getByRole('button', { name: 'Add Text Only to favorites' }).click()
   await search.fill('Text Only')

@@ -13,6 +13,12 @@ const PURPOSES = [
   ['safety', 'Safety'],
   ['specialized', 'Specialized'],
 ]
+const SORTS = [
+  ['recommended', 'Recommended'],
+  ['fastest', 'Last probe speed'],
+  ['context', 'Largest context'],
+  ['name', 'Name'],
+]
 
 function cleanIds(value, limit) {
   if (!Array.isArray(value)) return []
@@ -56,13 +62,26 @@ function checkedLabel(value) {
 }
 
 function modelSearchText(model) {
-  return [model.name, model.vendor, model.id, model.description, model.purpose]
+  return [
+    model.name, model.vendor, model.id, model.description, model.purpose,
+    model.best_for, model.performance?.latency_band,
+  ]
     .filter(Boolean).join(' ').toLocaleLowerCase()
+}
+
+function probeLatencyLabel(model, prefix = '') {
+  const milliseconds = model.performance?.probe_latency_ms
+  if (!Number.isFinite(milliseconds)) return 'Not measured'
+  const seconds = milliseconds / 1000
+  const value = seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)
+  return `${prefix}${value}s probe`
 }
 
 function comparisonValue(model, field) {
   const capabilities = model.capabilities || {}
+  if (field === 'best_for') return model.best_for || 'General use'
   if (field === 'purpose') return model.purpose || 'assistant'
+  if (field === 'latency') return probeLatencyLabel(model)
   if (field === 'context') return contextLabel(model.context)
   if (field === 'inputs') return (capabilities.input_modalities || ['text']).join(', ')
   if (field === 'images') {
@@ -83,6 +102,7 @@ export default function ModelExplorer({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [purpose, setPurpose] = useState('all')
+  const [sortBy, setSortBy] = useState('recommended')
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [preferences, setPreferences] = useState(readPreferences)
   const [compareIds, setCompareIds] = useState([])
@@ -149,7 +169,7 @@ export default function ModelExplorer({
 
   useEffect(() => {
     resultsRef.current?.scrollTo({ top: 0 })
-  }, [favoritesOnly, purpose, query])
+  }, [favoritesOnly, purpose, query, sortBy])
 
   const visibleModels = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -163,12 +183,27 @@ export default function ModelExplorer({
       .sort((a, b) => {
         const favoriteDelta = Number(favoriteSet.has(b.model.id)) - Number(favoriteSet.has(a.model.id))
         if (favoriteDelta) return favoriteDelta
+        if (sortBy === 'fastest') {
+          const aLatency = a.model.performance?.probe_latency_ms ?? Number.MAX_SAFE_INTEGER
+          const bLatency = b.model.performance?.probe_latency_ms ?? Number.MAX_SAFE_INTEGER
+          return aLatency - bLatency || a.index - b.index
+        }
+        if (sortBy === 'context') {
+          return (b.model.context || 0) - (a.model.context || 0) || a.index - b.index
+        }
+        if (sortBy === 'name') return a.model.name.localeCompare(b.model.name)
+        const recommendationDelta = Number(Boolean(b.model.recommended))
+          - Number(Boolean(a.model.recommended))
+        if (recommendationDelta) return recommendationDelta
         const aRecent = recentIndex.get(a.model.id) ?? Number.MAX_SAFE_INTEGER
         const bRecent = recentIndex.get(b.model.id) ?? Number.MAX_SAFE_INTEGER
-        return aRecent - bRecent || a.index - b.index
+        if (aRecent !== bRecent) return aRecent - bRecent
+        const aLatency = a.model.performance?.probe_latency_ms ?? Number.MAX_SAFE_INTEGER
+        const bLatency = b.model.performance?.probe_latency_ms ?? Number.MAX_SAFE_INTEGER
+        return aLatency - bLatency || a.index - b.index
       })
       .map(({ model }) => model)
-  }, [favoritesOnly, models, preferences, purpose, query])
+  }, [favoritesOnly, models, preferences, purpose, query, sortBy])
 
   const comparedModels = compareIds
     .map((id) => models.find((model) => model.id === id))
@@ -281,6 +316,18 @@ export default function ModelExplorer({
                 aria-pressed={favoritesOnly}
                 onClick={() => setFavoritesOnly((value) => !value)}
               >★ Favorites</button>
+              <label className="model-sort">
+                <span className="sr-only">Sort models</span>
+                <select
+                  aria-label="Sort models"
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value)}
+                >
+                  {SORTS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <div className="purpose-filters" role="group" aria-label="Filter models by purpose">
@@ -325,10 +372,20 @@ export default function ModelExplorer({
                         </span>
                         <span className="model-card-vendor">{model.vendor} · {model.id}</span>
                         <span className="model-card-description">{model.description}</span>
+                        <span className="model-card-guidance">
+                          <strong>Best for</strong> {model.best_for || 'General use'}
+                        </span>
                         <span className="model-card-badges">
+                          {model.recommended && <span className="positive">Recommended</span>}
                           <span>{model.purpose || 'assistant'}</span>
                           <span>{contextLabel(model.context)}</span>
                           <span>{capabilities.max_images ? `Images × ${capabilities.max_images}` : 'Text + documents'}</span>
+                          {model.performance && (
+                            <span
+                              className={`speed-${model.performance.latency_band}`}
+                              title="One synthetic 1-token availability probe; not a quality benchmark"
+                            >{probeLatencyLabel(model)}</span>
+                          )}
                         </span>
                       </button>
                       <div className="model-card-actions">
@@ -369,7 +426,9 @@ export default function ModelExplorer({
                       <div className="comparison-column" key={model.id}>
                         <strong>{model.name}</strong>
                         {[
-                          ['Best for', 'purpose'],
+                          ['Best for', 'best_for'],
+                          ['Purpose', 'purpose'],
+                          ['Last probe', 'latency'],
                           ['Context', 'context'],
                           ['Inputs', 'inputs'],
                           ['Images', 'images'],
@@ -389,6 +448,9 @@ export default function ModelExplorer({
                 </aside>
               )}
             </div>
+            <p className="model-probe-note">
+              Probe latency is one synthetic 1-token availability check, not a quality benchmark.
+            </p>
           </section>
         </div>
       )}

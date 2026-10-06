@@ -48,6 +48,13 @@ function formatContext(tokens) {
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}K context` : `${tokens} context`
 }
 
+function formatProbeLatency(performance) {
+  const milliseconds = performance?.probe_latency_ms
+  if (!Number.isFinite(milliseconds)) return null
+  const seconds = milliseconds / 1000
+  return `Probe ${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
+}
+
 function capabilitiesFor(model) {
   if (model?.capabilities) return model.capabilities
   const imageExtensions = model?.vision ? FALLBACK_IMAGE_EXTENSIONS : []
@@ -1688,7 +1695,15 @@ export default function App() {
               {supportsVision ? `Images · max ${currentCapabilities.max_images}` : 'No image input'}
             </span>
             <span className="model-badge positive">PDF · DOCX · TXT · MD</span>
-            <span className="model-description">{currentModel.description}</span>
+            {currentModel.performance && (
+              <span
+                className={`model-badge speed-${currentModel.performance.latency_band}`}
+                title="One synthetic 1-token availability probe; not a quality benchmark"
+              >{formatProbeLatency(currentModel.performance)}</span>
+            )}
+            <span className="model-description">
+              <strong>Best for:</strong> {currentModel.best_for || 'General use'} · {currentModel.description}
+            </span>
           </div>
         )}
         {active && showConvoSettings && (

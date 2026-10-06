@@ -45,6 +45,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=ai_usage_unmetered'] * 3
             + ['event=registration_invite_rejected'] * 5
             + ['event=attachment_capability_rejected'] * 5
+            + ['event=model_status_invalid reason=schema']
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
@@ -55,6 +56,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'two_factor_disabled', 'global_budget', 'unmetered_ai_usage',
              'token_reservation_overrun', 'invite_rejection_burst',
              'attachment_capability_burst',
+             'model_status_invalid',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
 

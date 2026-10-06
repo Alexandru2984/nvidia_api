@@ -88,6 +88,7 @@ def evaluate(backup_dir, restore_log, journal, now=None):
     token_overruns = journal.count('event=ai_token_reservation_exceeded')
     invite_rejections = journal.count('event=registration_invite_rejected')
     attachment_rejections = journal.count('event=attachment_capability_rejected')
+    model_status_invalid = journal.count('event=model_status_invalid')
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -123,6 +124,8 @@ def evaluate(backup_dir, restore_log, journal, now=None):
         issues['attachment_capability_burst'] = (
             f'{attachment_rejections} incompatible attachment attempts were detected in six minutes.'
         )
+    if model_status_invalid:
+        issues['model_status_invalid'] = 'The runtime model-status file failed validation.'
     if invite_consumed:
         issues['registration_invite_consumed'] = (
             f'{invite_consumed} registration invitations were consumed in six minutes.'

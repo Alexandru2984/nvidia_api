@@ -8,6 +8,7 @@ check is a real chat/completions call with max_tokens=1 per model.
 Scheduled in production by `aichat-model-probe.timer`.
 """
 import concurrent.futures
+import time
 
 import requests
 from django.conf import settings
@@ -32,14 +33,32 @@ class Command(BaseCommand):
             'Content-Type': 'application/json',
         }
         payload = {'model': model_id, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 1}
+        started = time.monotonic()
         try:
             r = requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=timeout)
-            return model_id, r.status_code
-        except requests.RequestException as e:
-            return model_id, type(e).__name__
+            latency_ms = min(round((time.monotonic() - started) * 1000), 120_000)
+            if r.status_code == 200:
+                outcome = 'available'
+            elif r.status_code in (404, 410):
+                outcome = 'retired'
+            elif r.status_code == 429:
+                outcome = 'throttled'
+            elif 400 <= r.status_code < 500:
+                outcome = 'rejected'
+            else:
+                outcome = 'provider_error'
+        except requests.Timeout:
+            latency_ms = min(round((time.monotonic() - started) * 1000), 120_000)
+            outcome = 'timeout'
+        except requests.RequestException:
+            latency_ms = min(round((time.monotonic() - started) * 1000), 120_000)
+            outcome = 'network_error'
+        return model_id, {'outcome': outcome, 'latency_ms': latency_ms, 'attempts': 1}
 
     def handle(self, *args, **opts):
-        timeout, workers, dry = opts['timeout'], opts['workers'], opts['dry_run']
+        timeout = max(1, min(opts['timeout'], 120))
+        workers = max(1, min(opts['workers'], 16))
+        dry = opts['dry_run']
         ids = sorted(MODEL_IDS)
         results = {}
         with concurrent.futures.ThreadPoolExecutor(workers) as ex:
@@ -48,20 +67,24 @@ class Command(BaseCommand):
 
         # Retry non-200s once — serverless NIMs can cold-start slowly, and a
         # single flaky timeout shouldn't hide a working model for a week.
-        flaky = [m for m, s in results.items() if s != 200]
+        flaky = [m for m, result in results.items() if result['outcome'] != 'available']
         if flaky:
             with concurrent.futures.ThreadPoolExecutor(min(workers, len(flaky))) as ex:
                 for mid, outcome in ex.map(lambda m: self._probe(m, timeout), flaky):
+                    outcome['attempts'] = 2
                     results[mid] = outcome
 
-        unavailable = sorted(m for m, s in results.items() if s != 200)
+        unavailable = sorted(
+            model_id for model_id, result in results.items()
+            if result['outcome'] != 'available'
+        )
         ok = len(ids) - len(unavailable)
         for m in unavailable:
-            self.stdout.write(f'  DOWN ({results[m]}): {m}')
+            self.stdout.write(f"  DOWN ({results[m]['outcome']}): {m}")
         summary = f'{ok}/{len(ids)} models available; {len(unavailable)} marked unavailable.'
 
         if dry:
             self.stdout.write(f'[dry-run] {summary}')
             return
-        write_status(unavailable, timezone.now().isoformat(), results={m: str(s) for m, s in results.items()})
+        write_status(unavailable, timezone.now().isoformat(), results=results)
         self.stdout.write(self.style.SUCCESS(summary))
