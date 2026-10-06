@@ -56,10 +56,12 @@ timed evidence.
   grouped by purpose, exposes context/input badges, and only offers formats the
   chosen model can consume. Switching models makes incompatible pending/history
   media explicit, with backend enforcement independent of the browser.
-- Add searchable model selection with favorites/recent models, a compare drawer,
-  latency/availability age, and explicit “best for” guidance. Expose reasoning,
-  tool use, structured output, and output modality controls only when verified
-  and declared by the selected model.
+- **Model discovery is shipped:** search spans name/vendor/ID/description,
+  browser-local favorites and recent models are bounded to public IDs, comparison
+  supports three models, and the live availability-check timestamp is visible.
+  Add measured latency and explicit “best for” guidance. Expose reasoning, tool
+  use, structured output, and output modality controls only when verified and
+  declared by the selected model.
 - Add drag/drop and clipboard image paste, upload progress/cancel/retry, duplicate
   detection, document extraction preview, per-file inclusion toggles, and a clear
   explanation of why a file/model combination is rejected.

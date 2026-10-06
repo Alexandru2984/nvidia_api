@@ -169,6 +169,10 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   `capabilities` contract. The UI groups assistant/coding/translation/safety/
   specialized models and derives its image/document picker from that contract;
   the backend independently enforces the same MIME, byte, and image-count rules.
+- The model explorer searches name/vendor/ID/capabilities, compares up to three
+  available models, and shows the runtime availability timestamp. Favorites and
+  six recent model IDs are browser-local, bounded preferences; no user identity,
+  prompt, conversation title, or message content is written there.
 - Documents are provided to models as bounded extracted text. Images are sent
   only to explicitly documented vision endpoints; incompatible pending files
   block sending, and incompatible historical images are omitted when switching

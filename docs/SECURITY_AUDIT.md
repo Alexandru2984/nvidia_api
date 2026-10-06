@@ -125,7 +125,7 @@ is required before describing those controls as complete.
   fail-closed usage validation, atomic invite consumption, privacy-safe admin
   auditing and tamper detection, SSE byte parsing, retired-model handling,
   payload, per-model attachment capabilities, and generated-image boundary tests.
-- Frontend lint/build, fourteen responsive Playwright checks (320–1440 px), and
+- Frontend lint/build, seventeen responsive Playwright checks (320–1440 px), and
   Python/Node dependency audits passed during remediation.
 - Django deploy checks, nginx syntax, systemd isolation, backup restoration, and
   external route/header probes must be repeated during each production rollout.
@@ -249,6 +249,24 @@ is required before describing those controls as complete.
   can drift between catalog updates, and model probing cannot distinguish a
   sustained transient outage from retirement. Runtime probing therefore hides
   failures rather than widening accepted inputs.
+
+### Model-explorer rollout — 2026-10-06
+
+- Deployed frontend state `d4c0f63` after retaining private webroot snapshot
+  `aichat.micutu.com_20261006_163705_455483222`; no backend, schema, provider, or
+  server-side user-data change was required.
+- Search, purpose filters, favorites, recent models, three-way comparison, and the
+  live availability timestamp are keyboard-accessible and responsive from 320 to
+  1440 px. The native model selector remains available for a minimal fallback.
+- Browser persistence is versioned, size-bounded, schema-sanitized, and restricted
+  to public model IDs (24 favorites and 6 recent entries). Corrupt or oversized
+  preferences fail empty, and no account identifier, prompt, title, attachment,
+  or message content is stored. The server remains authoritative for availability
+  and rejects stale/tampered model choices.
+- Public HTML, the new hashed JS/CSS, health, and `security.txt` returned 200;
+  `/media/` remained 404 and anonymous admin/model/configuration probes remained
+  403. CSP and security headers were unchanged, the backend retained zero
+  automatic restarts, and no warning-or-higher journal entries appeared.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
