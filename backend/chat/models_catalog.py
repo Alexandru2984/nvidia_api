@@ -280,18 +280,140 @@ DEFAULT_MODEL_ID = "meta/llama-3.1-8b-instruct"
 MODEL_IDS = {m["id"] for m in NVIDIA_MODELS}
 
 
-# Vision-capable chat models (can accept image_url content blocks).
-VISION_MODEL_IDS = {
+# Capability metadata is a security boundary, not just UI decoration. Keep this
+# conservative: a model is image-capable only after its NVIDIA endpoint/model
+# card documents OpenAI-compatible image_url input.
+MODEL_IMAGE_CAPABILITIES = {
     'meta/llama-3.2-11b-vision-instruct',
     'meta/llama-3.2-90b-vision-instruct',
-    'meta/llama-4-scout-17b-16e-instruct',
+    'meta/llama-guard-4-12b',
+    'mistralai/ministral-14b-instruct-2512',
+    'mistralai/mistral-large-3-675b-instruct-2512',
+    'mistralai/mistral-small-4-119b-2603',
+    'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
+    'nvidia/nemotron-3-content-safety',
+    'nvidia/nemotron-nano-12b-v2-vl',
+    'qwen/qwen3.5-122b-a10b',
+    'qwen/qwen3.5-397b-a17b',
+}
+VISION_MODEL_IDS = frozenset(MODEL_IMAGE_CAPABILITIES)
+
+DOCUMENT_EXTENSIONS = ('pdf', 'txt', 'md', 'docx')
+DEFAULT_IMAGE_MIME_TYPES = ('image/jpeg', 'image/png')
+IMAGE_EXTENSIONS_BY_MIME = {
+    'image/jpeg': ('jpg', 'jpeg'),
+    'image/png': ('png',),
+    'image/webp': ('webp',),
+}
+
+# Provider-specific constraints. Unknown limits stay conservative: one JPEG/PNG
+# per provider request. The older Nano VL inline endpoint requires assets above
+# 180 KiB, which this application intentionally does not upload to third-party
+# object storage.
+MODEL_IMAGE_OVERRIDES = {
+    'nvidia/llama-3.1-nemotron-nano-vl-8b-v1': {
+        'max_images': 1,
+        'max_image_bytes': 180 * 1024,
+    },
+    'nvidia/nemotron-nano-12b-v2-vl': {
+        'max_images': 5,
+        'image_mime_types': (*DEFAULT_IMAGE_MIME_TYPES, 'image/webp'),
+    },
+}
+
+SAFETY_MODEL_IDS = {
+    'meta/llama-guard-4-12b',
+    'nvidia/llama-3.1-nemoguard-8b-content-safety',
+    'nvidia/llama-3.1-nemoguard-8b-topic-control',
+    'nvidia/llama-3.1-nemotron-safety-guard-8b-v3',
+    'nvidia/nemotron-3-content-safety',
+    'nvidia/nemotron-content-safety-reasoning-4b',
+}
+TRANSLATION_MODEL_IDS = {'nvidia/riva-translate-4b-instruct-v1.1'}
+CODING_MODEL_IDS = {'abacusai/dracarys-llama-3.1-70b-instruct'}
+SPECIALIZED_MODEL_IDS = {
+    'nvidia/ising-calibration-1-35b-a3b',
+    # NVIDIA labels this older VL endpoint demonstration-only, not production.
     'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
 }
 
-# Mark vision capability inline so the frontend can disable image upload
-# when the user picks a text-only model.
+
+def _purpose_for(model_id):
+    if model_id in SAFETY_MODEL_IDS:
+        return 'safety'
+    if model_id in TRANSLATION_MODEL_IDS:
+        return 'translation'
+    if model_id in CODING_MODEL_IDS:
+        return 'coding'
+    if model_id in SPECIALIZED_MODEL_IDS:
+        return 'specialized'
+    return 'assistant'
+
+
+def _capabilities_for(model_id):
+    image_spec = MODEL_IMAGE_OVERRIDES.get(model_id, {})
+    image_mimes = (
+        tuple(image_spec.get('image_mime_types', DEFAULT_IMAGE_MIME_TYPES))
+        if model_id in VISION_MODEL_IDS else ()
+    )
+    image_extensions = tuple(
+        extension
+        for mime in image_mimes
+        for extension in IMAGE_EXTENSIONS_BY_MIME[mime]
+    )
+    return {
+        'input_modalities': [
+            'text', 'document', *(['image'] if model_id in VISION_MODEL_IDS else []),
+        ],
+        'attachment_extensions': [*DOCUMENT_EXTENSIONS, *image_extensions],
+        'document_extensions': list(DOCUMENT_EXTENSIONS),
+        'documents_as_text': True,
+        'image_mime_types': list(image_mimes),
+        'max_images': image_spec.get('max_images', 1) if image_mimes else 0,
+        'max_image_bytes': image_spec.get('max_image_bytes'),
+    }
+
+
+MODEL_BY_ID = {model['id']: model for model in NVIDIA_MODELS}
+
+# Keep the legacy `vision` flag while exposing an extensible capability contract.
 for _m in NVIDIA_MODELS:
     _m['vision'] = _m['id'] in VISION_MODEL_IDS
+    _m['purpose'] = _purpose_for(_m['id'])
+    _m['recommended'] = _m['purpose'] in {'assistant', 'coding'}
+    _m['capabilities'] = _capabilities_for(_m['id'])
+
+
+def model_capabilities(model_id):
+    model = MODEL_BY_ID.get(model_id)
+    return model['capabilities'] if model else None
+
+
+def attachment_capability_issue(model_id, kind, mime_type, size=0):
+    """Return a stable error code/message when an attachment is incompatible."""
+    capabilities = model_capabilities(model_id)
+    if capabilities is None:
+        return 'unknown_model', 'The selected model is not in the catalog.'
+    if kind == 'document':
+        return None
+    if kind not in {'image', 'generated_image'}:
+        return 'attachment_type_unsupported', 'This attachment type is not supported.'
+    if 'image' not in capabilities['input_modalities']:
+        return 'images_not_supported', 'The selected model accepts text and documents, but not images.'
+    if mime_type not in capabilities['image_mime_types']:
+        formats = ', '.join(
+            extension.upper()
+            for extension in capabilities['attachment_extensions']
+            if extension not in DOCUMENT_EXTENSIONS
+        )
+        return 'image_format_unsupported', f'This model accepts only {formats} images.'
+    provider_limit = capabilities['max_image_bytes']
+    if provider_limit and size > provider_limit:
+        return (
+            'image_too_large_for_model',
+            f'This model accepts inline images up to {provider_limit // 1024} KB.',
+        )
+    return None
 
 
 # Image generation catalog — separate endpoint at NVIDIA_GENAI_BASE/{id}.

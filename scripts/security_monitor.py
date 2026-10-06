@@ -87,6 +87,7 @@ def evaluate(backup_dir, restore_log, journal, now=None):
     unmetered_usage = journal.count('event=ai_usage_unmetered')
     token_overruns = journal.count('event=ai_token_reservation_exceeded')
     invite_rejections = journal.count('event=registration_invite_rejected')
+    attachment_rejections = journal.count('event=attachment_capability_rejected')
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -117,6 +118,10 @@ def evaluate(backup_dir, restore_log, journal, now=None):
     if invite_rejections >= int(os.environ.get('INVITE_REJECTION_ALERT_THRESHOLD', '5')):
         issues['invite_rejection_burst'] = (
             f'{invite_rejections} invalid invitation attempts were detected in six minutes.'
+        )
+    if attachment_rejections >= int(os.environ.get('ATTACHMENT_REJECTION_ALERT_THRESHOLD', '5')):
+        issues['attachment_capability_burst'] = (
+            f'{attachment_rejections} incompatible attachment attempts were detected in six minutes.'
         )
     if invite_consumed:
         issues['registration_invite_consumed'] = (

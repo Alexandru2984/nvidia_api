@@ -55,9 +55,11 @@ from .models_catalog import (
     DEFAULT_MODEL_ID,
     IMAGE_GEN_MODEL_IDS,
     IMAGE_GEN_MODELS,
+    MODEL_BY_ID,
     MODEL_IDS,
     NVIDIA_MODELS,
-    VISION_MODEL_IDS,
+    attachment_capability_issue,
+    model_capabilities,
 )
 from .registration import hash_invite_code
 from .security_events import actor_for_request, security_log
@@ -690,18 +692,30 @@ def auth_delete_account(request):
 def list_models(request):
     down = unavailable_model_ids()
     models = [m for m in NVIDIA_MODELS if m['id'] not in down]
-    default = DEFAULT_MODEL_ID
-    if default in down:
-        default = models[0]['id'] if models else None
-    return Response({'models': models, 'default': default,
-                     'availability_checked_at': get_status().get('checked_at')})
+    default = _preferred_model_id(models)
+    return Response({
+        'models': models,
+        'default': default,
+        'availability_checked_at': get_status().get('checked_at'),
+        'attachment_limits': {
+            'max_files_per_message': settings.CHAT_MAX_ATTACHMENTS_PER_MESSAGE,
+            'max_file_bytes': settings.MAX_ATTACHMENT_SIZE,
+            'max_bytes_per_message': settings.CHAT_MAX_ATTACHMENT_BYTES_PER_MESSAGE,
+        },
+    })
+
+
+def _preferred_model_id(models):
+    ids = {model['id'] for model in models}
+    if DEFAULT_MODEL_ID in ids and MODEL_BY_ID[DEFAULT_MODEL_ID]['recommended']:
+        return DEFAULT_MODEL_ID
+    recommended = next((model['id'] for model in models if model['recommended']), None)
+    return recommended or (models[0]['id'] if models else None)
 
 
 def _available_default_model():
     down = unavailable_model_ids()
-    if DEFAULT_MODEL_ID not in down:
-        return DEFAULT_MODEL_ID
-    return next((model['id'] for model in NVIDIA_MODELS if model['id'] not in down), None)
+    return _preferred_model_id([model for model in NVIDIA_MODELS if model['id'] not in down])
 
 
 def _unavailable_model_response():
@@ -809,6 +823,23 @@ def account_usage(request):
     })
 
 
+def _attachment_capability_response(request, model_id, issue, response_status=400):
+    code, message = issue
+    logged_model = model_id if model_id in MODEL_IDS else 'unknown'
+    security_log.warning(
+        'event=attachment_capability_rejected user_id=%s model=%s code=%s',
+        request.user.pk,
+        logged_model,
+        code,
+    )
+    return Response({
+        'error': message,
+        'code': code,
+        'model_id': model_id,
+        'capabilities': model_capabilities(model_id),
+    }, status=response_status)
+
+
 @api_view(['POST'])
 @parser_classes([MultiPartParser])
 @ratelimit(key='user', rate='30/m', block=False)
@@ -825,10 +856,37 @@ def upload_attachment(request):
     if kind is None:
         return Response({'error': f'Unsupported file type: {mime}. Allowed: images (jpg/png/webp/gif), pdf, txt, md, docx.'}, status=415)
 
+    model_id = (request.data.get('model_id') or '').strip()
+    if model_id:
+        if model_id not in MODEL_IDS:
+            return _attachment_capability_response(
+                request,
+                model_id[:120],
+                ('unknown_model', 'The selected model is not in the catalog.'),
+            )
+        if model_id in unavailable_model_ids():
+            return _unavailable_model_response()
+        issue = attachment_capability_issue(model_id, kind, mime, f.size)
+        if issue:
+            return _attachment_capability_response(request, model_id, issue)
+
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
     if used + f.size > settings.MAX_USER_STORAGE:
         return Response({'error': 'Storage quota exceeded.'}, status=413)
     extracted = extract_text(f, mime) if kind == 'document' else ''
+    if kind == 'document' and not extracted.strip():
+        return _attachment_capability_response(
+            request,
+            model_id or 'not-selected',
+            (
+                'document_text_unavailable',
+                (
+                    'No readable text could be extracted from this document. Try TXT, Markdown, '
+                    'or a text-based PDF/DOCX.'
+                ),
+            ),
+            response_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
 
     safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(f.name or 'file'))[:120] or 'file'
     # The storage path has a 100-character limit; keep user-facing names separate.
@@ -965,8 +1023,7 @@ def _build_api_message(role, text, attachments):
     return {'role': role, 'content': parts}
 
 
-def _message_history_cost(message):
-    attachments = list(message.attachments.all())
+def _message_history_cost(message, attachments):
     text_chars = len(message.content or '') + sum(
         len(a.extracted_text or '') for a in attachments if a.kind == Attachment.KIND_DOCUMENT
     )
@@ -976,11 +1033,35 @@ def _message_history_cost(message):
     return attachments, text_chars, image_bytes
 
 
-def _bounded_history(messages):
+def _bounded_history(messages, model_id):
+    """Build history while enforcing the selected model's media contract.
+
+    Newest images win when a provider supports fewer images than the conversation
+    contains. Text and extracted documents remain available after switching from
+    a vision model to a text-only model.
+    """
     keep = []
     text_used = image_bytes_used = 0
+    capabilities = model_capabilities(model_id) or {'max_images': 0}
+    remaining_images = capabilities['max_images']
     for message in reversed(messages[-settings.CHAT_HISTORY_MAX_MESSAGES:]):
-        attachments, text_cost, image_cost = _message_history_cost(message)
+        raw_attachments = sorted(message.attachments.all(), key=lambda attachment: attachment.pk)
+        documents = [
+            attachment for attachment in raw_attachments
+            if attachment.kind == Attachment.KIND_DOCUMENT and attachment.extracted_text
+        ]
+        compatible_images = [
+            attachment for attachment in raw_attachments
+            if attachment.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED)
+            and attachment_capability_issue(
+                model_id, attachment.kind, attachment.mime_type, attachment.size,
+            ) is None
+        ]
+        images = compatible_images[:remaining_images]
+        remaining_images -= len(images)
+        attachments, text_cost, image_cost = _message_history_cost(
+            message, [*documents, *images],
+        )
         exceeds = (
             text_used + text_cost > settings.CHAT_HISTORY_MAX_CHARS
             or image_bytes_used + image_cost > settings.CHAT_HISTORY_MAX_IMAGE_BYTES
@@ -1064,23 +1145,51 @@ def send_message(request, pk):
         return Response({'error': 'Documents exceed the combined extracted-text limit.'}, status=400)
 
     override_model = request.data.get('model_id')
-    if override_model:
-        if override_model not in MODEL_IDS:
-            return Response({'error': f'Unknown model_id: {override_model}'}, status=status.HTTP_400_BAD_REQUEST)
-        if override_model in unavailable_model_ids():
-            return _unavailable_model_response()
-        if override_model != convo.model_id:
-            convo.model_id = override_model
-            convo.save(update_fields=['model_id'])
-    elif convo.model_id in unavailable_model_ids():
+    effective_model = override_model or convo.model_id
+    if effective_model not in MODEL_IDS:
+        return _unavailable_model_response()
+    if effective_model in unavailable_model_ids():
         return _unavailable_model_response()
 
-    has_images = any(a.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED) for a in attachments)
-    if has_images and convo.model_id not in VISION_MODEL_IDS:
-        return Response(
-            {'error': 'This model does not accept images. Pick a vision model (e.g. Llama 3.2 Vision, Llama 4 Scout, Nemotron Nano VL).'},
-            status=status.HTTP_400_BAD_REQUEST,
+    for attachment in attachments:
+        if attachment.kind == Attachment.KIND_DOCUMENT and not attachment.extracted_text.strip():
+            return _attachment_capability_response(
+                request,
+                effective_model,
+                (
+                    'document_text_unavailable',
+                    (
+                        'No readable text is available for one of these documents. Remove it and '
+                        'upload a text-based PDF/DOCX, TXT, or Markdown file.'
+                    ),
+                ),
+                response_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        issue = attachment_capability_issue(
+            effective_model, attachment.kind, attachment.mime_type, attachment.size,
         )
+        if issue:
+            return _attachment_capability_response(request, effective_model, issue)
+
+    capabilities = model_capabilities(effective_model)
+    image_count = sum(
+        attachment.kind in (Attachment.KIND_IMAGE, Attachment.KIND_GENERATED)
+        for attachment in attachments
+    )
+    if image_count > capabilities['max_images']:
+        return _attachment_capability_response(
+            request,
+            effective_model,
+            (
+                'too_many_images_for_model',
+                f"This model accepts at most {capabilities['max_images']} image(s) per request.",
+            ),
+        )
+
+    if override_model and override_model != convo.model_id:
+        convo.model_id = override_model
+        convo.save(update_fields=['model_id'])
+
     prompt_characters = len(user_text) + sum(
         len(a.extracted_text or '') for a in attachments if a.kind == Attachment.KIND_DOCUMENT
     )
@@ -1101,7 +1210,7 @@ def send_message(request, pk):
         a.save(update_fields=['message'])
 
     all_msgs = list(convo.messages.order_by('created_at').prefetch_related('attachments'))
-    history = _bounded_history(all_msgs)
+    history = _bounded_history(all_msgs, model_id=convo.model_id)
     if convo.system_prompt:
         history.insert(0, {'role': 'system', 'content': convo.system_prompt})
 
@@ -1187,7 +1296,7 @@ def _build_history_for(convo, upto_msg_id=None):
         if cutoff is None:
             return []
         all_msgs = all_msgs[:cutoff + 1]
-    history = _bounded_history(all_msgs)
+    history = _bounded_history(all_msgs, model_id=convo.model_id)
     if convo.system_prompt:
         history.insert(0, {'role': 'system', 'content': convo.system_prompt})
     return history
