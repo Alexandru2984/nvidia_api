@@ -72,6 +72,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
+| A-18 | Medium | A malformed/tampered runtime model-status file could reactivate retired endpoints, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range validated and atomically replaced; an existing invalid file hides all models and raises a monitored event; the authenticated API exposes only rounded successful samples and labels them as a synthetic 1-token availability check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
 
 ## Quantitative risk view
 
@@ -92,8 +93,8 @@ login failures, unexpected admin access, rate-limit spikes, backup/restore
 failures, 2FA disable, backend error bursts, missing provider usage, token
 reservation overruns, privileged admin changes or audit-integrity failures, and
 global NVIDIA budget exhaustion. Five incompatible attachment/model rejections in
-six minutes now use the same alert path. External log retention and contractual/
-GPU-spend signals remain open. Target
+six minutes and any invalid runtime model-status file use the same alert path.
+External log retention and contractual/GPU-spend signals remain open. Target
 containment time is 60 minutes after a confirmed high-severity alert.
 
 The response procedure is in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md). It must
@@ -123,7 +124,7 @@ is required before describing those controls as complete.
 
 ## Verification evidence
 
-- 297 backend tests pass, including ownership, CSRF, concurrency, recovery,
+- 301 backend tests pass, including ownership, CSRF, concurrency, recovery,
   anti-enumeration, transactional mail-failure, provider token reconciliation,
   fail-closed usage validation, atomic invite consumption, privacy-safe admin
   auditing and tamper detection, SSE byte parsing, retired-model handling,
@@ -330,6 +331,35 @@ is required before describing those controls as complete.
   only the deliberate `SECURE_HSTS_PRELOAD=False` warning; one-year HSTS with
   subdomains is active, while preload enrollment remains a separate domain-wide
   owner decision.
+
+### Guided-model rollout — 2026-10-06
+
+- Deployed repository state `fbef342` after retaining private frontend snapshot
+  `aichat.micutu.com_20261006_223738_022319541` and checksum-identical copies of
+  the prior runtime model status and installed security monitor under
+  `model_guidance_20261006_223738_022319541`. No database migration or user-data
+  rewrite was required.
+- The runtime status reader now bounds file size, validates timestamps, catalog
+  IDs, outcomes, integer latency and retry counts, caches by path plus nanosecond
+  mtime, and atomically writes mode `0600`. A missing file remains a bootstrap
+  state; an existing unreadable, malformed, or oversized file fails closed by
+  hiding every model and emits `model_status_invalid`, which the five-minute
+  privacy-minimized monitor alerts on during its next run.
+- The authenticated API exposes no provider failure outcome. It returns only a
+  successful 1-token probe sample rounded to 100 ms with a coarse band. The UI
+  states that this is not a quality benchmark, adds capability-derived “best for”
+  guidance, and supports recommendation, last-probe, context, and name sorting in
+  the responsive explorer and comparison view.
+- The fresh sandboxed production probe completed successfully in 92 seconds and
+  found 5/39 available endpoints: Meta Llama 3.2 11B Vision (0.2 s rounded), Meta
+  Llama 3.2 90B Vision (5.4 s), NVIDIA Llama 3.1 Nemotron Safety Guard 8B V3
+  (17.0 s), NVIDIA Nemotron 3 Super 120B (0.4 s), and OpenAI GPT-OSS 20B (1.2 s).
+  These are point-in-time availability samples, not performance guarantees.
+- All 301 backend tests, six monitor tests, 25 responsive browser tests, lint,
+  build, migration-drift, and Django checks passed. Public health, HTML,
+  `security.txt`, and `index-6ov-4KtR.js`/`index-CzoCFMoC.css` returned 200;
+  `/media/` returned 404 and anonymous model/admin/configuration probes returned
+  403. Backend and security monitor remained healthy with zero automatic restarts.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

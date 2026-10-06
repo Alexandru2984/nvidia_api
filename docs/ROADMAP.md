@@ -59,9 +59,10 @@ timed evidence.
 - **Model discovery is shipped:** search spans name/vendor/ID/description,
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.
-  Add measured latency and explicit “best for” guidance. Expose reasoning, tool
-  use, structured output, and output modality controls only when verified and
-  declared by the selected model.
+  Conservative “best for” guidance, rounded successful-probe latency, explicit
+  sample caveats, and recommendation/latency/context/name sorting are shipped.
+  Expose reasoning, tool use, structured output, and output modality controls only
+  when verified and declared by the selected model.
 - **Resilient attachment intake is shipped:** picker, drag/drop, clipboard image
   paste, per-file progress/cancel/retry/dismiss, capability rejection, and
   session-bound state clearing share one bounded queue. Secret-keyed owner-scoped

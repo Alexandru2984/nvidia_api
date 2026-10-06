@@ -125,7 +125,7 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists opaque session handles and revokes selected/other sessions. |
 | GET | `/account/usage/` | — | session | Storage totals plus today's durable chat/image budgets and UTC reset. |
-| GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose metadata, per-model input/attachment capabilities, the selected default, probe timestamp, and global attachment limits. |
+| GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |
 | GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–2, tokens 64–8192, prompt ≤4000 chars. |
@@ -176,14 +176,21 @@ cost rather than an assumed per-token price.
 
 NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both directions, so availability is re-checked automatically:
 
-- `python manage.py probe_models` probes every catalog model with a 1-token completion (with one retry for cold starts) and writes the private runtime file `backend/.cache/model_status.json`.
+- `python manage.py probe_models` probes every catalog model with a 1-token completion
+  (with one retry for cold starts) and writes the private `0600` runtime file
+  `backend/.cache/model_status.json` atomically. Its schema, size, model IDs,
+  outcome vocabulary, latency range, and attempt count are validated when read;
+  an existing malformed file fails closed and triggers the security monitor.
 - `/api/models/` subtracts the unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
-- Each catalog row exposes `purpose`, `recommended`, and a conservative
+- Each catalog row exposes `purpose`, `recommended`, conservative `best_for`, and a
   `capabilities` contract. The UI groups assistant/coding/translation/safety/
   specialized models and derives its image/document picker from that contract;
   the backend independently enforces the same MIME, byte, and image-count rules.
-- The model explorer searches name/vendor/ID/capabilities, compares up to three
-  available models, and shows the runtime availability timestamp. Favorites and
+- The model explorer searches name/vendor/ID/capabilities/guidance, sorts by
+  recommendation, last probe, context, or name, compares up to three available
+  models, and shows the runtime availability timestamp. Successful latency is
+  rounded to 100 ms and explicitly labeled as one synthetic availability sample,
+  not a quality benchmark; provider failure details stay server-side. Favorites and
   six recent model IDs are browser-local, bounded preferences; no user identity,
   prompt, conversation title, or message content is written there.
 - Documents are provided to models as bounded extracted text. Images are sent
