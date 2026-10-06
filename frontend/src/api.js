@@ -131,9 +131,10 @@ export const api = {
     }
   },
   listAttachments: (kind) => request(`/attachments/${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
-  uploadAttachment: (file) => {
+  uploadAttachment: (file, modelId) => {
     const fd = new FormData()
     fd.append('file', file)
+    if (modelId) fd.append('model_id', modelId)
     return request('/attachments/upload/', { method: 'POST', body: fd })
   },
   deleteAttachment: (id) => request(`/attachments/${id}/`, { method: 'DELETE' }),

@@ -207,6 +207,35 @@ textarea { resize: none; line-height: 1.5; }
   pointer-events: none;
 }
 
+.model-summary {
+  min-height: 38px;
+  padding: 7px 20px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elev) 55%, var(--bg));
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.model-badge {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  white-space: nowrap;
+}
+.model-badge.purpose { color: var(--text); font-weight: 650; }
+.model-badge.positive { color: #b9d878; border-color: rgba(118, 185, 0, .4); }
+.model-description {
+  min-width: 0;
+  margin-left: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-area {
   flex: 1;
   overflow-y: auto;
@@ -702,6 +731,50 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 }
 .attach-btn:hover:not(:disabled) { background: var(--bg-elev-2); color: var(--text); }
 
+.attachment-picker {
+  max-width: 760px;
+  margin: 0 auto 10px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .24);
+}
+.attachment-choice {
+  min-width: 0;
+  min-height: 68px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: var(--bg);
+}
+.attachment-choice > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.attachment-choice strong { font-size: 13px; }
+.attachment-choice small { color: var(--text-dim); font-size: 11px; line-height: 1.35; }
+.attachment-choice-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(118, 185, 0, .12);
+  color: var(--accent);
+  font-size: 20px;
+}
+.attachment-picker p {
+  grid-column: 1 / -1;
+  margin: 1px 4px 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .pending-row {
   max-width: 760px;
   margin: 0 auto 8px;
@@ -814,6 +887,9 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   border-radius: 8px;
   padding: 8px 12px;
 }
+.attachment-warn { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.attachment-warn .link { flex: 0 0 auto; color: inherit; }
+.history-media-notice { justify-content: flex-start; }
 
 .image-mode {
   flex: 1;
@@ -986,6 +1062,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   background: #fff8e6;
   border-color: #c78a22;
 }
+:root[data-theme="light"] .model-badge.positive { color: #426c00; }
 .app { height: 100dvh; width: 100%; grid-template-columns: 280px minmax(0, 1fr); overflow: hidden; }
 .topbar { min-height: 64px; height: auto; flex-shrink: 0; padding-block: 8px; }
 .convo-search { width: calc(100% - 24px); }
@@ -1040,6 +1117,8 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   .topbar .title { min-width: 0; flex: 1; }
   .model-select-wrap { flex: 1 0 100%; width: 100%; max-width: none; min-width: 0; }
   .model-select-wrap select { font-size: 16px; }
+  .model-summary { padding: 7px 12px; flex-wrap: wrap; gap: 5px; }
+  .model-description { flex: 1 0 100%; margin: 1px 0 0; }
   .model-status-banner { align-items: stretch; flex-direction: column; width: calc(100% - 24px); }
   .model-status-banner button { width: 100%; }
   button.icon, .mode-toggle button { min-height: 44px; min-width: 44px; }
@@ -1052,6 +1131,11 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   .session-row > div { flex: 1 1 180px; }
   .welcome { padding: 28px 16px; }
   .att-tile.doc { min-width: 0; max-width: 100%; }
+  .attachment-picker { grid-template-columns: 1fr; }
+  .attachment-picker p { grid-column: 1; }
+  .attachment-choice { min-height: 62px; }
+  .attachment-warn { align-items: stretch; flex-direction: column; }
+  .attachment-warn .link { min-height: 40px; }
   .convo-item .delete, .copy-btn { opacity: 1; }
   .hint { font-size: 10px; }
 }

@@ -4,7 +4,16 @@ const Settings = lazy(() => import('./Settings'))
 const MarkdownBody = lazy(() => import('./MarkdownBody'))
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024
-const ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'txt', 'md', 'docx']
+const DOCUMENT_EXTENSIONS = ['pdf', 'txt', 'md', 'docx']
+const FALLBACK_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
+const PURPOSE_GROUPS = [
+  ['assistant', 'Assistants'],
+  ['coding', 'Coding'],
+  ['translation', 'Translation'],
+  ['safety', 'Safety classifiers'],
+  ['specialized', 'Specialized'],
+]
+const PURPOSE_LABELS = Object.fromEntries(PURPOSE_GROUPS)
 
 function fileExt(name) {
   const i = (name || '').lastIndexOf('.')
@@ -16,6 +25,33 @@ function humanSize(bytes) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatContext(tokens) {
+  if (!tokens) return 'Context unknown'
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}K context` : `${tokens} context`
+}
+
+function capabilitiesFor(model) {
+  if (model?.capabilities) return model.capabilities
+  const imageExtensions = model?.vision ? FALLBACK_IMAGE_EXTENSIONS : []
+  return {
+    input_modalities: ['text', 'document', ...(model?.vision ? ['image'] : [])],
+    attachment_extensions: [...DOCUMENT_EXTENSIONS, ...imageExtensions],
+    document_extensions: DOCUMENT_EXTENSIONS,
+    documents_as_text: true,
+    image_mime_types: model?.vision ? ['image/jpeg', 'image/png'] : [],
+    max_images: model?.vision ? 1 : 0,
+    max_image_bytes: null,
+  }
+}
+
+function attachmentIsCompatible(attachment, capabilities) {
+  if (attachment.kind === 'document') return attachment.has_text !== false
+  if (!['image', 'generated_image'].includes(attachment.kind)) return false
+  return capabilities.input_modalities.includes('image')
+    && capabilities.image_mime_types.includes(attachment.mime_type)
+    && (!capabilities.max_image_bytes || attachment.size <= capabilities.max_image_bytes)
 }
 
 const SUGGESTIONS = [
@@ -682,6 +718,12 @@ export default function App() {
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
   const [uploadingCount, setUploadingCount] = useState(0)
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
+  const [attachmentLimits, setAttachmentLimits] = useState({
+    max_files_per_message: 8,
+    max_file_bytes: MAX_FILE_BYTES,
+    max_bytes_per_message: 20 * 1024 * 1024,
+  })
   const [imageModels, setImageModels] = useState([])
   const [imageModel, setImageModel] = useState('')
   const [imagePrompt, setImagePrompt] = useState('')
@@ -690,7 +732,9 @@ export default function App() {
   const [imageGallery, setImageGallery] = useState([])
   const chatEndRef = useRef(null)
   const textareaRef = useRef(null)
-  const fileInputRef = useRef(null)
+  const imageInputRef = useRef(null)
+  const documentInputRef = useRef(null)
+  const attachButtonRef = useRef(null)
   const abortRef = useRef(null)
   const sidebarRef = useRef(null)
   const menuRef = useRef(null)
@@ -723,6 +767,17 @@ export default function App() {
   }, [sidebarOpen])
 
   useEffect(() => {
+    if (!attachmentMenuOpen) return
+    function closeAttachmentMenu(event) {
+      if (event.key !== 'Escape') return
+      setAttachmentMenuOpen(false)
+      attachButtonRef.current?.focus()
+    }
+    document.addEventListener('keydown', closeAttachmentMenu)
+    return () => document.removeEventListener('keydown', closeAttachmentMenu)
+  }, [attachmentMenuOpen])
+
+  useEffect(() => {
     let cancelled = false
     api.me()
       .then((u) => {
@@ -752,6 +807,7 @@ export default function App() {
         if (cancelled) return
         setModels(m.models)
         setDefaultModel(m.default)
+        setAttachmentLimits((limits) => ({ ...limits, ...(m.attachment_limits || {}) }))
         setConversations(c)
         setImageModels(im.models || [])
         setImageModel(im.default || (im.models?.[0]?.id) || '')
@@ -807,10 +863,32 @@ export default function App() {
   const modelLabel = currentModel
     ? `${currentModel.name} · ${currentModel.vendor}`
     : currentModelId ? `${currentModelId.split('/').pop()} · unavailable` : 'No model available'
-  const supportsVision = !!currentModel?.vision
-
-  const hasPendingImages = pendingAttachments.some((a) => a.kind === 'image')
-  const imageBlocked = hasPendingImages && !supportsVision
+  const currentCapabilities = capabilitiesFor(currentModel)
+  const supportsVision = currentCapabilities.input_modalities.includes('image')
+  const imageExtensions = currentCapabilities.attachment_extensions
+    .filter((extension) => !DOCUMENT_EXTENSIONS.includes(extension))
+  const imageAccept = imageExtensions.map((extension) => `.${extension}`).join(',')
+  const pendingImages = pendingAttachments.filter((attachment) =>
+    ['image', 'generated_image'].includes(attachment.kind))
+  const incompatiblePending = pendingAttachments.filter((attachment) =>
+    !attachmentIsCompatible(attachment, currentCapabilities))
+  const attachmentsBlocked = incompatiblePending.length > 0
+  const imageLimitReached = pendingImages.length >= currentCapabilities.max_images
+  const fileLimitReached = pendingAttachments.length + uploadingCount
+    >= attachmentLimits.max_files_per_message
+  const maxImageBytes = Math.min(
+    attachmentLimits.max_file_bytes,
+    currentCapabilities.max_image_bytes || attachmentLimits.max_file_bytes,
+  )
+  const historicalImagesOmitted = Boolean(active?.messages?.some((message) =>
+    (message.attachments || []).some((attachment) =>
+      ['image', 'generated_image'].includes(attachment.kind)
+      && !attachmentIsCompatible(attachment, currentCapabilities))))
+  const groupedModels = useMemo(() => PURPOSE_GROUPS.map(([purpose, label]) => ({
+    purpose,
+    label,
+    models: models.filter((model) => (model.purpose || 'assistant') === purpose),
+  })).filter((group) => group.models.length > 0), [models])
 
   const currentImageSpec = useMemo(
     () => imageModels.find((m) => m.id === imageModel),
@@ -848,25 +926,59 @@ export default function App() {
     }
   }
 
-  async function handlePickFiles(e) {
+  async function handlePickFiles(e, requestedKind) {
     const files = Array.from(e.target.files || [])
     e.target.value = ''
     if (!files.length) return
+    setAttachmentMenuOpen(false)
     setError(null)
+    if (!currentModel) {
+      setError('Choose an available model before adding files.')
+      return
+    }
+    const allowedExtensions = requestedKind === 'image'
+      ? imageExtensions
+      : currentCapabilities.document_extensions
+    let fileSlots = Math.max(
+      0,
+      attachmentLimits.max_files_per_message - pendingAttachments.length - uploadingCount,
+    )
+    let imageSlots = Math.max(0, currentCapabilities.max_images - pendingImages.length)
+    let bytesAvailable = Math.max(
+      0,
+      attachmentLimits.max_bytes_per_message
+        - pendingAttachments.reduce((total, attachment) => total + attachment.size, 0),
+    )
     for (const f of files) {
       const ext = fileExt(f.name)
-      if (!ALLOWED_EXT.includes(ext)) {
-        setError(`Unsupported file type: .${ext}. Allowed: ${ALLOWED_EXT.join(', ')}`)
+      if (fileSlots <= 0) {
+        setError(`You can attach at most ${attachmentLimits.max_files_per_message} files per message.`)
+        break
+      }
+      if (!allowedExtensions.includes(ext)) {
+        setError(`.${ext || '?'} isn't supported here. Allowed: ${allowedExtensions.join(', ')}`)
         continue
       }
-      if (f.size > MAX_FILE_BYTES) {
-        setError(`${f.name} is larger than 10 MB.`)
+      if (requestedKind === 'image' && imageSlots <= 0) {
+        setError(`${currentModel.name} accepts at most ${currentCapabilities.max_images} image(s) per request.`)
+        break
+      }
+      const maxBytes = requestedKind === 'image' ? maxImageBytes : attachmentLimits.max_file_bytes
+      if (f.size > maxBytes) {
+        setError(`${f.name} is larger than this model's ${humanSize(maxBytes)} limit.`)
+        continue
+      }
+      if (f.size > bytesAvailable) {
+        setError(`Attachments exceed the ${humanSize(attachmentLimits.max_bytes_per_message)} message limit.`)
         continue
       }
       setUploadingCount((n) => n + 1)
       try {
-        const att = await api.uploadAttachment(f)
+        const att = await api.uploadAttachment(f, currentModelId)
         setPendingAttachments((prev) => [...prev, att])
+        fileSlots -= 1
+        bytesAvailable -= att.size
+        if (requestedKind === 'image') imageSlots -= 1
       } catch (err) {
         setError(err.message)
       } finally {
@@ -878,6 +990,14 @@ export default function App() {
   async function removePending(id) {
     try { await api.deleteAttachment(id) } catch {}
     setPendingAttachments((prev) => prev.filter((a) => a.id !== id))
+  }
+
+  async function removeIncompatibleAttachments() {
+    await Promise.all(incompatiblePending.map(async (attachment) => {
+      try { await api.deleteAttachment(attachment.id) } catch {}
+    }))
+    const incompatibleIds = new Set(incompatiblePending.map((attachment) => attachment.id))
+    setPendingAttachments((items) => items.filter((attachment) => !incompatibleIds.has(attachment.id)))
   }
 
   async function handleGenerate(e) {
@@ -903,7 +1023,7 @@ export default function App() {
   async function handleSend(e) {
     e?.preventDefault?.()
     const text = draft.trim()
-    if (sending || imageBlocked || activeModelUnavailable) return
+    if (sending || attachmentsBlocked || activeModelUnavailable) return
     if (!text && pendingAttachments.length === 0) return
 
     let convo = active
@@ -1264,6 +1384,7 @@ export default function App() {
               <select
                 value={currentModelId}
                 aria-label="Chat model"
+                aria-describedby={currentModel ? 'model-capability-summary' : undefined}
                 onChange={(e) => handleSwitchModel(e.target.value)}
                 disabled={sending}
                 title={modelLabel}
@@ -1273,10 +1394,14 @@ export default function App() {
                     Unavailable · {active.model_id.split('/').pop()}
                   </option>
                 )}
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}{m.vision ? ' · 👁' : ''} · {m.vendor}
-                  </option>
+                {groupedModels.map((group) => (
+                  <optgroup key={group.purpose} label={group.label}>
+                    {group.models.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}{model.vision ? ' · Vision' : ''} · {model.vendor}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             ) : (
@@ -1295,6 +1420,17 @@ export default function App() {
         </div>
 
         {mode === 'chat' && (<>
+        {currentModel && (
+          <div className="model-summary" id="model-capability-summary" aria-live="polite">
+            <span className="model-badge purpose">{PURPOSE_LABELS[currentModel.purpose] || 'Assistant'}</span>
+            <span className="model-badge">{formatContext(currentModel.context)}</span>
+            <span className={`model-badge ${supportsVision ? 'positive' : ''}`}>
+              {supportsVision ? `Images · max ${currentCapabilities.max_images}` : 'No image input'}
+            </span>
+            <span className="model-badge positive">PDF · DOCX · TXT · MD</span>
+            <span className="model-description">{currentModel.description}</span>
+          </div>
+        )}
         {active && showConvoSettings && (
           <ConvoSettingsPanel
             key={active.id}
@@ -1322,6 +1458,12 @@ export default function App() {
                 Use {defaultModelSpec.name}
               </button>
             )}
+          </div>
+        )}
+        {historicalImagesOmitted && !activeModelUnavailable && (
+          <div className="model-status-banner history-media-notice" role="status">
+            Earlier images remain in this conversation, but this model does not accept them.
+            Text and extracted document content will still be included.
           </div>
         )}
         <div className="chat-area">
@@ -1367,33 +1509,86 @@ export default function App() {
               )}
             </div>
           )}
-          {imageBlocked && (
-            <div className="vision-warn">
-              The selected model can't read images. Pick a vision model (look for 👁) or remove the images.
+          {attachmentsBlocked && (
+            <div className="vision-warn attachment-warn" role="alert">
+              <span>
+                {incompatiblePending.length} pending attachment{incompatiblePending.length === 1 ? '' : 's'}{' '}
+                {incompatiblePending.length === 1 ? 'is' : 'are'} not compatible with {currentModel?.name}.
+              </span>
+              <button type="button" className="link" onClick={removeIncompatibleAttachments}>
+                Remove incompatible
+              </button>
+            </div>
+          )}
+          {attachmentMenuOpen && (
+            <div className="attachment-picker" id="attachment-picker" aria-label="Add attachments">
+              <button
+                type="button"
+                className="attachment-choice"
+                disabled={!supportsVision || imageLimitReached || fileLimitReached || uploadingCount > 0}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                <span className="attachment-choice-icon" aria-hidden="true">▧</span>
+                <span>
+                  <strong>Add images</strong>
+                  <small>
+                    {supportsVision
+                      ? `${imageExtensions.map((ext) => ext.toUpperCase()).join(', ')} · max ${currentCapabilities.max_images} · ${humanSize(maxImageBytes)} each`
+                      : `${currentModel?.name || 'This model'} does not accept images`}
+                  </small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="attachment-choice"
+                disabled={fileLimitReached || uploadingCount > 0}
+                onClick={() => documentInputRef.current?.click()}
+              >
+                <span className="attachment-choice-icon" aria-hidden="true">≡</span>
+                <span>
+                  <strong>Add documents</strong>
+                  <small>PDF, DOCX, TXT, MD · extracted securely as text</small>
+                </span>
+              </button>
+              <p>Files are private to your account and their content is sent to NVIDIA only when you send.</p>
             </div>
           )}
           <div className="composer">
             <input
-              ref={fileInputRef}
+              ref={imageInputRef}
               type="file"
               multiple
-              accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.md,.docx,image/*,application/pdf,text/plain,text/markdown"
-              onChange={handlePickFiles}
+              accept={imageAccept}
+              aria-label="Choose images"
+              onChange={(event) => handlePickFiles(event, 'image')}
+              style={{ display: 'none' }}
+            />
+            <input
+              ref={documentInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.txt,.md,.docx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              aria-label="Choose documents"
+              onChange={(event) => handlePickFiles(event, 'document')}
               style={{ display: 'none' }}
             />
             <button
+              ref={attachButtonRef}
               type="button"
               className="icon attach-btn"
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach files (images, PDF, txt, md, docx)"
-              disabled={sending || activeModelUnavailable}
+              onClick={() => setAttachmentMenuOpen((open) => !open)}
+              title="Add images or documents"
+              aria-label="Add attachments"
+              aria-expanded={attachmentMenuOpen}
+              aria-controls="attachment-picker"
+              disabled={sending || activeModelUnavailable || !currentModel || fileLimitReached}
             >📎</button>
             <textarea
               ref={textareaRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={active ? 'Reply…' : 'Ask anything, or attach a file…'}
+              placeholder={active ? 'Reply…' : 'Ask anything, or add a document…'}
               rows={1}
               maxLength={8000}
               aria-label="Message"
@@ -1410,13 +1605,16 @@ export default function App() {
               <button
                 type="submit"
                 className="primary send"
-                disabled={(!draft.trim() && pendingAttachments.length === 0) || imageBlocked
+                disabled={(!draft.trim() && pendingAttachments.length === 0) || attachmentsBlocked
                   || activeModelUnavailable || uploadingCount > 0}
                 title="Send"
               >↑</button>
             )}
           </div>
-          <div className="hint">{draft.length > 0 && <span>{draft.length.toLocaleString()} / 8,000 · </span>}Enter to send · Shift+Enter for newline</div>
+          <div className="hint">
+            {draft.length > 0 && <span>{draft.length.toLocaleString()} / 8,000 · </span>}
+            Enter to send · Shift+Enter for newline · {pendingAttachments.length}/{attachmentLimits.max_files_per_message} files
+          </div>
           <div className="privacy-hint">Messages and attached content are sent to NVIDIA to generate responses.</div>
         </form>
         </>)}

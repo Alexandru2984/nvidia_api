@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { Buffer } from 'node:buffer'
 
 async function mockAPI(
   page, signedIn = true, conversationModel = 'test/model', registrationMode = 'open',
@@ -18,12 +19,52 @@ async function mockAPI(
       const patch = route.request().postDataJSON()
       return route.fulfill({ status: 200, json: { ...conversation, ...patch } })
     }
+    if (path === '/api/attachments/upload/' && route.request().method() === 'POST') {
+      return route.fulfill({ status: 201, json: {
+        id: 900, kind: 'image', original_name: 'diagram.png', mime_type: 'image/png',
+        size: 68, url: '/api/attachments/900/download/', has_text: false, deletable: true,
+      } })
+    }
+    if (path === '/api/attachments/900/' && route.request().method() === 'DELETE') {
+      return route.fulfill({ status: 204, body: '' })
+    }
     const data = {
       '/api/auth/me/': {
         username: signedIn ? 'alice' : null,
         registration_mode: registrationMode,
       },
-      '/api/models/': { models: [{ id: 'test/model', name: 'Test model', vendor: 'Test', vision: true }], default: 'test/model' },
+      '/api/models/': {
+        models: [
+          {
+            id: 'test/model', name: 'Test Vision', vendor: 'Test', vision: true,
+            purpose: 'assistant', recommended: true, context: 128000,
+            description: 'A capable test model with image input.',
+            capabilities: {
+              input_modalities: ['text', 'document', 'image'],
+              attachment_extensions: ['pdf', 'txt', 'md', 'docx', 'jpg', 'jpeg', 'png'],
+              document_extensions: ['pdf', 'txt', 'md', 'docx'], documents_as_text: true,
+              image_mime_types: ['image/jpeg', 'image/png'], max_images: 1,
+              max_image_bytes: null,
+            },
+          },
+          {
+            id: 'text/model', name: 'Text Only', vendor: 'Test', vision: false,
+            purpose: 'assistant', recommended: true, context: 32000,
+            description: 'A fast text-only test model.',
+            capabilities: {
+              input_modalities: ['text', 'document'],
+              attachment_extensions: ['pdf', 'txt', 'md', 'docx'],
+              document_extensions: ['pdf', 'txt', 'md', 'docx'], documents_as_text: true,
+              image_mime_types: [], max_images: 0, max_image_bytes: null,
+            },
+          },
+        ],
+        default: 'test/model',
+        attachment_limits: {
+          max_files_per_message: 8, max_file_bytes: 10485760,
+          max_bytes_per_message: 20971520,
+        },
+      },
       '/api/conversations/': [conversation],
       '/api/conversations/1/': conversation,
       '/api/images/models/': { models: [], default: '' },
@@ -107,7 +148,7 @@ test('retired conversation model is explicit and recoverable on mobile', async (
   await expect(page.getByLabel('Message')).toBeDisabled()
   await expectNoPageOverflow(page)
 
-  await page.getByRole('button', { name: 'Use Test model' }).click()
+  await page.getByRole('button', { name: 'Use Test Vision' }).click()
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByLabel('Chat model')).toHaveValue('test/model')
   await expect(page.getByLabel('Message')).toBeEnabled()
@@ -130,5 +171,50 @@ test('closed registration exposes no account creation control', async ({ page })
   await page.goto('/')
   await expect(page.getByText('New account registration is currently closed.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create one' })).toHaveCount(0)
+  await expectNoPageOverflow(page)
+})
+
+test('model capabilities drive the mobile attachment picker', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+
+  await expect(page.getByText('Images · max 1')).toBeVisible()
+  await expect(page.getByText('128K context')).toBeVisible()
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await expect(page.getByRole('button', { name: 'Add images' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Add documents' })).toBeEnabled()
+  await page.screenshot({ path: 'test-results/attachment-picker-320.png' })
+
+  await page.getByLabel('Chat model').selectOption('text/model')
+  await expect(page.getByText('No image input')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add images' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Add documents' })).toBeEnabled()
+  await expectNoPageOverflow(page)
+})
+
+test('switching models makes incompatible pending images explicit and recoverable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'diagram.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+
+  await page.getByLabel('Chat model').selectOption('text/model')
+  const warning = page.getByRole('alert')
+  await expect(warning).toContainText('is not compatible')
+  await expect(page.getByTitle('Send')).toBeDisabled()
+  await page.getByRole('button', { name: 'Remove incompatible' }).click()
+  await expect(warning).toHaveCount(0)
+  await expect(page.getByAltText('diagram.png')).toHaveCount(0)
   await expectNoPageOverflow(page)
 })
