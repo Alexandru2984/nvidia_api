@@ -1,5 +1,6 @@
 """Attachment type checks and resource-bounded document extraction."""
 import hashlib
+import hmac
 import io
 import logging
 import os
@@ -21,9 +22,14 @@ _EXT_TO_MIME = {
 }
 
 
-def content_sha256(uploaded_file) -> str:
-    """Hash an upload without retaining its bytes or changing its read position."""
-    digest = hashlib.sha256()
+def content_fingerprint(uploaded_file, owner_id) -> str:
+    """Return a secret, owner-scoped upload fingerprint and rewind the file.
+
+    Owner scoping prevents identical files from being correlated across accounts,
+    while the keyed digest prevents offline confirmation from a leaked hash list.
+    """
+    domain = f'attachment-dedup:v1:user:{owner_id}\0'.encode()
+    digest = hmac.new(settings.SECRET_KEY.encode(), domain, hashlib.sha256)
     uploaded_file.seek(0)
     for chunk in uploaded_file.chunks():
         digest.update(chunk)

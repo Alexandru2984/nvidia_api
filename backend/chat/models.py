@@ -211,7 +211,7 @@ class Attachment(models.Model):
     size = models.PositiveIntegerField()
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     extracted_text = models.TextField(blank=True, default='')
-    # Internal-only owner-scoped deduplication key. Never expose this through an API.
+    # Internal-only, secret-keyed, owner-scoped HMAC-SHA256. Never expose it through an API.
     content_sha256 = models.CharField(max_length=64, blank=True, default='', editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

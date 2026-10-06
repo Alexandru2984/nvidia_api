@@ -40,7 +40,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .attachments import content_sha256, detect_mime, extract_text, kind_for_mime
+from .attachments import content_fingerprint, detect_mime, extract_text, kind_for_mime
 from .model_status import get_status, unavailable_model_ids
 from .models import (
     Attachment,
@@ -876,7 +876,7 @@ def upload_attachment(request):
         if issue:
             return _attachment_capability_response(request, model_id, issue)
 
-    content_hash = content_sha256(f)
+    content_hash = content_fingerprint(f, request.user.pk)
     duplicate = Attachment.objects.filter(
         user=request.user,
         message__isnull=True,

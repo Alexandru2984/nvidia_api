@@ -1,10 +1,16 @@
 """Tests for attachment upload, MIME sniffing, quota, text extraction."""
 import hashlib
+import hmac
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from chat.attachments import content_sha256, detect_mime, extract_text, kind_for_mime
+from chat.attachments import (
+    content_fingerprint,
+    detect_mime,
+    extract_text,
+    kind_for_mime,
+)
 from chat.models import Attachment, Message
 
 
@@ -246,11 +252,20 @@ class TestMimeSniffing:
         assert kind_for_mime('application/pdf') == 'document'
         assert kind_for_mime('application/x-evil') is None
 
-    def test_content_hash_rewinds_upload(self):
+    def test_content_fingerprint_is_keyed_owner_scoped_and_rewinds_upload(self, settings):
         upload = _img_upload()
-        expected = hashlib.sha256(_png_bytes()).hexdigest()
-        assert content_sha256(upload) == expected
+        expected = hmac.new(
+            settings.SECRET_KEY.encode(),
+            b'attachment-dedup:v1:user:7\0' + _png_bytes(),
+            hashlib.sha256,
+        ).hexdigest()
+        fingerprint = content_fingerprint(upload, 7)
+        assert fingerprint == expected
+        assert fingerprint != hashlib.sha256(_png_bytes()).hexdigest()
         assert upload.read() == _png_bytes()
+
+        other_owner_upload = _img_upload()
+        assert content_fingerprint(other_owner_upload, 8) != fingerprint
 
 
 @pytest.mark.django_db
