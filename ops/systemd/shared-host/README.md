@@ -361,3 +361,14 @@ a read-only checkout, private writable upload/log mounts, a clean restart and a
 warning-level journal review. On rollback, stop the isolated unit, restore the
 old database password and unit/environment together, and restore any upload or
 log files created during the isolated run before restarting as `micu`.
+
+Install `ops/nginx/shared-host/r-traffic-intel-limits.conf` in nginx's `http`
+context and `ops/nginx/shared-host/r-traffic-intel.conf` as the site. The vhost
+accepts only Cloudflare/loopback origin peers, overwrites client identity
+headers after the shared trusted-proxy configuration has resolved them, caps
+connections and request bursts per client, limits uploads to 25 MiB and keeps
+the long Shiny WebSocket timeout. Its site-specific CSP keeps application
+assets and WebSockets on the same origin; only Cloudflare's edge-injected
+browser beacon remains external. Rollback must remove the new limit file before
+restoring the previous vhost, because nginx rate-limit zone names must be
+declared exactly once.
