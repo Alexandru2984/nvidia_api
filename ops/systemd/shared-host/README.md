@@ -315,17 +315,19 @@ The Shiny dashboard needs loopback PostgreSQL access, a private upload area and
 private application logs. It does not need a writable checkout, unrelated home
 directories or an external network route. Keep the tracked sample data in the
 read-only checkout and over-mount only `data/uploads` and `logs` with dedicated
-service state. Ubuntu's `r-cran-bslib` package requires
-`node-bootstrap-sass`; install it explicitly and retain the unit's path
-condition so a missing theme dependency fails at startup instead of returning
-HTTP 500 from new Shiny sessions. Do not add `RestrictSUIDSGID`: the `fs`/libuv
-recursive directory helper used while compiling Shiny theme assets issues
-`mkdir` calls whose mode bits are rejected by that systemd filter, including
-for paths that already exist. The read-only checkout, empty capability sets and
-`NoNewPrivileges` still prevent the service from creating privileged binaries.
+service state. Install Ubuntu's `r-cran-shiny` and `r-cran-bslib` packages
+through APT rather than copying their package trees: their declared JavaScript
+dependencies provide the Bootstrap theme and date-picker assets. Retain the
+unit's path conditions so a missing or broken dependency fails at startup
+instead of returning HTTP 500/404 from new Shiny sessions. Do not add
+`RestrictSUIDSGID`: the `fs`/libuv recursive directory helper used while
+compiling Shiny theme assets issues `mkdir` calls whose mode bits are rejected
+by that systemd filter, including for paths that already exist. The read-only
+checkout, empty capability sets and `NoNewPrivileges` still prevent the service
+from creating privileged binaries.
 
 ```bash
-sudo apt-get install --no-install-recommends node-bootstrap-sass
+sudo apt-get install --no-install-recommends r-cran-shiny r-cran-bslib
 sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin rtraffic
 sudo install -d -o root -g rtraffic -m 0750 /etc/r-traffic-intel
 sudo install -d -o rtraffic -g rtraffic -m 0700 \
