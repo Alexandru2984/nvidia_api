@@ -140,3 +140,12 @@ The old mapping has known operational debt: multiple checkout paths are not Git
 worktrees and multiple legacy target unit names no longer exist. This migration
 preserves those mappings rather than guessing replacements. Repair each hook
 only with that project's build, migration, health and rollback contract.
+
+Install `ops/nginx/shared-host/webhook-rate-limit.conf` in `/etc/nginx/conf.d/`
+and the tracked webhook vhost in `/etc/nginx/sites-available/`, then run
+`nginx -t` before reload. The vhost accepts only POST on the proxied route,
+rejects peers outside the Cloudflare/tunnel origin boundary, limits each real
+client to 30 requests/minute with a small burst, caps GitHub's payload at its
+25 MiB delivery limit and bounds proxy/body timeouts. Keep ACME reachable on
+plain HTTP. Acceptance includes a 405/403 for a public GET, 429 under a bounded
+unsigned burst, no queued deployment, and a clean nginx error journal.
