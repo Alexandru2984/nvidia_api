@@ -52,6 +52,12 @@ secret values are reproduced here.
   and `9.2 UNSAFE` to the dedicated `videoapp` identity and `2.7 OK`. Its source,
   secrets, mutable state, network access and resource usage are now bounded;
   thirty-five baseline services remain under `micu`, so S-01 stays Critical.
+- 2026-10-07: The webhook listener was migrated in commits `2838b72`, `d38d320`
+  and `3aa9761` from direct execution as `micu` at `7.2 MEDIUM` to a dedicated,
+  non-privileged receiver at `2.7 OK`. Its only deployment bridge is now a
+  root-owned fixed-file/fixed-target dispatcher; normal `micu` services can no
+  longer read the webhook HMAC config. Thirty-four baseline services remain
+  under `micu`, so S-01 stays Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

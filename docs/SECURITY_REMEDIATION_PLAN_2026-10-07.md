@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 3 of 38 baseline services migrated**.
+Status: **in progress — 4 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -219,6 +219,14 @@ Status: **in progress — 3 of 38 baseline services migrated**.
   SQLite state is private. Database integrity/counts, a rolled-back write,
   Redis, loopback/public routes and a clean restart passed. Exposure fell from
   `9.2 UNSAFE` to `2.7 OK`, leaving 35 baseline `User=micu` services.
+- Commits `2838b72`, `d38d320` and `3aa9761` separated the public webhook
+  receiver from deployment authority. The receiver now runs as `webhook-cicd`
+  at `2.7 OK`, sees no home directory, has no sudo or external egress, and can
+  modify only fixed request files. A root-owned allowlist bridges requests to
+  short-lived trusted deployment jobs without accepting a command, path or unit
+  name from HTTP. HMAC/branch rules, negative unsigned-request behavior, the
+  no-op dispatch probe and restart passed, leaving 34 baseline `User=micu`
+  services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
