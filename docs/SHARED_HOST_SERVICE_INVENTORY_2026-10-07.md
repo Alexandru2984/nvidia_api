@@ -5,8 +5,8 @@ retain `NOPASSWD: ALL` on the interactive `micu` account. A service leaves this
 list only after it runs under a dedicated non-login identity, passes its own
 functional probes, and cannot see unrelated projects or write its release.
 
-The baseline contained 38 running system services with `User=micu`. Umami and
-Pastebox have been migrated; 36 remain. Loopback listeners are externally
+The baseline contained 38 running system services with `User=micu`. Umami,
+Pastebox and Video have been migrated; 35 remain. Loopback listeners are externally
 relevant whenever nginx or a Cloudflare tunnel publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
@@ -18,7 +18,6 @@ relevant whenever nginx or a Cloudflare tunnel publishes them.
 | `r-traffic-intel.service` | no | `3838` | `r.micutu.com` |
 | `traffic-analyzer.service` | no | `8070` | `crystal.micutu.com` |
 | `unison-backend.service` | no | `8097` | verify tunnel route |
-| `video.service` | no | `8121` | `video.micutu.com`; media input |
 | `webhook-cicd.service` | no | `9500` | `hooks.micutu.com`; deployment boundary |
 | `asm-canary.service` | yes | `34624` | `asm.micutu.com` |
 | `brainfuck-canary.service` | yes | `34623` | `brainfuck.micutu.com` |
@@ -79,12 +78,30 @@ relevant whenever nginx or a Cloudflare tunnel publishes them.
 - Rollback copy:
   `/home/micu/backups/service-migrations/pastebox-20261007T060501Z`.
 
+## Completed migration: Video
+
+- Changed from `User=micu`, no sandbox and `9.2 UNSAFE` to dedicated non-login
+  UID/GID `videoapp`, `NoNewPrivileges=yes`, hidden home, read-only checkout,
+  localhost-only IP policy, empty capabilities and bounded resources at `2.7 OK`.
+- The standard system group named `video` was deliberately not reused because it
+  grants device access. Secrets now live in root-managed
+  `/etc/video/video.env`; SQLite state moved to `/var/lib/video/db.sqlite3` at
+  mode `0600`, and the legacy database was reduced from world-readable to mode
+  `0600` and is unreadable in the service namespace.
+- Rollback and active databases passed `quick_check` with identical safe counts
+  (`6` users, `2` rooms, `0` messages, `12` sessions). A non-persisting write
+  transaction, Redis connection, loopback/public health, public homepage,
+  namespace isolation and clean restart all passed without warning-or-higher
+  journal entries.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/video-20261007T113236Z`.
+
 ## Ordered next passes
 
 1. Inspect `webhook-cicd.service` first because a public webhook with deployment
    authority can invalidate every other service boundary.
 2. Migrate the remaining `NoNewPrivileges=no` content services one at a time,
-   prioritizing Video because it processes user-controlled media.
+   prioritizing externally reachable services that parse or store user input.
 3. Migrate the already-partially-sandboxed canaries by runtime family, but keep
    distinct UIDs and writable paths rather than replacing `micu` with one new
    shared account.

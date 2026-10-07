@@ -48,6 +48,10 @@ secret values are reproduced here.
   UNSAFE` to a dedicated identity and `2.7 OK`, with its SQLite state isolated
   and mode `0600`. Thirty-six baseline services remain under `micu`; S-01 stays
   Critical.
+- 2026-10-07: Video was migrated in commits `e665302` and `162e0c3` from `micu`
+  and `9.2 UNSAFE` to the dedicated `videoapp` identity and `2.7 OK`. Its source,
+  secrets, mutable state, network access and resource usage are now bounded;
+  thirty-five baseline services remain under `micu`, so S-01 stays Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

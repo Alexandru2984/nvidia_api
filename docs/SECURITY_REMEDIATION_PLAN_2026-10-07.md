@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 2 of 38 baseline services migrated**.
+Status: **in progress — 3 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -213,6 +213,12 @@ Status: **in progress — 2 of 38 baseline services migrated**.
   transaction, namespace boundaries, loopback/public routes and AI Chat health
   passed. Its effective exposure fell from `9.2 UNSAFE` to `2.7 OK`, leaving 36
   baseline `User=micu` services.
+- Commits `e665302` and `162e0c3` moved Video to the dedicated `videoapp`
+  identity without reusing the privileged system `video` group. Its checkout is
+  read-only, unrelated home projects are hidden, secrets are root-managed and
+  SQLite state is private. Database integrity/counts, a rolled-back write,
+  Redis, loopback/public routes and a clean restart passed. Exposure fell from
+  `9.2 UNSAFE` to `2.7 OK`, leaving 35 baseline `User=micu` services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
