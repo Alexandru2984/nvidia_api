@@ -15,7 +15,11 @@ def _make_staff(user):
 
 
 def _enroll(client):
-    secret = client.post('/api/auth/2fa/enroll/').json()['secret']
+    secret = client.post(
+        '/api/auth/2fa/enroll/',
+        {'password': 'Hunter2pass'},
+        format='json',
+    ).json()['secret']
     response = client.post(
         '/api/auth/2fa/verify-enroll/',
         {'code': pyotp.TOTP(secret).now()},

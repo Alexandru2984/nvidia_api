@@ -1,10 +1,23 @@
 """Tests for optional TOTP 2FA: enroll, verify, login flow, disable, recovery."""
+from unittest.mock import patch
+
 import pyotp
 import pytest
-from django.utils import timezone
+from django.contrib.sessions.models import Session
+from django.core.cache import cache
 
 from chat.models import TwoFactor
 from chat.twofactor import _hash_recovery
+
+PASSWORD = 'Hunter2pass'
+
+
+def _start_enroll(client, password=PASSWORD):
+    return client.post(
+        '/api/auth/2fa/enroll/',
+        {'password': password},
+        format='json',
+    )
 
 
 def _reset_replay(user):
@@ -29,7 +42,7 @@ class TestStatus:
 @pytest.mark.django_db
 class TestEnroll:
     def test_enroll_returns_secret_and_qr(self, auth_client, user):
-        r = auth_client.post('/api/auth/2fa/enroll/')
+        r = _start_enroll(auth_client)
         assert r.status_code == 200
         body = r.json()
         assert 'secret' in body and len(body['secret']) >= 16
@@ -40,9 +53,16 @@ class TestEnroll:
         assert tf.enabled is False
 
     def test_enroll_rotates_secret_each_call(self, auth_client):
-        r1 = auth_client.post('/api/auth/2fa/enroll/').json()
-        r2 = auth_client.post('/api/auth/2fa/enroll/').json()
+        r1 = _start_enroll(auth_client).json()
+        r2 = _start_enroll(auth_client).json()
         assert r1['secret'] != r2['secret']
+
+    def test_enroll_requires_current_password_before_creating_secret(self, auth_client, user):
+        missing = auth_client.post('/api/auth/2fa/enroll/', {}, format='json')
+        wrong = _start_enroll(auth_client, 'not-the-password')
+        assert missing.status_code == 401
+        assert wrong.status_code == 401
+        assert not TwoFactor.objects.filter(user=user).exists()
 
     def test_enroll_blocked_when_already_enabled(self, auth_client, user):
         TwoFactor.objects.create(user=user, secret=pyotp.random_base32(), enabled=True)
@@ -53,7 +73,8 @@ class TestEnroll:
 @pytest.mark.django_db
 class TestVerifyEnroll:
     def test_correct_code_enables_and_returns_recovery(self, auth_client, user):
-        enrolled = auth_client.post('/api/auth/2fa/enroll/').json()
+        enrolled = _start_enroll(auth_client).json()
+        old_session_key = auth_client.session.session_key
         code = pyotp.TOTP(enrolled['secret']).now()
         r = auth_client.post('/api/auth/2fa/verify-enroll/', {'code': code}, format='json')
         assert r.status_code == 200
@@ -65,11 +86,13 @@ class TestVerifyEnroll:
             assert len(rc) == 17 and rc.count('-') == 1
         tf = TwoFactor.objects.get(user=user)
         assert tf.enabled is True
+        assert auth_client.session.session_key != old_session_key
+        assert not Session.objects.filter(session_key=old_session_key).exists()
         # Stored hashes — never plaintext
         assert all(rc not in tf.recovery_codes for rc in body['recovery_codes'])
 
     def test_wrong_code_does_not_enable(self, auth_client, user):
-        auth_client.post('/api/auth/2fa/enroll/')
+        _start_enroll(auth_client)
         r = auth_client.post('/api/auth/2fa/verify-enroll/', {'code': '000000'}, format='json')
         assert r.status_code == 400
         assert TwoFactor.objects.get(user=user).enabled is False
@@ -78,11 +101,37 @@ class TestVerifyEnroll:
         r = auth_client.post('/api/auth/2fa/verify-enroll/', {'code': '123456'}, format='json')
         assert r.status_code == 400
 
+    def test_stolen_session_cannot_complete_another_sessions_enrollment(
+        self, auth_client, user,
+    ):
+        enrolled = _start_enroll(auth_client).json()
+        stolen = type(auth_client)()
+        stolen.force_login(user)
+        response = stolen.post(
+            '/api/auth/2fa/verify-enroll/',
+            {'code': pyotp.TOTP(enrolled['secret']).now()},
+            format='json',
+        )
+        assert response.status_code == 403
+        assert TwoFactor.objects.get(user=user).enabled is False
+
+    def test_password_confirmation_expires(self, auth_client, user):
+        with patch('chat.twofactor.time.time', return_value=1_000):
+            enrolled = _start_enroll(auth_client).json()
+        with patch('chat.twofactor.time.time', return_value=1_301):
+            response = auth_client.post(
+                '/api/auth/2fa/verify-enroll/',
+                {'code': pyotp.TOTP(enrolled['secret']).now()},
+                format='json',
+            )
+        assert response.status_code == 403
+        assert TwoFactor.objects.get(user=user).enabled is False
+
 
 @pytest.mark.django_db
 class TestLoginWith2FA:
     def _enable(self, auth_client):
-        secret = auth_client.post('/api/auth/2fa/enroll/').json()['secret']
+        secret = _start_enroll(auth_client).json()['secret']
         auth_client.post(
             '/api/auth/2fa/verify-enroll/',
             {'code': pyotp.TOTP(secret).now()}, format='json',
@@ -147,7 +196,7 @@ class TestLoginWith2FA:
 @pytest.mark.django_db
 class TestDisable:
     def test_disable_requires_password_and_code(self, auth_client, user):
-        secret = auth_client.post('/api/auth/2fa/enroll/').json()['secret']
+        secret = _start_enroll(auth_client).json()['secret']
         auth_client.post('/api/auth/2fa/verify-enroll/', {'code': pyotp.TOTP(secret).now()}, format='json')
         _reset_replay(user)
 
@@ -175,7 +224,7 @@ class TestDisable:
 @pytest.mark.django_db
 class TestRegenerateRecoveryCodes:
     def test_regenerate_invalidates_old(self, auth_client, user):
-        secret = auth_client.post('/api/auth/2fa/enroll/').json()['secret']
+        secret = _start_enroll(auth_client).json()['secret']
         first = auth_client.post(
             '/api/auth/2fa/verify-enroll/',
             {'code': pyotp.TOTP(secret).now()}, format='json',
@@ -183,16 +232,48 @@ class TestRegenerateRecoveryCodes:
 
         _reset_replay(user)
         # Wrong code blocked
-        r = auth_client.post('/api/auth/2fa/recovery-codes/', {'code': '000000'}, format='json')
+        r = auth_client.post('/api/auth/2fa/recovery-codes/', {
+            'password': PASSWORD, 'code': '000000',
+        }, format='json')
         assert r.status_code == 401
 
         _reset_replay(user)
         # With valid TOTP, returns 10 new codes
         r = auth_client.post(
             '/api/auth/2fa/recovery-codes/',
-            {'code': pyotp.TOTP(secret).now()}, format='json',
+            {'password': PASSWORD, 'code': pyotp.TOTP(secret).now()}, format='json',
         )
         assert r.status_code == 200
         new_codes = r.json()['recovery_codes']
         assert len(new_codes) == 10
         assert set(new_codes).isdisjoint(first)
+
+    def test_regenerate_requires_current_password(self, auth_client, user):
+        secret = _start_enroll(auth_client).json()['secret']
+        auth_client.post(
+            '/api/auth/2fa/verify-enroll/',
+            {'code': pyotp.TOTP(secret).now()}, format='json',
+        )
+        _reset_replay(user)
+        response = auth_client.post(
+            '/api/auth/2fa/recovery-codes/',
+            {'code': pyotp.TOTP(secret).now()}, format='json',
+        )
+        assert response.status_code == 401
+
+    def test_regenerate_is_rate_limited(self, auth_client, user, settings):
+        settings.RATELIMIT_ENABLE = True
+        cache.clear()
+        secret = _start_enroll(auth_client).json()['secret']
+        auth_client.post(
+            '/api/auth/2fa/verify-enroll/',
+            {'code': pyotp.TOTP(secret).now()}, format='json',
+        )
+        responses = [
+            auth_client.post(
+                '/api/auth/2fa/recovery-codes/',
+                {'password': 'wrong', 'code': '000000'}, format='json',
+            )
+            for _ in range(6)
+        ]
+        assert responses[-1].status_code == 429

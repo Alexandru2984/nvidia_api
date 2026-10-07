@@ -19,7 +19,11 @@ from chat.twofactor import (
 
 
 def _enable_2fa(client, user):
-    enroll = client.post('/api/auth/2fa/enroll/').json()
+    enroll = client.post(
+        '/api/auth/2fa/enroll/',
+        {'password': 'Hunter2pass'},
+        format='json',
+    ).json()
     secret = enroll['secret']
     client.post('/api/auth/2fa/verify-enroll/', {'code': pyotp.TOTP(secret).now()}, format='json')
     TwoFactor.objects.filter(user=user).update(last_totp_step=0)
@@ -31,7 +35,11 @@ class TestSecretEncryption:
     """Finding #7: TOTP secret stored Fernet-encrypted at rest."""
 
     def test_enroll_stores_encrypted_secret(self, auth_client, user):
-        body = auth_client.post('/api/auth/2fa/enroll/').json()
+        body = auth_client.post(
+            '/api/auth/2fa/enroll/',
+            {'password': 'Hunter2pass'},
+            format='json',
+        ).json()
         plain = body['secret']  # what the client sees / scans
         stored = TwoFactor.objects.get(user=user).secret
         # The DB row must NOT match the plaintext base32 secret.
@@ -224,6 +232,11 @@ class TestSessionInvalidation:
         c2 = APIClient(); c2.post('/api/auth/login/', {'username': user.username, 'password': 'Hunter2pass'}, format='json')
         # Enable 2FA from c1
         secret = _enable_2fa(c1, user)
+        # Enabling the factor immediately kills sessions that authenticated with
+        # only the password. Seed another session to exercise disable's own
+        # invalidation boundary independently.
+        assert c2.get('/api/auth/me/').json()['username'] is None
+        c2.force_login(user)
         # Disable from c1 — c2 should die
         TwoFactor.objects.filter(user=user).update(last_totp_step=0)
         r = c1.post('/api/auth/2fa/disable/', {
@@ -282,7 +295,11 @@ class TestAuditLog:
     def test_enroll_completion_logged(self, auth_client, user, caplog):
         import logging
         caplog.set_level(logging.INFO, logger='security')
-        secret = auth_client.post('/api/auth/2fa/enroll/').json()['secret']
+        secret = auth_client.post(
+            '/api/auth/2fa/enroll/',
+            {'password': 'Hunter2pass'},
+            format='json',
+        ).json()['secret']
         auth_client.post('/api/auth/2fa/verify-enroll/', {'code': pyotp.TOTP(secret).now()}, format='json')
         assert any('event=two_factor_enabled' in r.message and str(user.pk) in r.message for r in caplog.records)
 

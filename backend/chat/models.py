@@ -57,10 +57,7 @@ class RegistrationInvite(models.Model):
 
 
 class TwoFactor(models.Model):
-    """Per-user TOTP setup. `secret` is stored base32 (plaintext) — acceptable
-    for our threat model since DB compromise here implies VPS compromise. The
-    real defense is `enabled=False` until verified, and recovery codes are
-    HMAC-hashed (never stored plaintext)."""
+    """Per-user TOTP setup with encrypted secrets and HMAC-hashed recovery codes."""
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         related_name='two_factor',

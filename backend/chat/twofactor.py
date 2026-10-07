@@ -37,6 +37,8 @@ security_log = logging.getLogger('security')
 
 ISSUER = 'AI Chat Hub'
 STAFF_2FA_SESSION_KEY = 'staff_2fa_verified_user_id'
+RECENT_AUTH_SESSION_KEY = 'two_factor_recent_auth'
+RECENT_AUTH_TTL_SECONDS = 5 * 60
 RECOVERY_CODE_COUNT = 10
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_DURATION = timedelta(minutes=10)
@@ -76,6 +78,47 @@ def _new_recovery_codes(n=RECOVERY_CODE_COUNT):
         plaintexts.append(raw)
         hashes.append(_hash_recovery(raw))
     return plaintexts, hashes
+
+
+def _enrollment_fingerprint(encrypted_secret: str) -> str:
+    return hmac.new(
+        settings.SECRET_KEY.encode(),
+        f'two-factor-enrollment:{encrypted_secret}'.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _mark_recent_enrollment_auth(request, encrypted_secret: str):
+    request.session[RECENT_AUTH_SESSION_KEY] = {
+        'user_id': str(request.user.pk),
+        'authenticated_at': int(time.time()),
+        'enrollment': _enrollment_fingerprint(encrypted_secret),
+    }
+
+
+def _has_recent_enrollment_auth(request, encrypted_secret: str) -> bool:
+    marker = request.session.get(RECENT_AUTH_SESSION_KEY)
+    if not isinstance(marker, dict):
+        return False
+    authenticated_at = marker.get('authenticated_at')
+    if not isinstance(authenticated_at, int):
+        return False
+    age = int(time.time()) - authenticated_at
+    enrollment = marker.get('enrollment')
+    return (
+        0 <= age <= RECENT_AUTH_TTL_SECONDS
+        and marker.get('user_id') == str(request.user.pk)
+        and isinstance(enrollment, str)
+        and hmac.compare_digest(enrollment, _enrollment_fingerprint(encrypted_secret))
+    )
+
+
+def _rotate_and_revoke_other_sessions(request, *, mark_staff=False):
+    """Replace the bearer session after a factor change and kill all others."""
+    request.session.cycle_key()
+    if mark_staff:
+        mark_staff_2fa_verified(request, request.user)
+    return _revoke_user_sessions(request.user, except_key=request.session.session_key)
 
 
 def _qr_data_url(provisioning_uri: str) -> str:
@@ -209,16 +252,20 @@ def enroll(request):
     if getattr(request, 'limited', False):
         return Response({'error': 'Too many requests.'}, status=429)
 
-    tf, _ = TwoFactor.objects.get_or_create(user=request.user)
-    if tf.enabled:
+    if TwoFactor.objects.filter(user=request.user, enabled=True).exists():
         return Response({'error': '2FA is already enabled. Disable it first to re-enroll.'}, status=409)
+    password = request.data.get('password') or ''
+    if len(password) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(password):
+        return Response({'error': 'Wrong password.'}, status=401)
 
+    tf, _ = TwoFactor.objects.get_or_create(user=request.user)
     plain = pyotp.random_base32()
     tf.secret = _encrypt_secret(plain)
     tf.last_totp_step = 0
     tf.failed_attempts = 0
     tf.locked_until = None
     tf.save(update_fields=['secret', 'last_totp_step', 'failed_attempts', 'locked_until'])
+    _mark_recent_enrollment_auth(request, tf.secret)
 
     totp = pyotp.TOTP(plain)
     uri = totp.provisioning_uri(name=request.user.email or request.user.username, issuer_name=ISSUER)
@@ -237,32 +284,43 @@ def verify_enroll(request):
         return Response({'error': 'Too many requests.'}, status=429)
 
     code = (request.data.get('code') or '').strip()
-    tf = TwoFactor.objects.filter(user=request.user).first()
-    if tf is None or not tf.secret:
-        return Response({'error': 'No pending 2FA setup. Call /enroll first.'}, status=400)
-    if tf.enabled:
-        return Response({'error': '2FA already enabled.'}, status=409)
     if not code or not code.isdigit() or len(code) != 6:
         return Response({'error': 'Enter the 6-digit code from your authenticator app.'}, status=400)
 
-    plain = _decrypt_secret(tf.secret)
-    matched = _verify_totp(plain, code, tf.last_totp_step)
-    if matched is None:
-        return Response({'error': 'Wrong code. Make sure your device clock is accurate.'}, status=400)
+    with transaction.atomic():
+        tf = (TwoFactor.objects
+              .select_for_update()
+              .filter(user=request.user)
+              .first())
+        if tf is None or not tf.secret:
+            return Response({'error': 'No pending 2FA setup. Call /enroll first.'}, status=400)
+        if tf.enabled:
+            return Response({'error': '2FA already enabled.'}, status=409)
+        if not _has_recent_enrollment_auth(request, tf.secret):
+            request.session.pop(RECENT_AUTH_SESSION_KEY, None)
+            return Response({'error': 'Password confirmation expired. Start 2FA setup again.'}, status=403)
 
-    plaintexts, hashes = _new_recovery_codes()
-    tf.recovery_codes = hashes
-    tf.enabled = True
-    tf.enrolled_at = timezone.now()
-    tf.last_totp_step = matched
-    tf.failed_attempts = 0
-    tf.locked_until = None
-    tf.save()
-    mark_staff_2fa_verified(request, request.user)
+        plain = _decrypt_secret(tf.secret)
+        matched = _verify_totp(plain, code, tf.last_totp_step)
+        if matched is None:
+            return Response({'error': 'Wrong code. Make sure your device clock is accurate.'}, status=400)
+
+        plaintexts, hashes = _new_recovery_codes()
+        tf.recovery_codes = hashes
+        tf.enabled = True
+        tf.enrolled_at = timezone.now()
+        tf.last_totp_step = matched
+        tf.failed_attempts = 0
+        tf.locked_until = None
+        tf.save()
+
+    request.session.pop(RECENT_AUTH_SESSION_KEY, None)
+    revoked = _rotate_and_revoke_other_sessions(request, mark_staff=True)
     security_log.warning('event=two_factor_enabled user_id=%s', request.user.pk)
     return Response({
         'enabled': True,
         'recovery_codes': plaintexts,  # show once; never returned again
+        'sessions_revoked': revoked,
     })
 
 
@@ -280,12 +338,13 @@ def disable(request):
     code = (request.data.get('code') or '').strip()
     if len(password) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(password):
         return Response({'error': 'Wrong password.'}, status=401)
-    if not verify_for_login(request.user, code):
-        return Response({'error': 'Wrong 2FA code.'}, status=401)
-
-    TwoFactor.objects.filter(user=request.user).delete()
+    with transaction.atomic():
+        if not verify_for_login(request.user, code):
+            return Response({'error': 'Wrong 2FA code.'}, status=401)
+        TwoFactor.objects.filter(user=request.user).delete()
     request.session.pop(STAFF_2FA_SESSION_KEY, None)
-    revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
+    request.session.pop(RECENT_AUTH_SESSION_KEY, None)
+    revoked = _rotate_and_revoke_other_sessions(request)
     security_log.warning('event=two_factor_disabled user_id=%s sessions_revoked=%s',
                          request.user.pk, revoked)
     return Response({'enabled': False, 'sessions_revoked': revoked})
@@ -293,15 +352,21 @@ def disable(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/h', block=False)
 def regenerate_recovery_codes(request):
+    if getattr(request, 'limited', False):
+        return Response({'error': 'Too many requests.'}, status=429)
+    password = request.data.get('password') or ''
     code = (request.data.get('code') or '').strip()
-    tf = TwoFactor.objects.filter(user=request.user, enabled=True).first()
-    if tf is None:
+    if not TwoFactor.objects.filter(user=request.user, enabled=True).exists():
         return Response({'error': '2FA is not enabled.'}, status=400)
-    if not verify_for_login(request.user, code):
-        return Response({'error': 'Wrong 2FA code.'}, status=401)
-    plaintexts, hashes = _new_recovery_codes()
-    tf.recovery_codes = hashes
-    tf.save(update_fields=['recovery_codes'])
+    if len(password) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(password):
+        return Response({'error': 'Wrong password.'}, status=401)
+    with transaction.atomic():
+        if not verify_for_login(request.user, code):
+            return Response({'error': 'Wrong 2FA code.'}, status=401)
+        plaintexts, hashes = _new_recovery_codes()
+        TwoFactor.objects.filter(user=request.user, enabled=True).update(recovery_codes=hashes)
+    revoked = _rotate_and_revoke_other_sessions(request, mark_staff=True)
     security_log.warning('event=recovery_codes_regenerated user_id=%s', request.user.pk)
-    return Response({'recovery_codes': plaintexts})
+    return Response({'recovery_codes': plaintexts, 'sessions_revoked': revoked})
