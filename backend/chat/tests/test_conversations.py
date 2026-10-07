@@ -318,6 +318,92 @@ class TestConversationDetail:
         assert other.archived_at is None
 
 
+@pytest.mark.django_db
+class TestMessagePagination:
+    def _messages(self, convo, count):
+        return [
+            Message.objects.create(
+                conversation=convo,
+                role='user' if index % 2 == 0 else 'assistant',
+                content=f'message {index}',
+            )
+            for index in range(count)
+        ]
+
+    def test_detail_returns_latest_page_in_chronological_order(self, auth_client, convo):
+        messages = self._messages(convo, 7)
+
+        response = auth_client.get(
+            f'/api/conversations/{convo.id}/?message_page=1&limit=3',
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert [item['id'] for item in body['messages']] == [item.id for item in messages[-3:]]
+        assert body['message_page']['count'] == 7
+        assert body['message_page']['older_cursor']
+
+    def test_older_pages_are_disjoint_and_resource_bound(
+        self, auth_client, other_client, convo, user, other_user,
+    ):
+        messages = self._messages(convo, 7)
+        first = auth_client.get(
+            f'/api/conversations/{convo.id}/?message_page=1&limit=3',
+        ).json()
+        cursor = first['message_page']['older_cursor']
+
+        second = auth_client.get(
+            f'/api/conversations/{convo.id}/messages/?limit=3&cursor={cursor}',
+        )
+        assert second.status_code == 200
+        assert [item['id'] for item in second.json()['results']] == [
+            item.id for item in messages[1:4]
+        ]
+        assert not ({item['id'] for item in first['messages']}
+                    & {item['id'] for item in second.json()['results']})
+
+        another = Conversation.objects.create(
+            user=user, title='another', model_id=DEFAULT_MODEL_ID,
+        )
+        assert auth_client.get(
+            f'/api/conversations/{another.id}/messages/?limit=3&cursor={cursor}',
+        ).status_code == 400
+        other = Conversation.objects.create(
+            user=other_user, title='other', model_id=DEFAULT_MODEL_ID,
+        )
+        assert other_client.get(
+            f'/api/conversations/{other.id}/messages/?limit=3&cursor={cursor}',
+        ).status_code == 400
+        assert auth_client.get(
+            f'/api/conversations/{other.id}/messages/?limit=3&cursor={cursor}',
+        ).status_code == 404
+
+    def test_rejects_invalid_message_page_inputs(self, auth_client, convo):
+        self._messages(convo, 3)
+        cursor = auth_client.get(
+            f'/api/conversations/{convo.id}/?message_page=1&limit=1',
+        ).json()['message_page']['older_cursor']
+
+        assert auth_client.get(
+            f'/api/conversations/{convo.id}/messages/?limit=1&cursor={cursor}x',
+        ).status_code == 400
+        for limit in ('0', '101', 'many'):
+            assert auth_client.get(
+                f'/api/conversations/{convo.id}/messages/?limit={limit}',
+            ).status_code == 400
+        assert auth_client.get(
+            f'/api/conversations/{convo.id}/?message_page=yes',
+        ).status_code == 400
+
+    def test_legacy_detail_is_bounded_to_latest_200(self, auth_client, convo):
+        messages = self._messages(convo, 205)
+
+        body = auth_client.get(f'/api/conversations/{convo.id}/').json()
+
+        assert len(body['messages']) == 200
+        assert [item['id'] for item in body['messages']] == [item.id for item in messages[-200:]]
+
+
 def _stream_ok(*args, **kwargs):
     yield ('chunk', 'Hello')
     yield ('chunk', ' world')

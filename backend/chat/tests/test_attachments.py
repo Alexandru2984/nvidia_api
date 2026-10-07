@@ -169,6 +169,75 @@ class TestListAttachments:
         assert r.json()[0]['kind'] == 'image'
         assert 'content_sha256' not in r.json()[0]
 
+    def _create_files(self, user, count, kind=Attachment.KIND_IMAGE):
+        return [
+            Attachment.objects.create(
+                user=user,
+                file=f'attachments/test/{index}.png',
+                original_name=f'file-{index}.png',
+                mime_type='image/png',
+                size=10,
+                kind=kind,
+            )
+            for index in range(count)
+        ]
+
+    def test_signed_cursor_paginates_attachments(self, auth_client, user):
+        files = self._create_files(user, 7)
+        first = auth_client.get('/api/attachments/?include_count=1&limit=3').json()
+        second = auth_client.get(
+            f'/api/attachments/?include_count=1&limit=3&cursor={first["next_cursor"]}',
+        ).json()
+        third = auth_client.get(
+            f'/api/attachments/?include_count=1&limit=3&cursor={second["next_cursor"]}',
+        ).json()
+
+        returned = [*first['results'], *second['results'], *third['results']]
+        expected = list(
+            Attachment.objects.filter(user=user)
+            .order_by('-created_at', '-id')
+            .values_list('id', flat=True)
+        )
+        assert [item['id'] for item in returned] == expected
+        assert len({item['id'] for item in returned}) == len(files)
+        assert first['count'] == 7
+        assert third['next_cursor'] is None
+
+    def test_attachment_cursor_is_owner_and_kind_bound(
+        self, auth_client, other_client, user, other_user,
+    ):
+        self._create_files(user, 2)
+        self._create_files(other_user, 2)
+        cursor = auth_client.get(
+            '/api/attachments/?include_count=1&limit=1&kind=image',
+        ).json()['next_cursor']
+
+        assert other_client.get(
+            f'/api/attachments/?include_count=1&limit=1&kind=image&cursor={cursor}',
+        ).status_code == 400
+        assert auth_client.get(
+            f'/api/attachments/?include_count=1&limit=1&kind=document&cursor={cursor}',
+        ).status_code == 400
+        assert auth_client.get(
+            f'/api/attachments/?include_count=1&limit=1&kind=image&cursor={cursor}x',
+        ).status_code == 400
+
+    def test_attachment_list_rejects_invalid_bounds(self, auth_client):
+        for limit in ('0', '51', 'many'):
+            assert auth_client.get(
+                f'/api/attachments/?include_count=1&limit={limit}',
+            ).status_code == 400
+        assert auth_client.get('/api/attachments/?kind=private').status_code == 400
+        assert auth_client.get('/api/attachments/?cursor=unsigned').status_code == 400
+
+    def test_legacy_attachment_list_is_bounded(self, auth_client, user):
+        self._create_files(user, 105)
+
+        body = auth_client.get('/api/attachments/').json()
+
+        assert isinstance(body, list)
+        assert len(body) == 100
+
 
 @pytest.mark.django_db
 class TestDocumentPreview:

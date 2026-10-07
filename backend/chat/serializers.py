@@ -40,10 +40,8 @@ class ConversationListSerializer(serializers.ModelSerializer):
         return annotated if annotated is not None else obj.messages.count()
 
 
-class ConversationDetailSerializer(serializers.ModelSerializer):
-    messages = MessageSerializer(many=True, read_only=True)
-
+class ConversationMetadataSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = ['id', 'title', 'model_id', 'system_prompt', 'temperature', 'max_tokens',
-                  'is_pinned', 'archived_at', 'created_at', 'updated_at', 'messages']
+                  'is_pinned', 'archived_at', 'created_at', 'updated_at']

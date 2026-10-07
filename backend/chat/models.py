@@ -193,6 +193,10 @@ class Message(models.Model):
                 name='chat_msg_content_trgm',
                 opclasses=['gin_trgm_ops'],
             ),
+            models.Index(
+                fields=['conversation', '-created_at', '-id'],
+                name='chat_msg_convo_recent_idx',
+            ),
         ]
 
     def __str__(self):
@@ -238,7 +242,16 @@ class Attachment(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['user', 'created_at'])]
+        indexes = [
+            models.Index(
+                fields=['user', '-created_at', '-id'],
+                name='chat_attach_user_recent_idx',
+            ),
+            models.Index(
+                fields=['user', 'kind', '-created_at', '-id'],
+                name='chat_attach_kind_recent_idx',
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=['user', 'content_sha256'],

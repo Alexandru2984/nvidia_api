@@ -67,8 +67,8 @@ from .registration import hash_invite_code
 from .security_events import actor_for_request, security_log
 from .serializers import (
     AttachmentSerializer,
-    ConversationDetailSerializer,
     ConversationListSerializer,
+    ConversationMetadataSerializer,
     MessageSerializer,
 )
 from .sessions import stamp_session
@@ -894,17 +894,116 @@ def conversations(request):
     if requested_model and model_id in unavailable_model_ids():
         return _unavailable_model_response()
     convo = Conversation.objects.create(user=request.user, title=title, model_id=model_id)
-    return Response(ConversationDetailSerializer(convo).data, status=status.HTTP_201_CREATED)
+    return Response(_conversation_data(convo), status=status.HTTP_201_CREATED)
 
 
 MAX_SYSTEM_PROMPT_CHARS = 4000
+MESSAGE_PAGE_DEFAULT = 50
+MESSAGE_PAGE_MAX = 100
+LEGACY_MESSAGE_LIMIT = 200
+ATTACHMENT_PAGE_DEFAULT = 30
+ATTACHMENT_PAGE_MAX = 50
+LEGACY_ATTACHMENT_LIMIT = 100
+
+
+def _page_limit(request, *, default, maximum):
+    try:
+        value = int(request.query_params.get('limit', str(default)))
+    except (TypeError, ValueError):
+        return None
+    return value if 1 <= value <= maximum else None
+
+
+def _load_signed_cursor(token, *, salt):
+    if not token or len(token) > 1000:
+        raise signing.BadSignature
+    value = signing.loads(token, salt=salt, max_age=24 * 60 * 60)
+    if not isinstance(value, dict):
+        raise signing.BadSignature
+    return value
+
+
+def _conversation_message_page(convo, user_id, *, limit, cursor_token=None):
+    total = convo.messages.count()
+    qs = convo.messages.order_by('-created_at', '-id').prefetch_related('attachments')
+    if cursor_token:
+        cursor = _load_signed_cursor(cursor_token, salt='chat.message.cursor.v1')
+        cursor_time = parse_datetime(cursor.get('created_at')) if isinstance(
+            cursor.get('created_at'), str,
+        ) else None
+        valid = (
+            cursor.get('user_id') == user_id
+            and cursor.get('conversation_id') == convo.pk
+            and isinstance(cursor.get('id'), int)
+            and not isinstance(cursor.get('id'), bool)
+            and cursor['id'] > 0
+            and cursor_time is not None
+            and timezone.is_aware(cursor_time)
+        )
+        if not valid:
+            raise signing.BadSignature
+        qs = qs.filter(
+            Q(created_at__lt=cursor_time)
+            | Q(created_at=cursor_time, id__lt=cursor['id'])
+        )
+
+    page = list(qs[:limit + 1])
+    has_older = len(page) > limit
+    page = page[:limit]
+    older_cursor = None
+    if has_older and page:
+        oldest = page[-1]
+        older_cursor = signing.dumps({
+            'user_id': user_id,
+            'conversation_id': convo.pk,
+            'created_at': oldest.created_at.isoformat(),
+            'id': oldest.pk,
+        }, salt='chat.message.cursor.v1')
+    page.reverse()
+    return {
+        'results': MessageSerializer(page, many=True).data,
+        'count': total,
+        'older_cursor': older_cursor,
+    }
+
+
+def _conversation_data(convo, *, message_limit=LEGACY_MESSAGE_LIMIT):
+    recent = list(
+        convo.messages.order_by('-created_at', '-id')
+        .prefetch_related('attachments')[:message_limit]
+    )
+    recent.reverse()
+    data = dict(ConversationMetadataSerializer(convo).data)
+    data['messages'] = MessageSerializer(recent, many=True).data
+    return data
 
 
 @api_view(['GET', 'DELETE', 'PATCH'])
+@ratelimit(key='user', method='GET', rate='120/m', block=False)
 def conversation_detail(request, pk):
     convo = get_object_or_404(Conversation, pk=pk, user=request.user)
     if request.method == 'GET':
-        return Response(ConversationDetailSerializer(convo).data)
+        if (r := _rate_limited(request)): return r
+        paginated = request.query_params.get('message_page')
+        if paginated is not None and paginated != '1':
+            return Response({'error': 'message_page must be 1'}, status=status.HTTP_400_BAD_REQUEST)
+        if paginated == '1':
+            limit = _page_limit(
+                request,
+                default=MESSAGE_PAGE_DEFAULT,
+                maximum=MESSAGE_PAGE_MAX,
+            )
+            if limit is None:
+                return Response(
+                    {'error': f'limit must be between 1 and {MESSAGE_PAGE_MAX}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            page = _conversation_message_page(convo, request.user.pk, limit=limit)
+            data = dict(ConversationMetadataSerializer(convo).data)
+            data['messages'] = page.pop('results')
+            data['message_page'] = page
+            return Response(data)
+        return Response(_conversation_data(convo))
     if request.method == 'DELETE':
         convo.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -962,16 +1061,85 @@ def conversation_detail(request, pk):
     if has_pin:
         convo.is_pinned = requested_pin
     convo.save()
-    return Response(ConversationDetailSerializer(convo).data)
+    return Response(_conversation_data(convo))
 
 
 @api_view(['GET'])
+@ratelimit(key='user', method='GET', rate='120/m', block=False)
 def list_attachments(request):
+    if (r := _rate_limited(request)): return r
+    kind = (request.query_params.get('kind') or '').strip()
+    valid_kinds = {value for value, _label in Attachment.KIND_CHOICES}
+    if kind and kind not in valid_kinds:
+        return Response({'error': 'Invalid attachment kind'}, status=status.HTTP_400_BAD_REQUEST)
+    paginated = request.query_params.get('include_count') == '1'
+    if request.query_params.get('cursor') and not paginated:
+        return Response(
+            {'error': 'cursor requires include_count=1'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    limit = _page_limit(
+        request,
+        default=ATTACHMENT_PAGE_DEFAULT,
+        maximum=ATTACHMENT_PAGE_MAX,
+    )
+    if limit is None:
+        return Response(
+            {'error': f'limit must be between 1 and {ATTACHMENT_PAGE_MAX}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     qs = Attachment.objects.filter(user=request.user)
-    kind = request.query_params.get('kind')
     if kind:
         qs = qs.filter(kind=kind)
-    return Response(AttachmentSerializer(qs, many=True).data)
+    total = qs.count() if paginated else None
+    qs = qs.order_by('-created_at', '-id')
+    cursor_token = request.query_params.get('cursor')
+    if cursor_token:
+        try:
+            cursor = _load_signed_cursor(cursor_token, salt='chat.attachment.cursor.v1')
+            cursor_time = parse_datetime(cursor.get('created_at')) if isinstance(
+                cursor.get('created_at'), str,
+            ) else None
+            valid = (
+                cursor.get('user_id') == request.user.pk
+                and cursor.get('kind') == kind
+                and isinstance(cursor.get('id'), int)
+                and not isinstance(cursor.get('id'), bool)
+                and cursor['id'] > 0
+                and cursor_time is not None
+                and timezone.is_aware(cursor_time)
+            )
+            if not valid:
+                raise signing.BadSignature
+        except (TypeError, ValueError, signing.BadSignature):
+            return Response(
+                {'error': 'Invalid or expired cursor'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        qs = qs.filter(
+            Q(created_at__lt=cursor_time)
+            | Q(created_at=cursor_time, id__lt=cursor['id'])
+        )
+
+    fetch_size = limit if paginated else LEGACY_ATTACHMENT_LIMIT
+    page = list(qs[:fetch_size + 1])
+    has_more = len(page) > fetch_size
+    page = page[:fetch_size]
+    results = AttachmentSerializer(page, many=True).data
+    if not paginated:
+        return Response(results)
+
+    next_cursor = None
+    if has_more and page:
+        last = page[-1]
+        next_cursor = signing.dumps({
+            'user_id': request.user.pk,
+            'kind': kind,
+            'created_at': last.created_at.isoformat(),
+            'id': last.pk,
+        }, salt='chat.attachment.cursor.v1')
+    return Response({'results': results, 'count': total, 'next_cursor': next_cursor})
 
 
 @api_view(['GET'])
@@ -1322,11 +1490,37 @@ def _save_assistant_reply(convo_id, reply_text, title_snippet=None):
     return assistant_msg, convo_obj
 
 
-@api_view(['POST'])
-@ratelimit(key='user', rate='30/m', block=False)
+@api_view(['GET', 'POST'])
+@ratelimit(key='user', method='GET', rate='120/m', block=False)
+@ratelimit(key='user', method='POST', rate='30/m', block=False)
 def send_message(request, pk):
     if (r := _rate_limited(request)): return r
     convo = get_object_or_404(Conversation, pk=pk, user=request.user)
+    if request.method == 'GET':
+        limit = _page_limit(
+            request,
+            default=MESSAGE_PAGE_DEFAULT,
+            maximum=MESSAGE_PAGE_MAX,
+        )
+        if limit is None:
+            return Response(
+                {'error': f'limit must be between 1 and {MESSAGE_PAGE_MAX}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            page = _conversation_message_page(
+                convo,
+                request.user.pk,
+                limit=limit,
+                cursor_token=request.query_params.get('cursor'),
+            )
+        except (TypeError, ValueError, signing.BadSignature):
+            return Response(
+                {'error': 'Invalid or expired cursor'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(page)
+
     user_text = (request.data.get('content') or '').strip()
     if len(user_text) > settings.CHAT_MAX_MESSAGE_CHARS:
         return Response(
