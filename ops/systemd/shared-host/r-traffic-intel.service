@@ -1,0 +1,61 @@
+[Unit]
+Description=R Traffic Intelligence dashboard (isolated)
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=rtraffic
+Group=rtraffic
+WorkingDirectory=/home/micu/r
+Environment=HOME=/var/lib/r-traffic-intel
+EnvironmentFile=/etc/r-traffic-intel/app.env
+ExecStart=/usr/bin/Rscript /home/micu/r/run.R
+Restart=always
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=45
+UMask=0077
+
+StateDirectory=r-traffic-intel
+StateDirectoryMode=0700
+RuntimeDirectory=r-traffic-intel
+RuntimeDirectoryMode=0700
+BindReadOnlyPaths=/home/micu/r
+BindPaths=/var/lib/r-traffic-intel/uploads:/home/micu/r/data/uploads
+BindPaths=/var/lib/r-traffic-intel/logs:/home/micu/r/logs
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateMounts=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectSystem=strict
+ProtectHome=tmpfs
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RemoveIPC=yes
+KeyringMode=private
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+SystemCallArchitectures=native
+LimitCORE=0
+LimitNOFILE=4096
+TasksMax=64
+MemoryHigh=512M
+MemoryMax=768M
+
+[Install]
+WantedBy=multi-user.target

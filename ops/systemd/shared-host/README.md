@@ -308,3 +308,46 @@ allows only `POST /RewardHub/api/auth/login` and
 profile, cart and checkout behavior rather than exposing unauthenticated reads
 and writes. Restore those routes only after a rebuilt backend enforces and tests
 object-level authorization itself.
+
+## R traffic intelligence
+
+The Shiny dashboard needs loopback PostgreSQL access, a private upload area and
+private application logs. It does not need a writable checkout, unrelated home
+directories or an external network route. Keep the tracked sample data in the
+read-only checkout and over-mount only `data/uploads` and `logs` with dedicated
+service state.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin rtraffic
+sudo install -d -o root -g rtraffic -m 0750 /etc/r-traffic-intel
+sudo install -d -o rtraffic -g rtraffic -m 0700 \
+  /var/lib/r-traffic-intel/uploads /var/lib/r-traffic-intel/logs
+sudo install -o root -g root -m 0644 \
+  ops/systemd/shared-host/r-traffic-intel.service \
+  /etc/systemd/system/r-traffic-intel.service
+```
+
+Create `/etc/r-traffic-intel/app.env` as `root:rtraffic` mode `0640`. Preserve
+the non-secret runtime settings, replace the plaintext `APP_PASSWORD` with an
+`APP_PASSWORD_HASH` produced by `sodium::password_store()`, and set a newly
+rotated `DB_PASSWORD`. Do not retain a redundant `DATABASE_URL`, because it
+duplicates the database credential. The application now rejects missing
+database settings and ignores dotenv values when systemd already supplied a
+setting.
+
+Before rotation, stop the service and preserve its unit, dotenv file, role
+attributes, safe table counts and a verified custom-format `pg_dump` in a
+root-owned mode `0700` rollback directory. Rotate the PostgreSQL role password
+in the same maintenance window as activating the protected environment. Revoke
+`CREATE` on the application database and public schema from both the service
+role and `PUBLIC`; grant only database `CONNECT`, schema `USAGE` and the
+existing table/sequence privileges needed at runtime.
+
+Acceptance requires all parser/config/auth tests, matching safe row counts,
+successful read and rolled-back write transactions as `r_traffic_user`, a
+working public page, login failure and rate-limit behavior, an authenticated
+upload authorization check, loopback-only listening, hidden unrelated homes,
+a read-only checkout, private writable upload/log mounts, a clean restart and a
+warning-level journal review. On rollback, stop the isolated unit, restore the
+old database password and unit/environment together, and restore any upload or
+log files created during the isolated run before restarting as `micu`.
