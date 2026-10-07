@@ -6,14 +6,14 @@ list only after it runs under a dedicated non-login identity, passes its own
 functional probes, and cannot see unrelated projects or write its release.
 
 The baseline contained 38 running system services with `User=micu`. Umami,
-Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer and Bookmarks
-plus GT Shop have been migrated; 30 remain. Loopback listeners are externally
-relevant whenever nginx or a Cloudflare tunnel publishes them.
+Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
+Shop and R Traffic Intelligence have been migrated; 29 remain. Loopback
+listeners are externally relevant whenever nginx or a Cloudflare tunnel
+publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
 | `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
-| `r-traffic-intel.service` | no | `3838` | `r.micutu.com` |
 | `unison-backend.service` | no | `8097` | verify tunnel route |
 | `asm-canary.service` | yes | `34624` | `asm.micutu.com` |
 | `brainfuck-canary.service` | yes | `34623` | `brainfuck.micutu.com` |
@@ -232,6 +232,47 @@ relevant whenever nginx or a Cloudflare tunnel publishes them.
   restart and warning-level journal probes passed.
 - Rollback copy:
   `/home/micu/backups/service-migrations/gtshop-20261007T170301Z`.
+
+## Completed migration: R Traffic Intelligence
+
+- The service moved from `User=micu`, plaintext active credentials, no sandbox
+  and `9.2 UNSAFE` to dedicated non-login UID/GID `rtraffic`, a root-managed
+  environment, read-only checkout, hidden unrelated homes, localhost-only
+  network policy, empty capabilities, private upload/log state and bounded
+  resources at `2.9 OK`.
+- R commit `71e5e6f` closes a confirmed authorization bypass: hiding the import
+  tab did not protect its server-side observer, so an anonymous WebSocket client
+  could trigger production log ingestion. Upload processing now requires the
+  session's authenticated state. The same commit stores only a sodium password
+  hash and rate-limits failures per normalized client address; commit `b58c110`
+  rejects missing production DB settings and prevents dotenv from overriding
+  systemd configuration.
+- The database password was rotated without disclosure and the old credential
+  is rejected. The plaintext checkout dotenv and intermediate secret files were
+  removed after a root-only rollback copy was verified. The DB role is still a
+  non-superuser and now has `CONNECT`/schema `USAGE` without database or schema
+  `CREATE`; read, rolled-back write and denied-DDL probes passed. All seven table
+  counts match the backup (`190714` requests, `805` IP summaries, `3` imports,
+  `5000` mock requests, `4816` mock summaries and zero parser/suspicious rows).
+- The host had unregistered Shiny/Bslib package trees with broken JavaScript
+  symlinks. Commits `09f6495`, `2f5a2cc` and `a94252f` declare fail-fast runtime
+  asset conditions, while the production packages and their dependencies are
+  now managed and verify cleanly through dpkg. The first request and every one
+  of the 27 referenced local assets return `200` after a clean restart.
+- R commit `b72f4bd` replaces remote Google fonts with native UI/code font
+  stacks and adds a regression test. The full suite passes 46 assertions.
+  Commit `1cfc038` adds Cloudflare-origin enforcement, anti-spoofed client
+  identity, per-client request/connection limits, a 25 MiB upload ceiling,
+  method restrictions and a Shiny-specific CSP. Direct-origin, oversized-body
+  and disallowed-method probes are denied; local/public WebSockets return `101`.
+- `RestrictSUIDSGID` is intentionally omitted because the R `fs`/libuv recursive
+  directory helper receives `EPERM` while compiling runtime theme assets under
+  that filter. Strace confirmed the incompatibility. The release remains
+  read-only with no capabilities and `NoNewPrivileges=yes`; namespace, secret,
+  public route, credential continuity, login lockout, anonymous-upload denial
+  and warning-free restart probes passed.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/r-traffic-intel-20261007T225125Z`.
 
 ## Ordered next passes
 

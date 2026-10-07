@@ -84,6 +84,17 @@ secret values are reproduced here.
   nginx around a confirmed anonymous authorization bypass for user, cart and
   checkout APIs while source recovery and a dependency/authentication rebuild
   remain P0. Thirty baseline services remain under `micu`; S-01 stays Critical.
+- 2026-10-08: R Traffic Intelligence moved in commit `8d4b276` from `micu`,
+  plaintext active credentials and `9.2 UNSAFE` to dedicated `rtraffic`, hashed
+  UI authentication, a rotated least-privilege DB credential and `2.9 OK`.
+  R commits `71e5e6f` and `b58c110` close a confirmed anonymous log-import path,
+  enforce login throttling and reject missing production configuration;
+  `b72f4bd` removes remote browser fonts. Commits `2f5a2cc` and `a94252f`
+  restore package-managed Shiny assets, and `1cfc038` adds the Cloudflare-origin,
+  request/body/connection and CSP boundary at nginx. Tests, DB continuity,
+  denied DDL/direct-origin/anonymous upload, every local asset, public and
+  WebSocket probes passed. Twenty-nine baseline services remain under `micu`,
+  so S-01 stays Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

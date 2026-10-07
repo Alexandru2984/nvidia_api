@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 8 of 38 baseline services migrated**.
+Status: **in progress — 9 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -263,6 +263,16 @@ Status: **in progress — 8 of 38 baseline services migrated**.
   clean-restart probes passed, leaving 30 baseline `User=micu` services. The
   obsolete dependency set and authorization logic require a rebuilt artifact;
   affected product functions remain deliberately unavailable until then.
+- Commits `8d4b276`, `375719c`, `2f5a2cc` and `a94252f` moved R Traffic
+  Intelligence from `micu` and `9.2 UNSAFE` to dedicated `rtraffic` at `2.9 OK`,
+  restored its Shiny runtime to package-manager integrity and retained only the
+  minimum runtime sandbox exception proven necessary by strace. R commits
+  `71e5e6f` and `b58c110` close anonymous upload processing, add hashed and
+  rate-limited admin authentication, and fail closed on missing production
+  configuration; `b72f4bd` removes remote browser fonts. Commit `1cfc038`
+  hardens the Cloudflare/nginx boundary. All 46 assertions, DB continuity and
+  least-privilege probes, every generated asset, WebSockets, namespace and
+  clean-restart checks passed, leaving 29 baseline `User=micu` services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
