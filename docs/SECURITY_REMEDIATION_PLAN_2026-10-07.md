@@ -1,0 +1,242 @@
+# Security remediation program — 2026-10-07
+
+Source assessment: [SECURITY_AUDIT_2026-10-07.md](SECURITY_AUDIT_2026-10-07.md)  
+Starting verdict: **RED — security work precedes product features**  
+Scope: AI Chat Hub repository and production path, plus only those shared-host
+controls that directly form its trust boundary.
+
+## CISO decision record
+
+- Top STRIDE threats: elevation of privilege through shared service identity;
+  browser tampering/information disclosure through mutable JavaScript; denial of
+  service/cost abuse through parser and unbounded authenticated paths.
+- Worst-case blast radius: all three AI Chat Hub users, every prompt/message/file,
+  database and backup contents, provider/mail credentials, and every project on
+  the shared VPS.
+- Illustrative baseline ALE: EUR 2,500/year from the audit. This is not an
+  accounting forecast and must be recalculated from real provider spend,
+  recovery time and all shared-host workloads.
+- Current MTTD: under six minutes for covered application events; unbounded for
+  webroot/script tampering and shared-identity privilege escalation.
+- Response: `INCIDENT_RESPONSE.md` exists; a timed tabletop remains required.
+- Regulatory: preserve awareness time and obtain privacy/legal review for any
+  qualifying breach; GDPR assessment may have a 72-hour notification window.
+- Supply chain: NVIDIA, Cloudflare, SMTP/mailcow, GitHub and the self-hosted
+  analytics service remain in scope. No new vendor is introduced by this plan.
+
+## Owner constraint and compensating control
+
+The owner has explicitly chosen to retain unrestricted passwordless sudo for the
+interactive `micu` account. This is recorded as a risk exception, not treated as
+a completed remediation.
+
+The compensating invariant is: **no network-facing or content-processing service
+may run as `micu`**. Such services must use dedicated non-login identities with
+`NoNewPrivileges=yes`, an empty capability set, private writable paths, and
+systemd filesystem/process/network restrictions appropriate to their function.
+Interactive automation under `micu` remains fully trusted. The verdict cannot be
+green while remotely reachable services still inherit that identity.
+
+Changes to unrelated projects require their own inventory, backup, health probe
+and rollback. This program will not silently rewrite them merely because they
+share the host.
+
+## Delivery rules
+
+1. Every stage gets a focused commit with only the repository owner's configured
+   author/committer identity and no trailers or attribution body.
+2. A production stage starts with recoverable database/config/webroot copies
+   proportional to the change.
+3. Repository tests run before deployment; local service/config validation runs
+   before restart/reload; public and origin probes run afterward.
+4. A failed acceptance criterion triggers rollback before the next stage.
+5. Secret values, cookies, OTPs, prompts, attachment names and raw private logs
+   never enter commits or deployment transcripts.
+6. Feature work resumes only after every P0 gate is either closed with evidence
+   or explicitly accepted by the owner with compensating controls.
+
+## Wave 0 — plan and evidence baseline
+
+Deliverables:
+
+- Preserve the dated audit and this ordered remediation plan.
+- Keep the worktree clean between stages and retain exact commit/deployment IDs.
+- Re-run dependency, test, header, ownership and service-health baselines before
+  declaring the program complete.
+
+Exit gate: plan committed; current production health and recovery evidence are
+known; no production mutation in this wave.
+
+## Wave 1 — browser integrity and immutable frontend (P0)
+
+Repository work:
+
+- Remove remote analytics JavaScript from the authenticated SPA.
+- Remove analytics/Cloudflare browser-script origins from CSP; retain only the
+  minimum same-origin browser capabilities the app uses.
+- Replace the documented `www-data`-owned deployment with a root-owned,
+  read-only, staged release procedure.
+- Add deployment validation for expected files, symlink safety, modes/owners and
+  post-switch health.
+
+Production work:
+
+- Build and test the SPA.
+- Preserve the current webroot, deploy a root-owned release and switch the nginx
+  root path recoverably.
+- Verify no external script remains, CSP is narrowed, HTML/assets are 200,
+  `/media/` is 404, private API is 403 anonymously and nginx cannot write the
+  release.
+
+Rollback: restore the prior webroot path and nginx template, reload nginx, and
+repeat public probes.
+
+Exit gate: the browser has no remotely mutable analytics code; release files are
+not writable by `www-data`; frontend tests and public probes pass.
+
+## Wave 2 — 2FA enrollment and admin boundary (P0)
+
+Repository work:
+
+- Require the current password for beginning 2FA enrollment.
+- Track a short-lived recent-auth marker and rotate the session identifier after
+  enrollment completes.
+- Rate-limit recovery-code regeneration and require recent 2FA/password evidence
+  for sensitive factor lifecycle actions.
+- Add regression tests for stolen-session enrollment, session rotation, staff
+  admin access and replay/lockout behavior.
+- Make the responsive settings UI collect the password ephemerally and clear it
+  on every completion/error/navigation boundary.
+
+Production work:
+
+- Deploy backend/frontend and validate anonymous CSRF, login and admin denial.
+- The owner enrolls the staff factor from a trusted device after deployment.
+- Put `/admin/` behind an independent Cloudflare Access or VPN policy when the
+  account-side control is available.
+
+Rollback: restore code/web release; keep admin fail-closed. Never disable a
+working staff factor merely to roll back UI code.
+
+Exit gate: session possession alone cannot add a factor or obtain verified-admin
+state; the staff account has an enabled factor; admin requires both app and edge
+gates.
+
+## Wave 3 — shared-host identity isolation (P0)
+
+Repository/host work:
+
+- Keep `micu` passwordless sudo per the owner decision.
+- Remove AI Chat Hub's trust in the analytics service (Wave 1).
+- Inventory every active `User=micu` network/content service and migrate it one at
+  a time to a dedicated identity, starting with analytics and public parsers.
+- Add `NoNewPrivileges`, capability removal, private temp/devices, strict
+  filesystem paths, resource ceilings and explicit address families.
+- Remove credentials from process arguments and rotate the exposed runtime token
+  after its service boundary is corrected.
+
+Rollback: per-service unit/config/release backup and a defined service-specific
+health probe. Never batch-migrate unrelated services in one restart window.
+
+Exit gate: no network-facing service runs as `micu`; each migrated service passes
+functional and sandbox tests; retained sudo is reachable only through the
+interactive trusted identity, not a service unit.
+
+## Wave 4 — credential separation and lifecycle (P0)
+
+Repository work:
+
+- Support root-managed systemd credential files or `*_FILE` settings without
+  putting values in process arguments.
+- Separate Django signing, TOTP encryption and audit-integrity key purposes with
+  versioned derivation/rotation behavior.
+- Add configuration validation that rejects missing, placeholder or unsafe
+  production secrets without logging values.
+
+Production work:
+
+- After Wave 3, issue unique NVIDIA and SMTP credentials for this application.
+- Install them through the protected credential path, remove duplicate values
+  from dotenv files, restart, test mail/provider flows, then revoke old values.
+
+Rollback: retain old credentials only for the shortest controlled overlap;
+restore references, not plaintext into the repository.
+
+Exit gate: no provider/mail credential is reused across projects; no application
+secret is supplied in argv; rotation and revocation are tested and documented.
+
+## Wave 5 — host patch and reboot closure (P0)
+
+- Take fresh application/database/config backups and verify available disk space.
+- Apply standard security, kernel and cloudflared updates; decide whether to
+  enable the required Universe/ESM coverage or remove/replace uncovered packages.
+- Reboot in an explicit whole-VPS maintenance window.
+- Validate SSH, UFW, tunnel, nginx, PostgreSQL, AI Chat Hub, timers, backups and
+  every other declared production service.
+- Alert on pending security-update count and reboot-required age.
+
+Rollback: provider snapshot or equivalent host-level recovery plus retained
+package/config state. This wave requires an explicit maintenance window because
+it affects projects beyond AI Chat Hub.
+
+Exit gate: zero applicable standard security updates, no reboot-required marker,
+expected kernel/tunnel versions active, complete service health matrix green.
+
+## Wave 6 — encrypted off-site recovery (P0)
+
+- Encrypt backups before off-host transfer with a separately held/versioned key.
+- Keep an immutable off-site copy and defined retention without exposing data or
+  keys to the application service.
+- Define RPO/RTO and alert on backup, transfer, age and restore failures.
+- Restore a selected off-site artifact into an isolated database and record
+  schema/migration/count evidence.
+
+Exit gate: same-host destruction does not destroy the recovery path; a timed
+off-site restore meets documented RPO/RTO.
+
+## Wave 7 — parser, origin and concurrency isolation (P1)
+
+- Run PDF/DOCX parsing under a separate identity with no app credentials, no
+  network, a minimal read-only runtime, per-job and aggregate resource ceilings,
+  bounded concurrency and a strict request/response protocol.
+- Quarantine and malware-scan uploads before provider/browser use when a suitable
+  engine and update policy are selected.
+- Move gunicorn to a permissioned Unix socket and remove direct local TCP access.
+- Isolate/authenticate cloudflared-to-nginx client-IP trust so unrelated local
+  processes cannot mint rate-limit identities.
+- Add transactional per-conversation generation locks, attachment row locks,
+  idempotency keys and durable cancel/retry state.
+
+Exit gate: parser compromise cannot read app secrets or reach the network; local
+untrusted processes cannot bypass the origin boundary; parallel requests cannot
+duplicate attachment consumption or destructive regeneration.
+
+## Wave 8 — abuse, retention, detection and supply chain (P1/P2)
+
+- Add absolute session lifetime and uniform recent-auth policy.
+- Add durable per-user/global quotas for conversations, messages, sessions,
+  export/download egress and retained bytes; schedule `clearsessions` and usage
+  retention.
+- Stream bounded exports and rate-limit session inventory/download endpoints.
+- Send security/audit evidence off-host; monitor release hashes, identity/sudo
+  events, environment/config changes, provider/mail anomalies and database/disk
+  growth without collecting prompts or filenames.
+- Pin GitHub Actions to reviewed full SHAs, produce a hash-locked Python input,
+  retain SBOM/provenance, and automate reviewed updates.
+- Publish complete privacy/retention/provider disclosures and record vendor/DPA/
+  production-entitlement decisions.
+- Execute a timed incident tabletop and close every action item.
+
+Exit gate: load/abuse tests prove quotas and cleanup; high-risk tampering alerts
+off-host within target MTTD; supply-chain inputs are immutable/reviewed; privacy
+and vendor evidence is current.
+
+## Final program acceptance
+
+- Re-run the complete dated audit and compare every finding to objective evidence.
+- No Critical finding remains open. A High finding requires named acceptance,
+  compensating control, review date and owner; silence is not acceptance.
+- Backend/frontend/security/restore suites pass, production drift checks pass,
+  and the worktree is clean.
+- Change the verdict from RED only after the evidence above is committed without
+  embedding operational secrets.
