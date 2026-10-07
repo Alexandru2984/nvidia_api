@@ -45,7 +45,6 @@ RestrictSUIDSGID=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
 RemoveIPC=yes
 KeyringMode=private
 CapabilityBoundingSet=

@@ -222,7 +222,10 @@ metadata from the network, sends password-reset mail and stores application,
 queue, cache and cable state in SQLite. It therefore keeps outbound IPv4/IPv6
 access but moves every writable path and secret away from the checkout. The
 checkout, including precompiled assets, is read-only; private state is mounted
-over `storage` and an ephemeral runtime directory is mounted over `tmp`.
+over `storage` and an ephemeral runtime directory is mounted over `tmp`. The
+Ruby image-processing stack uses FFI trampolines, so this unit cannot enable
+`MemoryDenyWriteExecute`; the remaining privilege, filesystem and capability
+controls still apply.
 
 ```bash
 sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin bookmarksapp
