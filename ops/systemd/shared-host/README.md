@@ -179,3 +179,38 @@ loopback pages, login negative-path behavior, hidden unrelated homes, read-only
 release/static assets and a clean restart. On rollback, stop the isolated unit,
 SQLite-backup current state to the legacy path, restore any newly generated key
 files, restore the old unit and start it as `micu`.
+
+## Crystal traffic analyzer
+
+This service legitimately reads nginx access/error logs, but it does not need
+the rest of the host. The dedicated `crystaltraffic` identity receives `adm` as
+a supplementary group inside a mount namespace where all of `/var/log` is
+inaccessible except a read-only bind of `/var/log/nginx`. The checkout is
+read-only and its `logs` subdirectory is over-mounted by private service state.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin crystaltraffic
+sudo install -d -o root -g crystaltraffic -m 0750 /etc/traffic-analyzer
+sudo install -o root -g crystaltraffic -m 0640 \
+  /home/micu/crystal/traffic-analyzer/.env /etc/traffic-analyzer/app.env
+sudo install -d -o crystaltraffic -g crystaltraffic -m 0700 \
+  /var/lib/traffic-analyzer/logs
+sudo install -o crystaltraffic -g crystaltraffic -m 0600 \
+  /home/micu/crystal/traffic-analyzer/logs/app.log \
+  /var/lib/traffic-analyzer/logs/app.log
+sudo install -o root -g root -m 0644 \
+  ops/systemd/shared-host/traffic-analyzer.service \
+  /etc/systemd/system/traffic-analyzer.service
+```
+
+Before restart, move the untracked dotenv/source backup copies into the root-only
+rollback directory: they contain superseded credential material and are not
+runtime inputs. After acceptance, make the legacy active dotenv root-only. The
+old password also exists in Git history, so owner password rotation remains a
+mandatory manual gate even though the deployed code uses only a bcrypt hash.
+
+Acceptance requires login/static/redirect/WebSocket-negative behavior, the
+ability to follow current nginx logs across a clean restart, a writable private
+application log, and namespace proof that other home projects and non-nginx logs
+are absent. On rollback, restore the old unit, dotenv ownership, app log and
+quarantined backup files, then restart as `micu`.
