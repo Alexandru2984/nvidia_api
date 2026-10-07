@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 6 of 38 baseline services migrated**.
+Status: **in progress — 7 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -245,6 +245,15 @@ Status: **in progress — 6 of 38 baseline services migrated**.
   probes passed, leaving 32 baseline `User=micu` services. Historical plaintext
   backup files are quarantined root-only; rotating that application password is
   an explicit owner-coordinated gate.
+- Commits `c495d73` and `aa1fd2d` moved Ruby Bookmarks from `micu`, inline
+  secrets and `9.2 UNSAFE` to dedicated `bookmarksapp` at `2.9 OK`. Four SQLite
+  databases, the Rails key, environment, runtime and checkout now have separate
+  private/read-only boundaries. Ruby commits `c0a5d11` and `59da158` also fixed
+  five vulnerable dependency families and DNS-rebinding SSRF. Static scans, 139
+  tests, database continuity, namespace, authentication/CSRF, public routes,
+  required egress and clean restart passed, leaving 31 baseline `User=micu`
+  services. The formerly inline SMTP credential requires provider revocation
+  and replacement before its incident gate closes.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

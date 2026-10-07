@@ -6,13 +6,12 @@ list only after it runs under a dedicated non-login identity, passes its own
 functional probes, and cannot see unrelated projects or write its release.
 
 The baseline contained 38 running system services with `User=micu`. Umami,
-Pastebox, Video, the webhook receiver, Finance and Traffic Analyzer have been
-migrated; 32 remain. Loopback listeners are externally relevant whenever nginx
-or a Cloudflare tunnel publishes them.
+Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer and Bookmarks
+have been migrated; 31 remain. Loopback listeners are externally relevant
+whenever nginx or a Cloudflare tunnel publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
-| `bookmarks.service` | no | `3001` | `ruby.micutu.com` |
 | `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
 | `gtshop.service` | no | `8087` | verify tunnel route |
 | `r-traffic-intel.service` | no | `3838` | `r.micutu.com` |
@@ -170,6 +169,38 @@ or a Cloudflare tunnel publishes them.
   an earlier plaintext value existed in historical source/backup material.
 - Rollback copy:
   `/home/micu/backups/service-migrations/traffic-analyzer-20261007T163707Z`.
+
+## Completed migration: Ruby Bookmarks
+
+- Changed from `User=micu`, inline secrets, no sandbox and `9.2 UNSAFE` to the
+  dedicated non-login `bookmarksapp` identity, a root-managed environment and
+  key, read-only checkout, hidden unrelated homes, private state/runtime paths,
+  empty capabilities and bounded resources at `2.9 OK`. Outbound networking is
+  intentionally retained for metadata retrieval and password-reset mail.
+- Five vulnerable dependency families were updated in Ruby commit `c0a5d11`:
+  Rails/Active Storage, JSON, Mail, RubyZip and SQLite. Bundler Audit and
+  Importmap report no vulnerable packages, Brakeman reports no warnings, RuboCop
+  is clean, and 139 tests with 409 assertions pass.
+- Ruby commit `59da158` closes DNS-rebinding SSRF in metadata and link checks by
+  rejecting non-public or mixed DNS answers and pinning each socket to the
+  validated address while retaining the original TLS hostname. Redirects are
+  resolved and validated independently.
+- All four production SQLite databases pass `quick_check`; schema migration
+  counts match and the primary database preserved `1` user, `1` session and `1`
+  bookmark. The legacy key and databases are root-only, while active SQLite
+  state and sidecars are mode `0600` under `bookmarksapp`.
+- Namespace, checkout/runtime permissions, required egress, loopback/public
+  health/login/registration, anonymous private/API denial, missing-CSRF denial,
+  invalid-login behavior and clean-restart journal probes passed. The first
+  isolated start safely rolled back because Ruby FFI requires executable
+  trampolines; commit `aa1fd2d` removed only the incompatible
+  `MemoryDenyWriteExecute` control and the retry passed.
+- The old unit exposed its SMTP credential through systemd environment metadata.
+  It is no longer present in unit metadata and now resides in a mode `0640`
+  root-managed file, but that credential must still be revoked and replaced at
+  the provider before this incident is closed.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/bookmarks-20261007T165140Z`.
 
 ## Ordered next passes
 

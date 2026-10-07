@@ -70,6 +70,14 @@ secret values are reproduced here.
   bounded; historical plaintext backup files were quarantined root-only.
   Thirty-two baseline services remain under `micu`; S-01 stays Critical and the
   application password still requires owner-coordinated rotation.
+- 2026-10-07: Ruby Bookmarks moved in commits `c495d73` and `aa1fd2d` from
+  `micu`, inline credentials and `9.2 UNSAFE` to dedicated `bookmarksapp` and
+  `2.9 OK`. Ruby commits `c0a5d11` and `59da158` fixed five vulnerable dependency
+  families and a DNS-rebinding SSRF path. Its keys, four SQLite databases,
+  environment, writable state, release and home visibility are now bounded.
+  Thirty-one baseline services remain under `micu`; S-01 stays Critical. The
+  previously exposed SMTP credential requires provider-side revocation and
+  replacement.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
