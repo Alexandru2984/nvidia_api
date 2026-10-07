@@ -18,6 +18,7 @@ function TwoFactorPanel() {
 
   // enroll wizard state
   const [enrollData, setEnrollData] = useState(null)  // { secret, provisioning_uri, qr_data_url }
+  const [enrollPassword, setEnrollPassword] = useState('')
   const [enrollCode, setEnrollCode] = useState('')
   const [recoveryCodes, setRecoveryCodes] = useState(null)
 
@@ -28,6 +29,7 @@ function TwoFactorPanel() {
 
   // regen state
   const [showRegen, setShowRegen] = useState(false)
+  const [regenPassword, setRegenPassword] = useState('')
   const [regenCode, setRegenCode] = useState('')
 
   async function refresh() {
@@ -46,11 +48,11 @@ function TwoFactorPanel() {
   async function startEnroll() {
     setError(null); setBusy(true)
     try {
-      setEnrollData(await api.twoFactorEnroll())
+      setEnrollData(await api.twoFactorEnroll(enrollPassword))
       setRecoveryCodes(null)
       setEnrollCode('')
     } catch (e) { setError(e.message) }
-    finally { setBusy(false) }
+    finally { setEnrollPassword(''); setBusy(false) }
   }
   async function confirmEnroll() {
     setError(null); setBusy(true)
@@ -60,7 +62,7 @@ function TwoFactorPanel() {
       setEnrollData(null)
       await refresh()
     } catch (e) { setError(e.message) }
-    finally { setBusy(false) }
+    finally { setEnrollCode(''); setBusy(false) }
   }
   async function doDisable() {
     setError(null); setBusy(true)
@@ -70,17 +72,17 @@ function TwoFactorPanel() {
       setDisablePassword(''); setDisableCode('')
       await refresh()
     } catch (e) { setError(e.message) }
-    finally { setBusy(false) }
+    finally { setDisablePassword(''); setDisableCode(''); setBusy(false) }
   }
   async function doRegenRecovery() {
     setError(null); setBusy(true)
     try {
-      const r = await api.twoFactorRegenRecovery(regenCode.trim())
+      const r = await api.twoFactorRegenRecovery(regenPassword, regenCode.trim())
       setRecoveryCodes(r.recovery_codes)
-      setShowRegen(false); setRegenCode('')
+      setShowRegen(false)
       await refresh()
     } catch (e) { setError(e.message) }
-    finally { setBusy(false) }
+    finally { setRegenPassword(''); setRegenCode(''); setBusy(false) }
   }
 
   if (!status) return <div role="status">{error || 'Loading 2FA status…'}</div>
@@ -94,13 +96,25 @@ function TwoFactorPanel() {
       {error && <div className="login-error">{error}</div>}
 
       {!status.enabled && !enrollData && (
-        <button className="primary" onClick={startEnroll} disabled={busy}>Enable 2FA</button>
+        <div className="enroll-card">
+          <p>Confirm your current password before creating a new authenticator secret.</p>
+          <label className="settings-field">
+            <span>Current password</span>
+            <input
+              type="password" autoComplete="current-password"
+              value={enrollPassword} onChange={(e) => setEnrollPassword(e.target.value)}
+            />
+          </label>
+          <button className="primary" onClick={startEnroll} disabled={busy || !enrollPassword}>
+            {busy ? 'Checking…' : 'Enable 2FA'}
+          </button>
+        </div>
       )}
 
       {!status.enabled && enrollData && (
         <div className="enroll-card">
           <p>1. Scan this QR with your authenticator app, or enter the secret manually.</p>
-          <img src={enrollData.qr_data_url} alt="2FA QR" style={{ width: 200, height: 200, background: '#fff', padding: 8, borderRadius: 8 }} />
+          <img className="two-factor-qr" src={enrollData.qr_data_url} alt="2FA QR" />
           <pre className="secret-box" style={{ userSelect: 'all' }}>{enrollData.secret}</pre>
           <p>2. Enter the 6-digit code your app shows now:</p>
           <input
@@ -108,11 +122,13 @@ function TwoFactorPanel() {
             value={enrollCode} onChange={(e) => setEnrollCode(e.target.value)}
             placeholder="123456"
           />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div className="settings-actions">
             <button className="primary" onClick={confirmEnroll} disabled={busy || enrollCode.length !== 6}>
               Confirm and enable
             </button>
-            <button className="link" onClick={() => setEnrollData(null)}>Cancel</button>
+            <button className="link" onClick={() => {
+              setEnrollData(null); setEnrollPassword(''); setEnrollCode(''); setError(null)
+            }}>Cancel</button>
           </div>
         </div>
       )}
@@ -131,7 +147,7 @@ function TwoFactorPanel() {
       {status.enabled && !showDisable && !showRegen && (
         <div>
           <p>2FA is <strong>enabled</strong>. {status.recovery_codes_remaining} recovery code(s) remaining.</p>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="settings-actions">
             <button className="link" onClick={() => setShowRegen(true)}>Regenerate recovery codes</button>
             <button className="link danger" onClick={() => setShowDisable(true)}>Disable 2FA</button>
           </div>
@@ -150,27 +166,41 @@ function TwoFactorPanel() {
             value={disableCode} onChange={(e) => setDisableCode(e.target.value)}
             style={{ marginTop: 8 }}
           />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div className="settings-actions">
             <button className="primary danger" onClick={doDisable} disabled={busy || !disablePassword || !disableCode}>
               Disable 2FA
             </button>
-            <button className="link" onClick={() => setShowDisable(false)}>Cancel</button>
+            <button className="link" onClick={() => {
+              setShowDisable(false); setDisablePassword(''); setDisableCode(''); setError(null)
+            }}>Cancel</button>
           </div>
         </div>
       )}
 
       {showRegen && (
         <div className="enroll-card">
-          <p>Enter a current 2FA code to issue 10 fresh recovery codes (this invalidates the old set):</p>
-          <input
-            type="text" inputMode="numeric" maxLength={6} placeholder="123456"
-            value={regenCode} onChange={(e) => setRegenCode(e.target.value)}
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button className="primary" onClick={doRegenRecovery} disabled={busy || regenCode.length !== 6}>
+          <p>Confirm your password and current 2FA code (or an unused recovery code). This invalidates the old set.</p>
+          <label className="settings-field">
+            <span>Current password</span>
+            <input
+              type="password" autoComplete="current-password"
+              value={regenPassword} onChange={(e) => setRegenPassword(e.target.value)}
+            />
+          </label>
+          <label className="settings-field">
+            <span>2FA or recovery code</span>
+            <input
+              type="text" autoComplete="one-time-code" maxLength={17}
+              value={regenCode} onChange={(e) => setRegenCode(e.target.value)}
+            />
+          </label>
+          <div className="settings-actions">
+            <button className="primary" onClick={doRegenRecovery} disabled={busy || !regenPassword || !regenCode}>
               Regenerate
             </button>
-            <button className="link" onClick={() => setShowRegen(false)}>Cancel</button>
+            <button className="link" onClick={() => {
+              setShowRegen(false); setRegenPassword(''); setRegenCode(''); setError(null)
+            }}>Cancel</button>
           </div>
         </div>
       )}

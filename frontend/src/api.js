@@ -246,13 +246,16 @@ export const api = {
 
   // 2FA
   twoFactorStatus: () => request('/auth/2fa/status/'),
-  twoFactorEnroll: () => request('/auth/2fa/enroll/', { method: 'POST' }),
+  twoFactorEnroll: (password) =>
+    request('/auth/2fa/enroll/', { method: 'POST', body: JSON.stringify({ password }) }),
   twoFactorVerifyEnroll: (code) =>
     request('/auth/2fa/verify-enroll/', { method: 'POST', body: JSON.stringify({ code }) }),
   twoFactorDisable: (password, code) =>
     request('/auth/2fa/disable/', { method: 'POST', body: JSON.stringify({ password, code }) }),
-  twoFactorRegenRecovery: (code) =>
-    request('/auth/2fa/recovery-codes/', { method: 'POST', body: JSON.stringify({ code }) }),
+  twoFactorRegenRecovery: (password, code) =>
+    request('/auth/2fa/recovery-codes/', {
+      method: 'POST', body: JSON.stringify({ password, code }),
+    }),
 
   // Account
   accountUsage: () => request('/account/usage/'),

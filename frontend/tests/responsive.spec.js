@@ -125,6 +125,42 @@ test('application shell contains no cross-origin scripts', async ({ page }) => {
   await expect(page.locator('script[src^="http://"], script[src^="https://"]')).toHaveCount(0)
 })
 
+test('2FA enrollment sends and then clears the current password', async ({ page }) => {
+  await mockAPI(page)
+  const payloads = []
+  await page.route('**/api/auth/2fa/enroll/', async (route) => {
+    payloads.push(route.request().postDataJSON())
+    if (payloads.length === 1) {
+      await route.fulfill({ status: 401, json: { error: 'Wrong password.' } })
+      return
+    }
+    await route.fulfill({ status: 200, json: {
+      secret: 'JBSWY3DPEHPK3PXP',
+      provisioning_uri: 'otpauth://totp/test',
+      qr_data_url: 'data:image/svg+xml;base64,PHN2Zy8+',
+    } })
+  })
+  await page.goto('/')
+  await page.getByTitle('Settings', { exact: true }).click()
+  const panel = page.getByRole('heading', { name: 'Two-factor authentication' }).locator('..')
+  const password = panel.getByLabel('Current password', { exact: true })
+
+  await password.fill('first-password')
+  await panel.getByRole('button', { name: 'Enable 2FA' }).click()
+  await expect(panel.getByText('Wrong password.')).toBeVisible()
+  await expect(password).toHaveValue('')
+
+  await password.fill('second-password')
+  await panel.getByRole('button', { name: 'Enable 2FA' }).click()
+  await expect(panel.getByAltText('2FA QR')).toBeVisible()
+  expect(payloads).toEqual([
+    { password: 'first-password' },
+    { password: 'second-password' },
+  ])
+  await panel.getByRole('button', { name: 'Cancel' }).click()
+  await expect(panel.getByLabel('Current password', { exact: true })).toHaveValue('')
+})
+
 async function expectNoPageOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }

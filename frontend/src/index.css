@@ -1531,6 +1531,17 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   border-radius: 10px;
   background: var(--bg);
 }
+.settings-field { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; font-size: 13px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.two-factor-qr {
+  display: block;
+  width: 200px;
+  height: 200px;
+  max-width: 100%;
+  background: #fff;
+  padding: 8px;
+  border-radius: 8px;
+}
 .secret-box, .recovery-box {
   background: #0a0d12;
   border: 1px solid var(--border);
