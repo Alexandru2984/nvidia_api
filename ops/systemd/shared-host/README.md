@@ -63,3 +63,30 @@ then probe `/api/health` on loopback and the public hostname. On rollback, stop
 the isolated service and use SQLite `.backup` from the active state database
 back to the legacy path before restoring the old unit; this preserves pastes
 created after migration.
+
+## Video
+
+The Django/Channels service uses a dedicated identity, a root-managed secret
+file and a systemd state directory. The application checkout and virtualenv are
+visible read-only; the rest of `/home` is hidden from the process.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin video
+sudo install -d -o root -g video -m 0750 /etc/video
+sudo install -o root -g video -m 0640 /etc/video.env /etc/video/video.env
+sudo install -d -o video -g video -m 0700 /var/lib/video
+sudo systemctl stop video.service
+sudo sqlite3 /home/micu/Video/db.sqlite3 \
+  ".backup '/var/lib/video/db.sqlite3'"
+sudo chown video:video /var/lib/video/db.sqlite3
+sudo chmod 0600 /var/lib/video/db.sqlite3
+sudo install -o root -g root -m 0644 ops/systemd/shared-host/video.service /etc/systemd/system/video.service
+sudo systemctl daemon-reload
+sudo systemctl start video.service
+```
+
+Validate both databases with `PRAGMA quick_check`, compare non-sensitive table
+counts, and probe `/healthz` through loopback and the public hostname. Verify
+that `video` can update its state database but cannot write the checkout or see
+other projects below `/home/micu`. On rollback, stop the isolated unit, copy
+new writes back with SQLite `.backup`, restore the saved unit and restart.

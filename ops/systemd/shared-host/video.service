@@ -1,0 +1,56 @@
+[Unit]
+Description=Video Django Channels ASGI app (isolated)
+Wants=network-online.target
+After=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=video
+Group=video
+WorkingDirectory=/home/micu/Video
+Environment=DJANGO_DATABASE_PATH=/var/lib/video/db.sqlite3
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/video/video.env
+ExecStart=/home/micu/Video/.venv/bin/daphne -b 127.0.0.1 -p 8121 websocket_project.asgi:application
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+StateDirectory=video
+StateDirectoryMode=0700
+BindReadOnlyPaths=/home/micu/Video
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateMounts=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectSystem=strict
+ProtectHome=tmpfs
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RemoveIPC=yes
+KeyringMode=private
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+SystemCallArchitectures=native
+LimitCORE=0
+TasksMax=64
+MemoryHigh=192M
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
