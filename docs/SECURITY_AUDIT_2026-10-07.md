@@ -24,9 +24,12 @@ secret values are reproduced here.
 - 2026-10-07: S-02 was remediated in commit `903996a` and production. The
   authenticated SPA no longer loads cross-origin JavaScript, the associated CSP
   origins were removed, and both origin and Cloudflare delivery were verified.
-- 2026-10-07: S-03's writable-webroot path was remediated in commit `903996a`
-  and production with an atomic, root-owned read-only release. Periodic manifest
-  monitoring remains open, so the complete P0 gate is not yet closed.
+- 2026-10-07: S-03 was remediated in commits `903996a` and `cd37d0b`, then
+  deployed. The atomic release is root-owned/read-only, carries a SHA-256
+  manifest, and the five-minute security monitor validates content, topology,
+  ownership and exact modes. This closes the `www-data` persistence path; S-01
+  separately remains capable of root-level tampering until service isolation is
+  complete.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

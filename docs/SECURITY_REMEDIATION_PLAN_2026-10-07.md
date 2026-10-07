@@ -112,9 +112,12 @@ Status: **completed and deployed 2026-10-07** in commit `903996a`.
 - The active release is `root:root` with directories `0755` and files `0644`;
   direct write probes as `www-data` failed. nginx and the backend remained
   active with no warning-or-higher journal events during rollout.
-- The periodic release-manifest alert required by audit gate S-03 is deliberately
-  tracked as the next P0 stage; immutable deployment does not by itself provide
-  tamper detection against root or out-of-band changes.
+- Commit `cd37d0b` added the remaining S-03 detection control and was deployed
+  as `/var/www/aichat-releases/release-20261007T054248_670497515`. Its
+  root-created manifest verified all 10 release files; the installed root-owned
+  monitor returned an empty issue set with exit `0`, and the systemd run ended
+  with `Result=success`. Its rollback targets are the preceding release and
+  `/usr/local/libexec/aichat-security-monitor.rollback-20261007T054248Z`.
 
 ## Wave 2 — 2FA enrollment and admin boundary (P0)
 
