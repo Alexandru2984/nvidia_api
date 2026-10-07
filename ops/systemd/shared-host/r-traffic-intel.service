@@ -3,7 +3,7 @@ Description=R Traffic Intelligence dashboard (isolated)
 Wants=network-online.target postgresql.service
 After=network-online.target postgresql.service
 ConditionPathIsDirectory=/usr/share/nodejs/bootstrap-sass/assets/fonts
-ConditionPathIsFile=/usr/lib/R/site-library/shiny/www/shared/datepicker/js/bootstrap-datepicker.min.js
+ConditionPathExists=/usr/lib/R/site-library/shiny/www/shared/datepicker/js/bootstrap-datepicker.min.js
 
 [Service]
 Type=simple
