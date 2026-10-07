@@ -7,6 +7,11 @@ if (( $# != 1 )); then
 fi
 
 hook_id=$1
+if [[ "$hook_id" == self-test ]]; then
+    printf 'webhook dispatch self-test passed\n'
+    exit 0
+fi
+
 deploy_type=systemd
 case "$hook_id" in
     brainfuck) workdir=/home/micu/brainfuck; target=brainfuck.service ;;

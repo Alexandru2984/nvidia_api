@@ -118,6 +118,7 @@ sudo install -d -o root -g webhook-cicd -m 0710 /var/lib/webhook-cicd/requests
 for id in brainfuck cobol code-forest crystal deaddrop drogon-blog lisp lua nvidia pastebox taskmanager ruby pdf-editor pcep expense pixel-art micu-market; do
   sudo install -o root -g webhook-cicd -m 0620 /dev/null "/var/lib/webhook-cicd/requests/$id"
 done
+sudo install -o root -g webhook-cicd -m 0620 /dev/null /var/lib/webhook-cicd/requests/self-test
 sudo install -o root -g root -m 0755 ops/systemd/shared-host/scripts/webhook-cicd-* /usr/local/libexec/
 ```
 
@@ -129,8 +130,8 @@ argument. Install the four tracked units, daemon-reload, enable/start the path
 and receiver, then make the legacy config copies root-only.
 
 Acceptance requires: all 17 HMAC and main-branch rules remain present; an
-unsigned request causes no queue/deploy; a synthetic queue request starts only
-a dry-run test instance; the receiver namespace cannot see `/home/micu`; the
+unsigned request causes no queue/deploy; a synthetic `self-test` request starts
+only a no-op test instance; the receiver namespace cannot see `/home/micu`; the
 request directory rejects new filenames; loopback and public hook endpoints
 respond; and the receiver's systemd exposure is `OK`. Do not trigger a real
 project deploy merely to test this boundary.

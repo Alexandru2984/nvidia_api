@@ -20,6 +20,7 @@ PathModified=/var/lib/webhook-cicd/requests/pcep
 PathModified=/var/lib/webhook-cicd/requests/expense
 PathModified=/var/lib/webhook-cicd/requests/pixel-art
 PathModified=/var/lib/webhook-cicd/requests/micu-market
+PathModified=/var/lib/webhook-cicd/requests/self-test
 Unit=webhook-cicd-dispatch.service
 
 [Install]
