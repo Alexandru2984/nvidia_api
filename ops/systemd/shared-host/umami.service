@@ -16,6 +16,7 @@ ExecStart=/usr/bin/node /home/micu/umami/.next/standalone/server.js
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
+SuccessExitStatus=143
 UMask=0077
 
 NoNewPrivileges=yes
@@ -27,6 +28,8 @@ ProcSubset=pid
 ProtectSystem=strict
 ProtectHome=tmpfs
 BindReadOnlyPaths=/home/micu/umami
+BindReadOnlyPaths=/etc/umami/empty.env:/home/micu/umami/.env
+BindReadOnlyPaths=/etc/umami/empty.env:/home/micu/umami/.next/standalone/.env
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

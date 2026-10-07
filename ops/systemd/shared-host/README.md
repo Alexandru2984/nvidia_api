@@ -14,6 +14,7 @@ file readable only by that group:
 sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin umami
 sudo install -d -o root -g umami -m 0750 /etc/umami
 sudo install -o root -g umami -m 0640 /home/micu/umami/.env /etc/umami/umami.env
+sudo install -o root -g root -m 0444 /dev/null /etc/umami/empty.env
 sudo install -o root -g root -m 0644 ops/systemd/shared-host/umami.service /etc/systemd/system/umami.service
 sudo systemctl daemon-reload
 sudo systemctl restart umami.service
