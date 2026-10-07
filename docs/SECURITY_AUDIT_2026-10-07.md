@@ -104,15 +104,19 @@ and atomic release switch, plus an externally checked manifest/hash alert.
 Evidence: safe equality checks confirmed that the repository-root environment and
 `backend/.env` reuse the same NVIDIA key, SMTP identity and SMTP password. Values
 were not printed. Every process running as `micu` can read the owner-only root
-repository environment file, and `micu` owns the app environment file.
+repository environment file, and `micu` owns the app environment file. One
+unrelated `micu` service also exposes a credential-like distribution token in its
+process arguments, making it readable through the same-user process boundary;
+the value is intentionally not reproduced here.
 
 Impact: a compromise in another `micu` service can incur provider cost, send mail
 as the application, and support account-reset abuse even without touching the
 AI Chat Hub process.
 
 Remediation: after S-01, issue per-service credentials, rotate all reused values,
-move them to root-managed systemd credentials or an equivalent secret store, and
-alert on provider/mail usage by credential identity.
+including the process-argument token, move them to root-managed systemd
+credentials or an equivalent secret store, remove secrets from command lines,
+and alert on provider/mail usage by credential identity.
 
 ### S-05 — High — a stolen session can enroll a new 2FA factor
 
