@@ -64,6 +64,12 @@ secret values are reproduced here.
   dedicated `financeapp` and `2.7 OK`. Its database, cookie-signing keys,
   configuration, writable state, release and home visibility are separated.
   Thirty-three baseline services remain under `micu`; S-01 stays Critical.
+- 2026-10-07: Traffic Analyzer moved in commits `4db4f05` and `4964d14` from
+  `micu` and `9.2 UNSAFE` to dedicated `crystaltraffic` and `2.7 OK`. Its release,
+  environment, writable state, home visibility and host-log access are now
+  bounded; historical plaintext backup files were quarantined root-only.
+  Thirty-two baseline services remain under `micu`; S-01 stays Critical and the
+  application password still requires owner-coordinated rotation.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

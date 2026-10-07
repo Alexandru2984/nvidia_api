@@ -6,9 +6,9 @@ list only after it runs under a dedicated non-login identity, passes its own
 functional probes, and cannot see unrelated projects or write its release.
 
 The baseline contained 38 running system services with `User=micu`. Umami,
-Pastebox, Video, the webhook receiver and Finance have been migrated; 33 remain.
-Loopback listeners are externally relevant whenever nginx or a Cloudflare
-tunnel publishes them.
+Pastebox, Video, the webhook receiver, Finance and Traffic Analyzer have been
+migrated; 32 remain. Loopback listeners are externally relevant whenever nginx
+or a Cloudflare tunnel publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
@@ -16,7 +16,6 @@ tunnel publishes them.
 | `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
 | `gtshop.service` | no | `8087` | verify tunnel route |
 | `r-traffic-intel.service` | no | `3838` | `r.micutu.com` |
-| `traffic-analyzer.service` | no | `8070` | `crystal.micutu.com` |
 | `unison-backend.service` | no | `8097` | verify tunnel route |
 | `asm-canary.service` | yes | `34624` | `asm.micutu.com` |
 | `brainfuck-canary.service` | yes | `34623` | `brainfuck.micutu.com` |
@@ -148,6 +147,29 @@ tunnel publishes them.
   passed.
 - Rollback copy:
   `/home/micu/backups/service-migrations/finance-anomaly-20261007T115309Z`.
+
+## Completed migration: Traffic Analyzer
+
+- Changed from `User=micu`, no sandbox and `9.2 UNSAFE` to dedicated non-login
+  UID/GID `crystaltraffic`, `NoNewPrivileges=yes`, hidden unrelated homes,
+  read-only checkout, localhost-only IP policy, empty capabilities and bounded
+  resources at `2.7 OK`.
+- The service can read only the nginx access/error directory from the host log
+  tree and can write only its private state-backed application log. Its
+  root-managed environment is mode `0640`; the legacy checkout environment is
+  root-only and unreadable from the service namespace.
+- Three untracked historical backup files containing credential material were
+  moved, without deletion, to the root-only rollback directory. The owner's two
+  pre-existing source modifications remain untouched and are the only changes
+  reported by the Crystal repository.
+- The current source compiled successfully (with only the existing deprecated
+  Kemal log-handler warning). Loopback/public login and assets, protected HTTP
+  and WebSocket denial, invalid-login cookie denial, log-reader continuity,
+  namespace boundaries, clean restart and warning-level journal probes passed.
+- The application password still requires owner-coordinated rotation because
+  an earlier plaintext value existed in historical source/backup material.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/traffic-analyzer-20261007T163707Z`.
 
 ## Ordered next passes
 

@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 5 of 38 baseline services migrated**.
+Status: **in progress — 6 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -237,6 +237,14 @@ Status: **in progress — 5 of 38 baseline services migrated**.
   are hidden. All 77 tests, database/key continuity, write rollback,
   public/private behavior and clean restart passed, leaving 33 baseline
   `User=micu` services.
+- Commits `4db4f05` and `4964d14` moved Traffic Analyzer from `micu` and `9.2
+  UNSAFE` to dedicated `crystaltraffic` at `2.7 OK`. The checkout is read-only,
+  unrelated homes and logs are hidden, only nginx access/error logs are exposed
+  read-only, and application logging uses private state. Compile, namespace,
+  invalid-login, HTTP/WebSocket authorization, public route and clean-restart
+  probes passed, leaving 32 baseline `User=micu` services. Historical plaintext
+  backup files are quarantined root-only; rotating that application password is
+  an explicit owner-coordinated gate.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
