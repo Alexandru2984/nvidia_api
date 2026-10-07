@@ -80,7 +80,12 @@ export const api = {
     params.set('include_counts', '1')
     return request(`/conversations/?${params.toString()}`)
   },
-  getConversation: (id) => request(`/conversations/${id}/`),
+  getConversation: (id) => request(`/conversations/${id}/?message_page=1&limit=50`),
+  listEarlierMessages: (id, cursor) => {
+    const params = new URLSearchParams({ limit: '50' })
+    if (cursor) params.set('cursor', cursor)
+    return request(`/conversations/${id}/messages/?${params.toString()}`)
+  },
   createConversation: (model_id, title = 'New Chat') =>
     request('/conversations/', { method: 'POST', body: JSON.stringify({ model_id, title }) }),
   deleteConversation: (id) => request(`/conversations/${id}/`, { method: 'DELETE' }),
@@ -138,7 +143,12 @@ export const api = {
       throw e
     }
   },
-  listAttachments: (kind) => request(`/attachments/${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
+  listAttachments: (kind, cursor = null) => {
+    const params = new URLSearchParams({ include_count: '1', limit: '30' })
+    if (kind) params.set('kind', kind)
+    if (cursor) params.set('cursor', cursor)
+    return request(`/attachments/?${params.toString()}`)
+  },
   uploadAttachment: (file, modelId, { onProgress, signal } = {}) => {
     const fd = new FormData()
     fd.append('file', file)

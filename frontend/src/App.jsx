@@ -105,6 +105,15 @@ function normalizeConversationPage(page, view) {
   }
 }
 
+function normalizeAttachmentPage(page) {
+  if (Array.isArray(page)) return { results: page, count: page.length, nextCursor: null }
+  return {
+    results: Array.isArray(page?.results) ? page.results : [],
+    count: Number(page?.count) || 0,
+    nextCursor: typeof page?.next_cursor === 'string' ? page.next_cursor : null,
+  }
+}
+
 const SUGGESTIONS = [
   'Write a haiku about GPUs warming up at night',
   'Explain mixture-of-experts in three sentences',
@@ -852,7 +861,12 @@ export default function App() {
   const [imageBusy, setImageBusy] = useState(false)
   const [imageParams, setImageParams] = useState({ width: 1024, height: 1024, steps: 4, seed: 0 })
   const [imageGallery, setImageGallery] = useState([])
+  const [imageGalleryNextCursor, setImageGalleryNextCursor] = useState(null)
+  const [imageGalleryLoadingMore, setImageGalleryLoadingMore] = useState(false)
+  const [loadingEarlierMessages, setLoadingEarlierMessages] = useState(false)
   const chatEndRef = useRef(null)
+  const chatAreaRef = useRef(null)
+  const chatScrollRestoreRef = useRef(null)
   const textareaRef = useRef(null)
   const imageInputRef = useRef(null)
   const documentInputRef = useRef(null)
@@ -866,6 +880,8 @@ export default function App() {
   const menuRef = useRef(null)
   const conversationMenuButtonRef = useRef(null)
   const conversationQueryKeyRef = useRef('active\u0000')
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
   conversationQueryKeyRef.current = `${conversationView}\u0000${search.trim()}`
 
   useEffect(() => () => {
@@ -967,7 +983,9 @@ export default function App() {
         setConversationLoadingMore(false)
         setImageModels(im.models || [])
         setImageModel(im.default || (im.models?.[0]?.id) || '')
-        setImageGallery(gallery || [])
+        const galleryPage = normalizeAttachmentPage(gallery)
+        setImageGallery(galleryPage.results)
+        setImageGalleryNextCursor(galleryPage.nextCursor)
       })
       .catch((e) => {
         if (cancelled) return
@@ -1009,6 +1027,13 @@ export default function App() {
   }, [activeId])
 
   useEffect(() => {
+    const restoration = chatScrollRestoreRef.current
+    if (restoration && chatAreaRef.current) {
+      chatAreaRef.current.scrollTop = restoration.top
+        + (chatAreaRef.current.scrollHeight - restoration.height)
+      chatScrollRestoreRef.current = null
+      return
+    }
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [active?.messages?.length, sending])
 
@@ -1334,6 +1359,62 @@ export default function App() {
     }
   }
 
+  async function loadEarlierMessages() {
+    const conversationId = active?.id
+    const cursor = active?.message_page?.older_cursor
+    if (!conversationId || !cursor || loadingEarlierMessages) return
+    setLoadingEarlierMessages(true)
+    try {
+      const page = await api.listEarlierMessages(conversationId, cursor)
+      if (activeIdRef.current !== conversationId) return
+      const scrollArea = chatAreaRef.current
+      if (scrollArea) {
+        chatScrollRestoreRef.current = {
+          height: scrollArea.scrollHeight,
+          top: scrollArea.scrollTop,
+        }
+      }
+      setActive((current) => {
+        if (!current || current.id !== conversationId) return current
+        const currentIds = new Set(current.messages.map((message) => message.id))
+        const earlier = page.results.filter((message) => !currentIds.has(message.id))
+        return {
+          ...current,
+          messages: [...earlier, ...current.messages],
+          message_page: {
+            count: page.count,
+            older_cursor: page.older_cursor,
+          },
+        }
+      })
+    } catch (loadError) {
+      if (activeIdRef.current === conversationId) setError(loadError.message)
+    } finally {
+      if (activeIdRef.current === conversationId) setLoadingEarlierMessages(false)
+    }
+  }
+
+  async function loadMoreGallery() {
+    if (!imageGalleryNextCursor || imageGalleryLoadingMore) return
+    const cursor = imageGalleryNextCursor
+    setImageGalleryLoadingMore(true)
+    try {
+      const page = normalizeAttachmentPage(
+        await api.listAttachments('generated_image', cursor),
+      )
+      setImageGallery((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]))
+        for (const item of page.results) byId.set(item.id, item)
+        return [...byId.values()]
+      })
+      setImageGalleryNextCursor(page.nextCursor)
+    } catch (loadError) {
+      setError(loadError.message)
+    } finally {
+      setImageGalleryLoadingMore(false)
+    }
+  }
+
   async function handleSend(e) {
     e?.preventDefault?.()
     const text = draft.trim()
@@ -1402,6 +1483,10 @@ export default function App() {
           messages: (c?.messages || [])
             .filter((m) => m.id !== tmpUserId && m.id !== streamingId)
             .concat([final.user_message, final.assistant_message]),
+          message_page: c?.message_page ? {
+            ...c.message_page,
+            count: c.message_page.count + 2,
+          } : c?.message_page,
         }))
         setConversations((prev) => {
           const others = prev.filter((p) => p.id !== convo.id)
@@ -1642,11 +1727,16 @@ export default function App() {
     setActive(null)
     setActiveId(null)
     setImageGallery([])
+    setImageGalleryNextCursor(null)
+    setImageGalleryLoadingMore(false)
+    setLoadingEarlierMessages(false)
     setSidebarOpen(false)
   }
 
   function selectConversation(id) {
     if (sending) return
+    setLoadingEarlierMessages(false)
+    chatScrollRestoreRef.current = null
     setActiveId(id)
     setMode('chat')
     setSidebarOpen(false)
@@ -1963,7 +2053,7 @@ export default function App() {
             Text and extracted document content will still be included.
           </div>
         )}
-        <div className="chat-area">
+        <div className="chat-area" ref={chatAreaRef}>
           {!active || (active.messages?.length || 0) === 0 ? (
             <div className="welcome">
               <h1>Talk to NVIDIA's <span className="accent">open models</span></h1>
@@ -1978,6 +2068,18 @@ export default function App() {
             </div>
           ) : (
             <div className="chat-inner">
+              {active.message_page?.older_cursor && (
+                <button
+                  type="button"
+                  className="load-earlier-messages"
+                  disabled={loadingEarlierMessages}
+                  onClick={loadEarlierMessages}
+                >
+                  {loadingEarlierMessages
+                    ? 'Loading earlier messages…'
+                    : `Load earlier messages · ${active.messages.length} of ${active.message_page.count}`}
+                </button>
+              )}
               {active.messages.map((m) => (
                 <MessageRow
                   key={m.id}
@@ -2253,6 +2355,16 @@ export default function App() {
                 ))
               )}
             </div>
+            {imageGalleryNextCursor && (
+              <button
+                type="button"
+                className="gallery-load-more"
+                disabled={imageGalleryLoadingMore}
+                onClick={loadMoreGallery}
+              >
+                {imageGalleryLoadingMore ? 'Loading…' : 'Load more generations'}
+              </button>
+            )}
           </div>
         )}
         {previewAttachment && (

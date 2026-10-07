@@ -238,6 +238,93 @@ test('conversation history loads signed-cursor pages without mobile overflow', a
   await expectNoPageOverflow(page)
 })
 
+test('earlier messages prepend without losing the mobile history', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  const message = (id) => ({
+    id,
+    role: id % 2 ? 'user' : 'assistant',
+    content: `History message ${id} ` + 'content '.repeat(30),
+    attachments: [],
+    created_at: `2026-10-05T10:0${id}:00Z`,
+  })
+  await page.route('**/api/conversations/1/**', (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() !== 'GET') return route.fallback()
+    if (path === '/api/conversations/1/') {
+      return route.fulfill({ status: 200, json: {
+        id: 1, title: 'A useful conversation', model_id: 'test/model',
+        is_pinned: false, archived_at: null,
+        system_prompt: '', temperature: 0.7, max_tokens: 1024,
+        messages: [message(5), message(6), message(7)],
+        message_page: { count: 7, older_cursor: 'older-page' },
+      } })
+    }
+    if (path === '/api/conversations/1/messages/') {
+      return route.fulfill({ status: 200, json: {
+        results: [message(2), message(3), message(4)],
+        count: 7,
+        older_cursor: 'oldest-page',
+      } })
+    }
+    return route.fallback()
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await expect(page.locator('.msg')).toHaveCount(3)
+  await page.getByRole('button', { name: /Load earlier messages/ }).click()
+  await expect(page.locator('.msg')).toHaveCount(6)
+  await expect(page.locator('.msg').first()).toContainText('History message 2')
+  await expect(page.getByRole('button', { name: /6 of 7/ })).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('private file library loads attachment cursor pages on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  const files = Array.from({ length: 35 }, (_, index) => ({
+    id: index + 100,
+    kind: 'document',
+    original_name: `private-${String(index + 1).padStart(2, '0')}.txt`,
+    mime_type: 'text/plain',
+    size: 1024,
+    url: `/api/attachments/${index + 100}/download/`,
+    has_text: true,
+    deletable: false,
+    created_at: `2026-10-05T09:${String(index).padStart(2, '0')}:00Z`,
+  }))
+  await page.route('**/api/attachments/**', (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.pathname !== '/api/attachments/' || request.method() !== 'GET') {
+      return route.fallback()
+    }
+    if (url.searchParams.get('kind') === 'generated_image') {
+      return route.fulfill({ status: 200, json: {
+        results: [], count: 0, next_cursor: null,
+      } })
+    }
+    const secondPage = url.searchParams.get('cursor') === 'files-page-2'
+    return route.fulfill({ status: 200, json: {
+      results: secondPage ? files.slice(30) : files.slice(0, 30),
+      count: 35,
+      next_cursor: secondPage ? null : 'files-page-2',
+    } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Settings', { exact: true }).click()
+  await expect(page.locator('.library-row')).toHaveCount(30)
+  await page.getByRole('button', { name: 'Load more files' }).click()
+  await expect(page.locator('.library-row')).toHaveCount(35)
+  await expect(page.getByRole('button', { name: 'Load more files' })).toHaveCount(0)
+  await expectNoPageOverflow(page)
+})
+
 test('retired conversation model is explicit and recoverable on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 })
   await mockAPI(page, true, 'retired/model')

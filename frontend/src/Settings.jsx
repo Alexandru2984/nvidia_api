@@ -2,6 +2,15 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 
 
+function normalizeAttachmentPage(page) {
+  if (Array.isArray(page)) return { results: page, nextCursor: null }
+  return {
+    results: Array.isArray(page?.results) ? page.results : [],
+    nextCursor: typeof page?.next_cursor === 'string' ? page.next_cursor : null,
+  }
+}
+
+
 function TwoFactorPanel() {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
@@ -332,11 +341,14 @@ function StoragePanel() {
   const [files, setFiles] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [nextCursor, setNextCursor] = useState(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   useEffect(() => {
     let cancelled = false
     Promise.all([api.accountUsage(), api.listAttachments()]).then(([stats, attachments]) => {
       if (cancelled) return
-      setUsage(stats); setFiles(attachments)
+      const page = normalizeAttachmentPage(attachments)
+      setUsage(stats); setFiles(page.results); setNextCursor(page.nextCursor)
     }).catch((e) => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
   }, [])
@@ -350,6 +362,21 @@ function StoragePanel() {
       setUsage(await api.accountUsage())
     } catch (e) { setError(e.message) }
     finally { setBusy(false) }
+  }
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true); setError(null)
+    try {
+      const page = normalizeAttachmentPage(await api.listAttachments(undefined, nextCursor))
+      setFiles((current) => {
+        const byId = new Map(current.map((file) => [file.id, file]))
+        for (const file of page.results) byId.set(file.id, file)
+        return [...byId.values()]
+      })
+      setNextCursor(page.nextCursor)
+    } catch (e) { setError(e.message) }
+    finally { setLoadingMore(false) }
   }
 
   return <section className="settings-section">
@@ -395,6 +422,11 @@ function StoragePanel() {
           <div><a href={file.url} download>{file.original_name}</a><small>{Math.max(1, Math.round(file.size / 1024))} KB · {file.deletable ? 'Unattached' : 'Linked to a conversation'}</small></div>
           {file.deletable && <button className="link danger" disabled={busy} onClick={() => remove(file)} aria-label={`Delete ${file.original_name}`}>Delete</button>}
         </div>)}
+        {nextCursor && (
+          <button className="library-load-more" onClick={loadMore} disabled={loadingMore}>
+            {loadingMore ? 'Loading…' : 'Load more files'}
+          </button>
+        )}
       </div>
     </> : !error && <p role="status">Loading storage…</p>}
   </section>
