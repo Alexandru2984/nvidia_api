@@ -214,3 +214,43 @@ ability to follow current nginx logs across a clean restart, a writable private
 application log, and namespace proof that other home projects and non-nginx logs
 are absent. On rollback, restore the old unit, dotenv ownership, app log and
 quarantined backup files, then restart as `micu`.
+
+## Ruby Bookmarks
+
+The Rails service processes public authentication/import input, fetches bookmark
+metadata from the network, sends password-reset mail and stores application,
+queue, cache and cable state in SQLite. It therefore keeps outbound IPv4/IPv6
+access but moves every writable path and secret away from the checkout. The
+checkout, including precompiled assets, is read-only; private state is mounted
+over `storage` and an ephemeral runtime directory is mounted over `tmp`.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin bookmarksapp
+sudo install -d -o root -g bookmarksapp -m 0750 /etc/bookmarks
+sudo install -o root -g bookmarksapp -m 0640 \
+  /home/micu/ruby_on_rails/config/master.key /etc/bookmarks/master.key
+sudo install -d -o bookmarksapp -g bookmarksapp -m 0700 \
+  /var/lib/bookmarks/storage
+sudo install -o root -g root -m 0644 \
+  ops/systemd/shared-host/bookmarks.service \
+  /etc/systemd/system/bookmarks.service
+```
+
+Create `/etc/bookmarks/bookmarks.env` as `root:bookmarksapp` mode `0640` using a
+root-controlled editor, with the non-secret runtime settings and SMTP settings
+from the previous unit. Never place the SMTP credential on a command line or in
+`Environment=`. Stop the old service before taking final SQLite `.backup`
+copies of all four production databases into `/var/lib/bookmarks/storage`, then
+make every copied database and sidecar private to `bookmarksapp`. Preserve the
+old unit, key, environment metadata and consistent database backups in a mode
+`0700` root-owned rollback directory.
+
+Acceptance requires dependency/code scans and the full Rails suite, `quick_check`
+plus matching safe row counts for every database, no pending migration, login and
+CSRF negative paths, public/origin health, outbound metadata and SMTP contract
+checks that disclose no secrets, a read-only checkout, hidden unrelated homes,
+private state, a clean restart and bounded resource use. The credential exposed
+by the previous inline systemd environment must be revoked and replaced at the
+SMTP provider; moving it to the protected file only removes further local
+disclosure. On rollback, stop the isolated service, back up its current SQLite
+state, restore the old databases/unit/key ownership and restart as `micu`.
