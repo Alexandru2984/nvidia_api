@@ -300,3 +300,11 @@ checkout controllers and must not publish API documentation. Acceptance also
 requires database continuity, invalid-token/anonymous denials at the public
 boundary, public static/reward behavior, loopback-only listening, namespace and
 network isolation, a clean restart and warning-level journal review.
+
+Install `ops/nginx/shared-host/gtshop-rate-limit.conf` in nginx's `http` context
+and `ops/nginx/shared-host/gtshop.conf` as the site. The boundary deliberately
+allows only `POST /RewardHub/api/auth/login` and
+`GET /RewardHub/api/rewards`; every other backend path is denied. This suspends
+profile, cart and checkout behavior rather than exposing unauthenticated reads
+and writes. Restore those routes only after a rebuilt backend enforces and tests
+object-level authorization itself.
