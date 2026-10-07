@@ -56,8 +56,10 @@ secret values are reproduced here.
   and `3aa9761` from direct execution as `micu` at `7.2 MEDIUM` to a dedicated,
   non-privileged receiver at `2.7 OK`. Its only deployment bridge is now a
   root-owned fixed-file/fixed-target dispatcher; normal `micu` services can no
-  longer read the webhook HMAC config. Thirty-four baseline services remain
-  under `micu`, so S-01 stays Critical.
+  longer read the webhook HMAC config. Commit `4b23529` also added method,
+  Cloudflare-origin, request-size, timeout and real-client rate controls at
+  nginx. Thirty-four baseline services remain under `micu`, so S-01 stays
+  Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

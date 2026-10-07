@@ -116,11 +116,18 @@ publishes them.
   no-op `self-test` traversed receiver permissions, path activation, dispatcher
   and worker successfully. Namespace denial, unknown-file denial, sudo denial,
   loopback/public probes and a clean restart passed.
+- nginx now accepts only POST on the proxied route, rejects traffic outside the
+  Cloudflare/tunnel origin boundary, caps body/timeouts and rate-limits by the
+  restored real client IP. Public GET and a direct-origin probe returned `403`;
+  a bounded 15-request unsigned burst returned eleven `200` and four `429`
+  responses without creating a deployment request.
 - Existing delivery debt remains visible instead of being guessed around: five
   configured checkout paths are retired and several legacy target units no
   longer exist. Each mapping needs its own build/health/rollback repair.
 - Rollback copy:
   `/home/micu/backups/service-migrations/webhook-cicd-20261007T114224Z`.
+- nginx rollback copy:
+  `/home/micu/backups/service-migrations/webhook-nginx-20261007T114808Z`.
 
 ## Ordered next passes
 

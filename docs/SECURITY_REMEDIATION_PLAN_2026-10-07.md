@@ -227,6 +227,10 @@ Status: **in progress — 4 of 38 baseline services migrated**.
   name from HTTP. HMAC/branch rules, negative unsigned-request behavior, the
   no-op dispatch probe and restart passed, leaving 34 baseline `User=micu`
   services.
+- Commit `4b23529` restricted the webhook ingress to POST through the declared
+  Cloudflare/tunnel origin boundary and added real-client rate, body and timeout
+  limits. Public-method, direct-origin and bounded-burst probes passed without
+  enqueueing a deployment.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
