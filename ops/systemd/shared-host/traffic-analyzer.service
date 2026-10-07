@@ -20,7 +20,7 @@ StateDirectory=traffic-analyzer
 StateDirectoryMode=0700
 BindReadOnlyPaths=/home/micu/crystal/traffic-analyzer
 BindPaths=/var/lib/traffic-analyzer/logs:/home/micu/crystal/traffic-analyzer/logs
-InaccessiblePaths=/var/log
+TemporaryFileSystem=/var/log:ro
 BindReadOnlyPaths=/var/log/nginx
 
 NoNewPrivileges=yes
