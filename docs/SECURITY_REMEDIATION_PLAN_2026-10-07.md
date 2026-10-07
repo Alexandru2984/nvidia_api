@@ -196,6 +196,19 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
+Status: **in progress — 1 of 38 baseline services migrated**.
+
+- Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
+  root-managed environment, masked dotenv copies, read-only release, hidden
+  home, localhost-only networking, empty capability set and bounded resources.
+- Effective systemd exposure fell from `9.2 UNSAFE` to `2.7 OK`. Namespace probes
+  proved AI Chat Hub is hidden and the Umami source is not writable. Direct and
+  public heartbeat/dashboard/tracker probes plus the dependent PCEP page and AI
+  Chat health returned `200`; the clean restart produced no application warning.
+- Rollback artifacts are recorded in
+  [SHARED_HOST_SERVICE_INVENTORY_2026-10-07.md](SHARED_HOST_SERVICE_INVENTORY_2026-10-07.md),
+  which also records all 37 remaining units and the next risk-ordered passes.
+
 ## Wave 4 — credential separation and lifecycle (P0)
 
 Repository work:

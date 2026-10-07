@@ -38,6 +38,12 @@ secret values are reproduced here.
   operational gate remains open because the one production staff account still
   has no enrolled factor and `/admin/` has no independent Cloudflare Access/VPN
   policy.
+- 2026-10-07: S-01 remediation began with Umami in commits `a1ddb3a` and
+  `cbb8aee`. The analytics runtime moved from `micu` and `9.2 UNSAFE` to a
+  dedicated non-login identity and `2.7 OK`; its mount namespace hides AI Chat
+  Hub and makes its own release read-only. Thirty-seven active `User=micu`
+  services remain, so S-01 stays Critical and the owner-approved sudo exception
+  is not yet adequately compensated.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
