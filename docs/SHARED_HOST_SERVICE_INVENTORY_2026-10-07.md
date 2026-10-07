@@ -7,13 +7,12 @@ functional probes, and cannot see unrelated projects or write its release.
 
 The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer and Bookmarks
-have been migrated; 31 remain. Loopback listeners are externally relevant
-whenever nginx or a Cloudflare tunnel publishes them.
+plus GT Shop have been migrated; 30 remain. Loopback listeners are externally
+relevant whenever nginx or a Cloudflare tunnel publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
 | `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
-| `gtshop.service` | no | `8087` | verify tunnel route |
 | `r-traffic-intel.service` | no | `3838` | `r.micutu.com` |
 | `unison-backend.service` | no | `8097` | verify tunnel route |
 | `asm-canary.service` | yes | `34624` | `asm.micutu.com` |
@@ -201,6 +200,38 @@ whenever nginx or a Cloudflare tunnel publishes them.
   the provider before this incident is closed.
 - Rollback copy:
   `/home/micu/backups/service-migrations/bookmarks-20261007T165140Z`.
+
+## Completed migration: GT Shop
+
+- Changed from `User=micu`, a home-readable database credential, a writable JAR,
+  no sandbox and `9.2 UNSAFE` to dedicated non-login UID/GID `gtshopapp`, a
+  root-owned release/config, no home visibility, loopback-only IP policy, empty
+  capabilities and bounded resources at `2.7 OK`.
+- The embedded fallback JWT signing secret was active because no override was
+  configured. A new 128-character random secret now lives only in the protected
+  environment and intentionally invalidated every old bearer token. The
+  PostgreSQL role password was also rotated transactionally; the role remains
+  non-superuser without create-role/database, replication or bypass-RLS powers,
+  and production now uses `ddl-auto=validate`.
+- The recovered bytecode confirmed an application authorization bypass:
+  `SecurityConfig` applies `permitAll` to all user, cart and checkout paths, and
+  anonymous/fake-bearer profile requests returned `200`. Commit `11d1f8c`
+  therefore makes nginx fail closed for those namespaces and for Swagger/OpenAPI.
+  Only POST login and read-only rewards remain proxied, with method, body, rate
+  and timeout bounds. The static site and rewards return `200`; affected routes
+  and documentation return `403` publicly.
+- The legacy artifact embeds Spring Boot 3.4.1, Framework 6.2.1, Security 6.4.2
+  and Tomcat 10.1.34. No source/build checkout exists on the host, and upstream
+  security fixes published since that build cannot be safely grafted into the
+  fat JAR. Source recovery, dependency upgrades, authorization tests and a
+  rebuilt artifact remain a P0 gate; the unsafe product functions stay disabled
+  until that gate closes.
+- The verified custom-format database dump preserves `3` users, `12` rewards,
+  `16` purchase records and `0` cart items. Database continuity, root-owned JAR
+  hash, namespace, permissions, local-only listener, public boundary, clean
+  restart and warning-level journal probes passed.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/gtshop-20261007T170301Z`.
 
 ## Ordered next passes
 

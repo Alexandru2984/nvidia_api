@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 7 of 38 baseline services migrated**.
+Status: **in progress — 8 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -254,6 +254,15 @@ Status: **in progress — 7 of 38 baseline services migrated**.
   required egress and clean restart passed, leaving 31 baseline `User=micu`
   services. The formerly inline SMTP credential requires provider revocation
   and replacement before its incident gate closes.
+- Commit `a68916f` moved GT Shop from `micu` and `9.2 UNSAFE` to dedicated
+  `gtshopapp` at `2.7 OK`, rotated its exposed database password and embedded
+  fallback JWT key, enforced schema validation and installed a root-owned JAR.
+  Commit `11d1f8c` blocks the confirmed anonymous user/cart/checkout authorization
+  bypass and API documentation at nginx while preserving POST login and the
+  read-only rewards catalog. Database, namespace, listener, public-boundary and
+  clean-restart probes passed, leaving 30 baseline `User=micu` services. The
+  obsolete dependency set and authorization logic require a rebuilt artifact;
+  affected product functions remain deliberately unavailable until then.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

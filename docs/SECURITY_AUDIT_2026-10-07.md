@@ -78,6 +78,12 @@ secret values are reproduced here.
   Thirty-one baseline services remain under `micu`; S-01 stays Critical. The
   previously exposed SMTP credential requires provider-side revocation and
   replacement.
+- 2026-10-07: GT Shop moved in commit `a68916f` from `micu`, an exposed DB
+  credential, an embedded fallback JWT key and `9.2 UNSAFE` to dedicated
+  `gtshopapp`, rotated secrets and `2.7 OK`. Commit `11d1f8c` fails closed at
+  nginx around a confirmed anonymous authorization bypass for user, cart and
+  checkout APIs while source recovery and a dependency/authentication rebuild
+  remain P0. Thirty baseline services remain under `micu`; S-01 stays Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
