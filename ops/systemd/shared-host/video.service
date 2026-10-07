@@ -5,8 +5,8 @@ After=network-online.target redis-server.service
 
 [Service]
 Type=simple
-User=video
-Group=video
+User=videoapp
+Group=videoapp
 WorkingDirectory=/home/micu/Video
 Environment=DJANGO_DATABASE_PATH=/var/lib/video/db.sqlite3
 Environment=PYTHONDONTWRITEBYTECODE=1
