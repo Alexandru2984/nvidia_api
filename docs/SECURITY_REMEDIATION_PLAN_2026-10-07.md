@@ -94,6 +94,28 @@ repeat public probes.
 Exit gate: the browser has no remotely mutable analytics code; release files are
 not writable by `www-data`; frontend tests and public probes pass.
 
+Status: **completed and deployed 2026-10-07** in commit `903996a`.
+
+- Local acceptance: 327 backend tests and 30 Playwright tests passed; ESLint,
+  Vite production build, ShellCheck, Bash syntax and whitespace validation
+  passed.
+- Production release:
+  `/var/www/aichat-releases/release-20261007T011042_995353522`; the prior
+  directory is retained as
+  `/var/www/aichat-releases/legacy-20261007T011042_995353522`.
+- nginx rollback copy:
+  `/etc/nginx/sites-available/aichat.micutu.com.rollback-20261007T011042Z`.
+- Origin and Cloudflare probes returned homepage/asset/health `200`, anonymous
+  private API `403`, and `/.env` `403`; neither delivered HTML contained a
+  cross-origin script. Both paths returned the narrowed CSP plus COOP, CORP and
+  Origin-Agent-Cluster headers.
+- The active release is `root:root` with directories `0755` and files `0644`;
+  direct write probes as `www-data` failed. nginx and the backend remained
+  active with no warning-or-higher journal events during rollout.
+- The periodic release-manifest alert required by audit gate S-03 is deliberately
+  tracked as the next P0 stage; immutable deployment does not by itself provide
+  tamper detection against root or out-of-band changes.
+
 ## Wave 2 — 2FA enrollment and admin boundary (P0)
 
 Repository work:

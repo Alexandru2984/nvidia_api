@@ -19,6 +19,17 @@ This was a read-only assessment. It did not rotate credentials, alter accounts,
 run destructive fuzzing/load tests, or change production configuration. No
 secret values are reproduced here.
 
+## Remediation status
+
+- 2026-10-07: S-02 was remediated in commit `903996a` and production. The
+  authenticated SPA no longer loads cross-origin JavaScript, the associated CSP
+  origins were removed, and both origin and Cloudflare delivery were verified.
+- 2026-10-07: S-03's writable-webroot path was remediated in commit `903996a`
+  and production with an atomic, root-owned read-only release. Periodic manifest
+  monitoring remains open, so the complete P0 gate is not yet closed.
+- The overall verdict remains RED until all P0 gates are satisfied or carry a
+  documented owner acceptance and compensating controls.
+
 ## Executive risk statement
 
 The application-specific controls are materially stronger than the host it runs
