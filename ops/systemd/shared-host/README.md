@@ -149,3 +149,33 @@ client to 30 requests/minute with a small burst, caps GitHub's payload at its
 25 MiB delivery limit and bounds proxy/body timeouts. Keep ACME reachable on
 plain HTTP. Acceptance includes a 405/403 for a public GET, 429 under a bounded
 unsigned burst, no queued deployment, and a clean nginx error journal.
+
+## Finance anomaly detector
+
+The F#/.NET service keeps its published application and static assets read-only
+and moves both SQLite and ASP.NET Data Protection keys into a private systemd
+state directory. Runtime settings live in a root-managed environment file.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin financeapp
+sudo install -d -o root -g financeapp -m 0750 /etc/finance-anomaly-detector
+sudo install -o root -g financeapp -m 0640 /home/micu/f_sharp/.env /etc/finance-anomaly-detector/app.env
+sudo install -d -o financeapp -g financeapp -m 0700 /var/lib/finance-anomaly-detector/keys
+sudo systemctl stop finance-anomaly-detector.service
+sudo sqlite3 /home/micu/f_sharp/data/finance.db \
+  ".backup '/var/lib/finance-anomaly-detector/finance.db'"
+sudo install -o financeapp -g financeapp -m 0600 /home/micu/f_sharp/data/keys/*.xml \
+  /var/lib/finance-anomaly-detector/keys/
+sudo chown financeapp:financeapp /var/lib/finance-anomaly-detector/finance.db
+sudo chmod 0600 /var/lib/finance-anomaly-detector/finance.db
+```
+
+Before starting, replace `DB_PATH` and `KEYS_DIR` in the protected environment
+with `/var/lib/finance-anomaly-detector/finance.db` and
+`/var/lib/finance-anomaly-detector/keys`. Install the tracked unit, reload and
+start. Acceptance requires matching safe row counts plus `quick_check`, a
+rolled-back write transaction, preserved Data Protection key hashes, public and
+loopback pages, login negative-path behavior, hidden unrelated homes, read-only
+release/static assets and a clean restart. On rollback, stop the isolated unit,
+SQLite-backup current state to the legacy path, restore any newly generated key
+files, restore the old unit and start it as `micu`.
