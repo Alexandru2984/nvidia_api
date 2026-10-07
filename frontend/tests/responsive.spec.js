@@ -4,7 +4,6 @@ import { Buffer } from 'node:buffer'
 async function mockAPI(
   page, signedIn = true, conversationModel = 'test/model', registrationMode = 'open',
 ) {
-  await page.route('https://analytics.micutu.com/**', (route) => route.abort())
   let conversation = {
     id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
     is_pinned: false, archived_at: null,
@@ -119,6 +118,12 @@ async function mockAPI(
     return route.fulfill({ status: data ? 200 : 404, json: data || { error: 'Unexpected mock request' } })
   })
 }
+
+test('application shell contains no cross-origin scripts', async ({ page }) => {
+  await mockAPI(page)
+  await page.goto('/')
+  await expect(page.locator('script[src^="http://"], script[src^="https://"]')).toHaveCount(0)
+})
 
 async function expectNoPageOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

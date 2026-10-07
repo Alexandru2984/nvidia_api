@@ -246,8 +246,8 @@ sudo systemctl restart aichat-backend.service
 # Frontend
 cd /home/micu/nvidia/frontend
 npm run build
-sudo rsync -a --delete dist/ /var/www/aichat.micutu.com/
-sudo chown -R www-data:www-data /var/www/aichat.micutu.com/
+cd /home/micu/nvidia
+sudo scripts/deploy_frontend.sh
 
 # Validate before/reload after installing reviewed ops templates
 sudo nginx -t
@@ -263,6 +263,14 @@ sudo install -o root -g root -m 0644 ops/systemd/aichat-security-monitor.{servic
 sudo systemctl daemon-reload
 sudo systemctl enable --now aichat-security-monitor.timer
 ```
+
+The frontend deploy script stages a root-owned release below
+`/var/www/aichat-releases`, validates that it contains no remote script tag, and
+atomically switches `/var/www/aichat.micutu.com`. nginx receives read-only
+`0755`/`0644` content; never restore `www-data` ownership. The first conversion
+from the legacy directory requires `sudo scripts/deploy_frontend.sh --bootstrap`.
+Every later deploy omits `--bootstrap`. Failed health/private-route probes switch
+back to the prior target automatically while retaining both releases for review.
 
 Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
 once as the database administrator before migration `0017`; do not grant the
