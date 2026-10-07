@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import os
 import tempfile
 import time
@@ -88,6 +89,60 @@ class SecurityMonitorTests(unittest.TestCase):
             monitor.parse_monitor_credentials(env_file),
             {'BOT_TOKEN': 'token-value', 'CHAT_ID': '12345'},
         )
+
+    def create_frontend_release(self):
+        release_root = self.root / 'releases'
+        release = release_root / 'release-20261007T010203_123456789'
+        assets = release / 'assets'
+        assets.mkdir(parents=True, mode=0o755)
+        release_root.chmod(0o755)
+        release.chmod(0o755)
+        index = release / 'index.html'
+        script = assets / 'index-test.js'
+        index.write_text('<!doctype html>\n', encoding='utf-8')
+        script.write_text('export default true\n', encoding='utf-8')
+        index.chmod(0o644)
+        script.chmod(0o644)
+        manifest = release / monitor.FRONTEND_MANIFEST
+        manifest.write_text(
+            ''.join(
+                f'{hashlib.sha256(path.read_bytes()).hexdigest()}  ./{path.relative_to(release)}\n'
+                for path in (script, index)
+            ),
+            encoding='ascii',
+        )
+        manifest.chmod(0o644)
+        live = self.root / 'live'
+        live.symlink_to(release)
+        return live, release_root, index
+
+    def frontend_issues(self, live, release_root):
+        return monitor.evaluate_frontend_release(
+            live,
+            release_root,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+
+    def test_frontend_release_manifest_accepts_unchanged_root_owned_shape(self):
+        live, release_root, _ = self.create_frontend_release()
+        self.assertEqual(self.frontend_issues(live, release_root), {})
+
+    def test_frontend_release_manifest_detects_content_tampering(self):
+        live, release_root, index = self.create_frontend_release()
+        index.write_text('tampered\n', encoding='utf-8')
+        self.assertIn('frontend_integrity', self.frontend_issues(live, release_root))
+
+    def test_frontend_release_manifest_detects_unsafe_permissions(self):
+        live, release_root, index = self.create_frontend_release()
+        index.chmod(0o664)
+        self.assertIn('frontend_integrity', self.frontend_issues(live, release_root))
+
+    def test_frontend_release_manifest_rejects_symlinked_content(self):
+        live, release_root, _ = self.create_frontend_release()
+        unsafe = live.resolve() / 'assets' / 'unsafe.js'
+        unsafe.symlink_to('/etc/passwd')
+        self.assertIn('frontend_integrity', self.frontend_issues(live, release_root))
 
 
 if __name__ == '__main__':

@@ -229,9 +229,10 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
-  integrity, and backup/restore freshness every five minutes. It uses the host's
-  existing Telegram channel, keeps cooldown state under
-  `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
+  integrity, the active root-owned frontend release manifest, and backup/restore
+  freshness every five minutes. It uses the host's existing Telegram channel,
+  keeps cooldown state under `/var/lib/aichat-security-monitor`, and never
+  forwards raw log lines.
 
 Deploy steps after a code change:
 
@@ -267,8 +268,10 @@ sudo systemctl enable --now aichat-security-monitor.timer
 The frontend deploy script stages a root-owned release below
 `/var/www/aichat-releases`, validates that it contains no remote script tag, and
 atomically switches `/var/www/aichat.micutu.com`. nginx receives read-only
-`0755`/`0644` content; never restore `www-data` ownership. The first conversion
-from the legacy directory requires `sudo scripts/deploy_frontend.sh --bootstrap`.
+`0755`/`0644` content and each release includes a SHA-256 manifest checked by the
+five-minute security monitor; never restore `www-data` ownership. The first
+conversion from the legacy directory requires
+`sudo scripts/deploy_frontend.sh --bootstrap`.
 Every later deploy omits `--bootstrap`. Failed health/private-route probes switch
 back to the prior target automatically while retaining both releases for review.
 

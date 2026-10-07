@@ -90,6 +90,14 @@ stamp="$(date -u +%Y%m%dT%H%M%S)_$(date +%N)"
 release="$RELEASE_ROOT/release-$stamp"
 install -d -o root -g root -m 0755 "$release"
 rsync -a --delete --chown=root:root --chmod=D0755,F0644 -- "$DIST_DIR/" "$release/"
+(
+  cd "$release"
+  find . -xdev -type f ! -name '.release-manifest.sha256' -print0 \
+    | LC_ALL=C sort -z \
+    | xargs -0 sha256sum > .release-manifest.sha256
+)
+chown root:root "$release/.release-manifest.sha256"
+chmod 0644 "$release/.release-manifest.sha256"
 
 if find "$release" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
   echo 'ERROR: staged release ownership validation failed' >&2

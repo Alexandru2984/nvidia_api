@@ -7,6 +7,7 @@ IP addresses, usernames, prompts, credentials, or attachment names.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -25,6 +26,115 @@ DUMP_RE = re.compile(r'^nvidia_db_\d{8}_\d{6}(?:_\d+)?\.sql\.gz$')
 BACKUP_MAX_AGE_SECONDS = 30 * 60 * 60
 RESTORE_MAX_AGE_SECONDS = 8 * 24 * 60 * 60
 JOURNAL_WINDOW = '6 minutes ago'
+FRONTEND_MANIFEST = '.release-manifest.sha256'
+FRONTEND_MAX_FILES = 5_000
+FRONTEND_MAX_BYTES = 256 * 1024 * 1024
+SAFE_RELEASE_NAME_RE = re.compile(r'^release-\d{8}T\d{6}_\d+$')
+SAFE_RELEASE_PATH_RE = re.compile(r'^(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$')
+
+
+def _hash_file(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def evaluate_frontend_release(
+    live_path,
+    release_root,
+    *,
+    expected_uid=0,
+    expected_gid=0,
+):
+    """Fail closed if the live frontend differs from its root-created manifest."""
+    issue = {
+        'frontend_integrity': (
+            'The active frontend release, ownership, permissions or manifest failed validation.'
+        ),
+    }
+    live_path = Path(live_path)
+    release_root = Path(release_root)
+    try:
+        live_info = live_path.lstat()
+        if not stat.S_ISLNK(live_info.st_mode):
+            return issue
+        if live_info.st_uid != expected_uid or live_info.st_gid != expected_gid:
+            return issue
+
+        trusted_root = release_root.resolve(strict=True)
+        target = live_path.resolve(strict=True)
+        trusted_root_info = trusted_root.lstat()
+        if (
+            not stat.S_ISDIR(trusted_root_info.st_mode)
+            or trusted_root_info.st_uid != expected_uid
+            or trusted_root_info.st_gid != expected_gid
+            or stat.S_IMODE(trusted_root_info.st_mode) != 0o755
+        ):
+            return issue
+        if target.parent != trusted_root or not SAFE_RELEASE_NAME_RE.fullmatch(target.name):
+            return issue
+
+        manifest_path = target / FRONTEND_MANIFEST
+        actual_files = {}
+        total_bytes = 0
+        for directory, dirnames, filenames in os.walk(target, followlinks=False):
+            directory_path = Path(directory)
+            directory_info = directory_path.lstat()
+            if (
+                not stat.S_ISDIR(directory_info.st_mode)
+                or directory_info.st_uid != expected_uid
+                or directory_info.st_gid != expected_gid
+                or stat.S_IMODE(directory_info.st_mode) != 0o755
+            ):
+                return issue
+
+            for name in dirnames + filenames:
+                path = directory_path / name
+                relative = path.relative_to(target).as_posix()
+                if not SAFE_RELEASE_PATH_RE.fullmatch(relative):
+                    return issue
+                info = path.lstat()
+                if stat.S_ISLNK(info.st_mode):
+                    return issue
+                if info.st_uid != expected_uid or info.st_gid != expected_gid:
+                    return issue
+                if stat.S_ISDIR(info.st_mode):
+                    if stat.S_IMODE(info.st_mode) != 0o755:
+                        return issue
+                    continue
+                if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o644:
+                    return issue
+                if relative == FRONTEND_MANIFEST:
+                    continue
+                total_bytes += info.st_size
+                if len(actual_files) >= FRONTEND_MAX_FILES or total_bytes > FRONTEND_MAX_BYTES:
+                    return issue
+                actual_files[f'./{relative}'] = path
+
+        manifest_info = manifest_path.lstat()
+        if not stat.S_ISREG(manifest_info.st_mode) or manifest_info.st_size > 1024 * 1024:
+            return issue
+        expected_hashes = {}
+        for line in manifest_path.read_text(encoding='ascii').splitlines():
+            digest, separator, relative = line.partition('  ')
+            if (
+                separator != '  '
+                or not re.fullmatch(r'[0-9a-f]{64}', digest)
+                or not relative.startswith('./')
+                or not SAFE_RELEASE_PATH_RE.fullmatch(relative[2:])
+                or relative in expected_hashes
+            ):
+                return issue
+            expected_hashes[relative] = digest
+        if not expected_hashes or set(expected_hashes) != set(actual_files):
+            return issue
+        if any(_hash_file(actual_files[path]) != digest for path, digest in expected_hashes.items()):
+            return issue
+        return {}
+    except (OSError, UnicodeError, ValueError):
+        return issue
 
 
 def read_journal():
@@ -39,11 +149,32 @@ def read_journal():
     return result.stdout
 
 
-def evaluate(backup_dir, restore_log, journal, now=None):
+def evaluate(
+    backup_dir,
+    restore_log,
+    journal,
+    now=None,
+    *,
+    frontend_live=None,
+    frontend_release_root=None,
+    frontend_expected_uid=0,
+    frontend_expected_gid=0,
+):
     now = now or time.time()
     issues = {}
     backup_dir = Path(backup_dir)
     restore_log = Path(restore_log)
+
+    if frontend_live is not None or frontend_release_root is not None:
+        if frontend_live is None or frontend_release_root is None:
+            issues['frontend_integrity'] = 'The frontend integrity monitor is misconfigured.'
+        else:
+            issues.update(evaluate_frontend_release(
+                frontend_live,
+                frontend_release_root,
+                expected_uid=frontend_expected_uid,
+                expected_gid=frontend_expected_gid,
+            ))
 
     if not backup_dir.is_dir() or backup_dir.is_symlink():
         issues['backup_missing'] = 'Backup directory is missing or unsafe.'
@@ -223,6 +354,8 @@ def main():
     parser.add_argument('--journal-file')
     parser.add_argument('--state-dir', default='/var/lib/aichat-security-monitor')
     parser.add_argument('--credentials', default='/home/micu/scripts/.env')
+    parser.add_argument('--frontend-live', default='/var/www/aichat.micutu.com')
+    parser.add_argument('--frontend-release-root', default='/var/www/aichat-releases')
     args = parser.parse_args()
 
     try:
@@ -236,7 +369,13 @@ def main():
             print('test notification sent')
             return 0
         journal = Path(args.journal_file).read_text(encoding='utf-8') if args.journal_file else read_journal()
-        issues = evaluate(args.backup_dir, args.restore_log, journal)
+        issues = evaluate(
+            args.backup_dir,
+            args.restore_log,
+            journal,
+            frontend_live=args.frontend_live,
+            frontend_release_root=args.frontend_release_root,
+        )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))
             return 1 if issues else 0
