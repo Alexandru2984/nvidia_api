@@ -428,6 +428,44 @@ is required before describing those controls as complete.
   IDs and a filter/search refresh obtains a new first page. No data is deleted or
   made inaccessible by cursor expiry.
 
+### Private-history pagination rollout — 2026-10-07
+
+- Deployed repository states `f844926` and `9aa9976` after retaining validated
+  database dump `nvidia_db_20261007_033430_984814350.sql.gz` and private frontend
+  snapshot `aichat.micutu.com_20261007_033434_051328188`. Migration
+  `0018_history_pagination_indexes` applied successfully.
+- New conversation detail requests return the latest 50 messages in chronological
+  order. Earlier pages use a 24-hour signed cursor bound to both user and
+  conversation; type-invalid, oversized, expired, tampered, cross-account, and
+  cross-conversation cursors receive the same generic 400. The legacy detail
+  shape remains available but is bounded to the latest 200 messages.
+- Attachment-library and generated-image requests return 30 rows and accept at
+  most 50. Their signed cursor is bound to user and attachment type. Invalid
+  kinds are rejected, legacy lists are capped at 100, and every download remains
+  behind the existing owner-scoped endpoint rather than public `/media/`.
+- The message, unfiltered attachment, and kind-filtered attachment indexes use
+  stable descending timestamp/ID ordering. Migration creation and removal are
+  PostgreSQL-concurrent to avoid holding normal writes behind an index build;
+  live `EXPLAIN` checks confirmed the message and attachment indexes are usable.
+- Chat prepends older messages without losing the reader's scroll position and
+  deduplicates IDs. Storage & files and generated-image history append pages with
+  ID deduplication. Labeled loading controls remain usable at 390 px, and logout
+  clears page cursors and loading state along with other private browser state.
+- All 327 backend tests and 29 responsive browser tests passed, along with lint,
+  production build, migration-drift, and Django system checks. A read-only live
+  probe returned disjoint message pages and rejected cross-owner cursor reuse
+  with 400; the production attachment library was empty, while owner/type cursor
+  isolation is covered by backend tests.
+- Public health, HTML, `security.txt`, and the new `index-uI41V_kv.js`,
+  `index-PA0NMRBJ.css`, and `Settings-DYxq0WAU.js` assets returned 200. `/media/`
+  remained 404 and anonymous attachment/message/configuration probes remained
+  403. Backend and security monitor remained healthy with zero automatic
+  restarts.
+- Message and attachment cursors are moving views rather than snapshot
+  transactions. Concurrent writes can shift page boundaries; clients deduplicate
+  repeated IDs, and re-opening a conversation or settings obtains a fresh first
+  page. Cursor expiry never deletes data or prevents a new traversal.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

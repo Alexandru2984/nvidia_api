@@ -69,11 +69,12 @@ timed evidence.
   duplicate detection, no-store extracted-text preview, and per-file inclusion
   toggles are also shipped. Add upload-attempt identifiers to reconcile late
   cancellation and background processing for large documents.
-- **Conversation cursor pagination and indexed search are shipped:** opaque
-  24-hour signed cursors are bound to owner, folder, and search; page/search
-  bounds, GET throttling, deduplication, race-safe mobile loading, a capped
-  legacy contract, and concurrent PostgreSQL trigram indexes are covered by
-  backend/browser tests. Add cursor pagination for messages and attachments.
+- **Private-history pagination and indexed search are shipped:** conversation
+  cursors bind owner/folder/search, message cursors bind owner/conversation, and
+  attachment cursors bind owner/type. All expire after 24 hours, have firm page
+  and legacy bounds, use stable indexed ordering, and have race-safe responsive
+  loading covered by backend/browser tests. PostgreSQL title/content search uses
+  concurrent trigram indexes.
 - **Pinned and archived conversations are shipped:** owner-scoped filters and
   counts, explicit restore, pin-first ordering, labeled mobile actions, and a
   legacy-compatible rollout contract are covered by backend and browser tests.
