@@ -257,3 +257,46 @@ by the previous inline systemd environment must be revoked and replaced at the
 SMTP provider; moving it to the protected file only removes further local
 disclosure. On rollback, stop the isolated service, back up its current SQLite
 state, restore the old databases/unit/key ownership and restart as `micu`.
+
+## GT Shop
+
+GT Shop is deployed only as a legacy Spring Boot fat JAR. Copy the reviewed JAR
+into root-owned `/opt/gtshop`; do not execute the `micu`-writable home copy. The
+service needs only loopback PostgreSQL access, so the dedicated `gtshopapp`
+identity has no home visibility or external network route. JVM JIT prevents use
+of `MemoryDenyWriteExecute`; capabilities, namespaces, filesystem access,
+resource use and address families remain bounded.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin gtshopapp
+sudo install -d -o root -g root -m 0755 /opt/gtshop
+sudo install -o root -g root -m 0444 \
+  /home/micu/gt-shop-2.0.0.jar /opt/gtshop/gt-shop-2.0.0.jar
+sudo install -d -o root -g gtshopapp -m 0750 /etc/gtshop
+sudo install -o root -g root -m 0644 \
+  ops/systemd/shared-host/gtshop.service /etc/systemd/system/gtshop.service
+```
+
+Create `/etc/gtshop/app.env` as `root:gtshopapp` mode `0640`. It must set the
+loopback server address/port, local database URL and user, a newly rotated
+database password, a newly generated high-entropy `JWT_SECRET`, and
+`SPRING_JPA_HIBERNATE_DDL_AUTO=validate`. The embedded default JWT secret is
+known material and must never be used. JWT rotation intentionally invalidates
+all existing bearer tokens.
+
+Before rotating anything, preserve the old unit/drop-in/environment, JAR hash,
+role attributes, table counts and a verified custom-format `pg_dump` in a mode
+`0700` root-owned rollback directory. Rotate the PostgreSQL role password and
+activate the matching protected environment in the same stopped-service window.
+Rollback must restore both the old role password and old unit/config before
+starting the service.
+
+The legacy artifact embeds Spring Boot 3.4.1, Spring Framework 6.2.1, Spring
+Security 6.4.2 and Tomcat 10.1.34 and has no source/build checkout on this host.
+Isolation does not remediate that dependency debt. A reviewed source recovery,
+dependency upgrade, test suite and rebuilt signed artifact remain mandatory.
+Until then, nginx must fail closed for the anonymously permitted user, cart and
+checkout controllers and must not publish API documentation. Acceptance also
+requires database continuity, invalid-token/anonymous denials at the public
+boundary, public static/reward behavior, loopback-only listening, namespace and
+network isolation, a clean restart and warning-level journal review.

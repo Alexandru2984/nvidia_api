@@ -1,0 +1,61 @@
+[Unit]
+Description=GT Shop backend (isolated)
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=gtshopapp
+Group=gtshopapp
+WorkingDirectory=/var/lib/gtshop
+Environment=HOME=/var/lib/gtshop
+Environment="JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError"
+EnvironmentFile=/etc/gtshop/app.env
+ExecStart=/usr/bin/java -jar /opt/gtshop/gt-shop-2.0.0.jar
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=45
+UMask=0077
+
+StateDirectory=gtshop
+StateDirectoryMode=0700
+RuntimeDirectory=gtshop
+RuntimeDirectoryMode=0700
+ReadOnlyPaths=/opt/gtshop
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateMounts=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RemoveIPC=yes
+KeyringMode=private
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+SystemCallArchitectures=native
+LimitCORE=0
+LimitNOFILE=4096
+TasksMax=128
+MemoryHigh=1G
+MemoryMax=1536M
+
+[Install]
+WantedBy=multi-user.target
