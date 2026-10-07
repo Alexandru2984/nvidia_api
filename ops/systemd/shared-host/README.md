@@ -318,7 +318,11 @@ read-only checkout and over-mount only `data/uploads` and `logs` with dedicated
 service state. Ubuntu's `r-cran-bslib` package requires
 `node-bootstrap-sass`; install it explicitly and retain the unit's path
 condition so a missing theme dependency fails at startup instead of returning
-HTTP 500 from new Shiny sessions.
+HTTP 500 from new Shiny sessions. Do not add `RestrictSUIDSGID`: the `fs`/libuv
+recursive directory helper used while compiling Shiny theme assets issues
+`mkdir` calls whose mode bits are rejected by that systemd filter, including
+for paths that already exist. The read-only checkout, empty capability sets and
+`NoNewPrivileges` still prevent the service from creating privileged binaries.
 
 ```bash
 sudo apt-get install --no-install-recommends node-bootstrap-sass
