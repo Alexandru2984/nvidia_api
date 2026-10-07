@@ -44,6 +44,10 @@ secret values are reproduced here.
   Hub and makes its own release read-only. Thirty-seven active `User=micu`
   services remain, so S-01 stays Critical and the owner-approved sudo exception
   is not yet adequately compensated.
+- 2026-10-07: Pastebox was migrated in commit `b352ecd` from `micu` and `9.2
+  UNSAFE` to a dedicated identity and `2.7 OK`, with its SQLite state isolated
+  and mode `0600`. Thirty-six baseline services remain under `micu`; S-01 stays
+  Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

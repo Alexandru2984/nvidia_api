@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 1 of 38 baseline services migrated**.
+Status: **in progress — 2 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -207,7 +207,12 @@ Status: **in progress — 1 of 38 baseline services migrated**.
   Chat health returned `200`; the clean restart produced no application warning.
 - Rollback artifacts are recorded in
   [SHARED_HOST_SERVICE_INVENTORY_2026-10-07.md](SHARED_HOST_SERVICE_INVENTORY_2026-10-07.md),
-  which also records all 37 remaining units and the next risk-ordered passes.
+  which also records all remaining units and the next risk-ordered passes.
+- Commit `b352ecd` moved Pastebox to its own identity and state directory. Both
+  SQLite copies passed integrity and count comparisons; a non-persisting write
+  transaction, namespace boundaries, loopback/public routes and AI Chat health
+  passed. Its effective exposure fell from `9.2 UNSAFE` to `2.7 OK`, leaving 36
+  baseline `User=micu` services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

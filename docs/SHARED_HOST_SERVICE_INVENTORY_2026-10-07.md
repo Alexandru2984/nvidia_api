@@ -5,9 +5,9 @@ retain `NOPASSWD: ALL` on the interactive `micu` account. A service leaves this
 list only after it runs under a dedicated non-login identity, passes its own
 functional probes, and cannot see unrelated projects or write its release.
 
-The baseline contained 38 running system services with `User=micu`. Umami was
-migrated first; 37 remain. Loopback listeners are externally relevant whenever
-nginx or a Cloudflare tunnel publishes them.
+The baseline contained 38 running system services with `User=micu`. Umami and
+Pastebox have been migrated; 36 remain. Loopback listeners are externally
+relevant whenever nginx or a Cloudflare tunnel publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
@@ -15,7 +15,6 @@ nginx or a Cloudflare tunnel publishes them.
 | `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
 | `finance-anomaly-detector.service` | no | `5000` | `f.micutu.com` |
 | `gtshop.service` | no | `8087` | verify tunnel route |
-| `pastebox.service` | no | `7777` | `pastebox.micutu.com`; user content |
 | `r-traffic-intel.service` | no | `3838` | `r.micutu.com` |
 | `traffic-analyzer.service` | no | `8070` | `crystal.micutu.com` |
 | `unison-backend.service` | no | `8097` | verify tunnel route |
@@ -65,12 +64,27 @@ nginx or a Cloudflare tunnel publishes them.
   `/home/micu/backups/service-migrations/umami-20261007T055635Z` and
   `/home/micu/backups/service-migrations/umami-unit-before-mask-20261007T055747Z`.
 
+## Completed migration: Pastebox
+
+- Changed from `User=micu`, no sandbox and `9.2 UNSAFE` to dedicated UID/GID
+  `pastebox`, `NoNewPrivileges=yes`, hidden home, read-only build, localhost-only
+  IP policy, empty capabilities and bounded resources at `2.7 OK`.
+- The mutable SQLite database moved to a mode `0600` systemd state directory;
+  the legacy copy was reduced from world-readable to mode `0600` and is not
+  readable inside the service namespace. Root-managed config is bound read-only.
+- Pre-migration and active SQLite copies both passed `quick_check` and had the
+  same safe row counts (`6` pastes, `1` tag). A write-lock/rollback probe passed
+  without persisting data; loopback DB read, public health/home, and AI Chat
+  health returned `200`.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/pastebox-20261007T060501Z`.
+
 ## Ordered next passes
 
 1. Inspect `webhook-cicd.service` first because a public webhook with deployment
    authority can invalidate every other service boundary.
 2. Migrate the remaining `NoNewPrivileges=no` content services one at a time,
-   prioritizing Pastebox and Video because they process user-controlled data.
+   prioritizing Video because it processes user-controlled media.
 3. Migrate the already-partially-sandboxed canaries by runtime family, but keep
    distinct UIDs and writable paths rather than replacing `micu` with one new
    shared account.
