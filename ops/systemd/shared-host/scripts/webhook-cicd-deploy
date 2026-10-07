@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( $# != 1 )); then
+    printf 'usage: %s <hook-id>\n' "$0" >&2
+    exit 64
+fi
+
+hook_id=$1
+deploy_type=systemd
+case "$hook_id" in
+    brainfuck) workdir=/home/micu/brainfuck; target=brainfuck.service ;;
+    cobol) workdir=/home/micu/cobol; target=cobol.service ;;
+    code-forest) workdir=/home/micu/code-forest; target=code-forest.service ;;
+    crystal) workdir=/home/micu/crystal; target=traffic-analyzer.service ;;
+    deaddrop) workdir=/home/micu/deaddrop; target=deaddrop.service ;;
+    drogon-blog) workdir=/home/micu/drogon_blog; deploy_type=special; target= ;;
+    lisp) workdir=/home/micu/lisp; target=lisp-app.service ;;
+    lua) workdir=/home/micu/lua; target=lua-app.service ;;
+    nvidia) workdir=/home/micu/nvidia; target=nvidia-chat.service ;;
+    pastebox) workdir=/home/micu/pastebox; target=pastebox.service ;;
+    taskmanager) workdir=/home/micu/taskmanager; target=taskmanager.service ;;
+    ruby) workdir=/home/micu/ruby_on_rails; target=bookmarks.service ;;
+    pdf-editor) workdir=/home/micu/pdf_Editor_v2; target=pdfeditor.service ;;
+    pcep) workdir=/home/micu/PCEP_webApp; deploy_type=docker; target= ;;
+    expense) workdir=/home/micu/expenseTracker_cs; deploy_type=docker; target= ;;
+    pixel-art) workdir=/home/micu/pixel-art-multiplayer; target=pixelart.service ;;
+    micu-market) workdir=/home/micu/Micu_market; target=micu-market.service ;;
+    *)
+        printf 'rejected unknown hook id\n' >&2
+        exit 65
+        ;;
+esac
+
+if [[ "${WEBHOOK_CICD_DRY_RUN:-0}" == 1 ]]; then
+    printf 'validated hook=%s type=%s workdir=%s target=%s\n' \
+        "$hook_id" "$deploy_type" "$workdir" "$target"
+    exit 0
+fi
+
+if [[ "$deploy_type" == special ]]; then
+    log_file="/home/micu/apps/cicd/logs/$hook_id.log"
+    DEPLOY_LOG="$log_file" exec /home/micu/drogon_blog/scripts/deploy.sh
+fi
+
+log_file="/home/micu/apps/cicd/logs/$hook_id.log"
+mkdir -p "${log_file%/*}"
+exec > >(tee -a "$log_file") 2>&1
+
+printf '[%s] Deploy start: %s\n' "$(date --iso-8601=seconds)" "$hook_id"
+
+git -C "$workdir" pull --ff-only origin main
+
+case "$deploy_type" in
+    systemd)
+        sudo -n systemctl restart -- "$target"
+        systemctl is-active --quiet "$target"
+        ;;
+    docker)
+        docker compose --project-directory "$workdir" pull
+        docker compose --project-directory "$workdir" up -d
+        ;;
+esac
+
+printf '[%s] Deploy OK: %s\n' "$(date --iso-8601=seconds)" "$hook_id"

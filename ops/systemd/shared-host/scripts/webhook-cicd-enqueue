@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( $# != 1 )); then
+    printf 'usage: %s <hook-id>\n' "$0" >&2
+    exit 64
+fi
+
+case "$1" in
+    brainfuck|cobol|code-forest|crystal|deaddrop|drogon-blog|lisp|lua|nvidia|pastebox|taskmanager|ruby|pdf-editor|pcep|expense|pixel-art|micu-market)
+        ;;
+    *)
+        printf 'rejected unknown hook id\n' >&2
+        exit 65
+        ;;
+esac
+
+request_dir=${WEBHOOK_CICD_REQUEST_DIR:-/var/lib/webhook-cicd/requests}
+request="$request_dir/$1"
+exec 9>>"$request"
+flock -x -w 5 9
+: >"$request"
+printf '1\n' >&9

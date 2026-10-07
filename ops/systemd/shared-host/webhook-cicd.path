@@ -1,0 +1,26 @@
+[Unit]
+Description=Watch authenticated webhook deployment requests
+After=webhook-cicd.service
+
+[Path]
+PathModified=/var/lib/webhook-cicd/requests/brainfuck
+PathModified=/var/lib/webhook-cicd/requests/cobol
+PathModified=/var/lib/webhook-cicd/requests/code-forest
+PathModified=/var/lib/webhook-cicd/requests/crystal
+PathModified=/var/lib/webhook-cicd/requests/deaddrop
+PathModified=/var/lib/webhook-cicd/requests/drogon-blog
+PathModified=/var/lib/webhook-cicd/requests/lisp
+PathModified=/var/lib/webhook-cicd/requests/lua
+PathModified=/var/lib/webhook-cicd/requests/nvidia
+PathModified=/var/lib/webhook-cicd/requests/pastebox
+PathModified=/var/lib/webhook-cicd/requests/taskmanager
+PathModified=/var/lib/webhook-cicd/requests/ruby
+PathModified=/var/lib/webhook-cicd/requests/pdf-editor
+PathModified=/var/lib/webhook-cicd/requests/pcep
+PathModified=/var/lib/webhook-cicd/requests/expense
+PathModified=/var/lib/webhook-cicd/requests/pixel-art
+PathModified=/var/lib/webhook-cicd/requests/micu-market
+Unit=webhook-cicd-dispatch.service
+
+[Install]
+WantedBy=multi-user.target

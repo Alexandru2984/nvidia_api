@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+request_dir=${WEBHOOK_CICD_REQUEST_DIR:-/var/lib/webhook-cicd/requests}
+hook_ids=(
+    brainfuck cobol code-forest crystal deaddrop drogon-blog lisp lua nvidia
+    pastebox taskmanager ruby pdf-editor pcep expense pixel-art micu-market
+)
+
+for hook_id in "${hook_ids[@]}"; do
+    request="$request_dir/$hook_id"
+    exec {request_fd}<>"$request"
+    flock -x -w 5 "$request_fd"
+    if [[ -s "$request" ]]; then
+        : >"$request"
+        if [[ "${WEBHOOK_CICD_DRY_RUN:-0}" == 1 ]]; then
+            printf 'would start webhook-deploy@%s.service\n' "$hook_id"
+        else
+            systemctl start --no-block "webhook-deploy@$hook_id.service"
+        fi
+    fi
+    exec {request_fd}>&-
+done

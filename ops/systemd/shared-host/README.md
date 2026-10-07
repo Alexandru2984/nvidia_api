@@ -90,3 +90,52 @@ counts, and probe `/healthz` through loopback and the public hostname. Verify
 that `videoapp` can update its state database but cannot write the checkout or see
 other projects below `/home/micu`. On rollback, stop the isolated unit, copy
 new writes back with SQLite `.backup`, restore the saved unit and restart.
+
+## Webhook CI/CD
+
+The public receiver must never execute deploy commands directly. It runs as the
+dedicated `webhook-cicd` user, validates GitHub's existing HMAC and branch rules,
+and writes only to 17 pre-created request files. It cannot create new queue
+entries, see `/home`, access sudo, or reach a non-loopback address.
+
+A root dispatcher reads no request body or command: it checks only the fixed
+files and starts the matching `webhook-deploy@<id>.service`. The deploy unit is
+a short-lived, non-listening automation task under the trusted interactive
+`micu` identity. Its root-owned script contains the complete project/target
+allowlist and its mount namespace exposes only those checkouts. A compromised
+receiver can request approved deploys (availability risk), but cannot supply a
+command, path, target or unit name.
+
+Before installation, back up the effective unit, drop-ins, hook config and
+scripts to a root-only rollback directory. Then create the identity, protected
+config, fixed request files and root-owned executables:
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin webhook-cicd
+sudo install -d -o root -g webhook-cicd -m 0750 /etc/webhook-cicd
+sudo install -d -o root -g root -m 0755 /var/lib/webhook-cicd
+sudo install -d -o root -g webhook-cicd -m 0710 /var/lib/webhook-cicd/requests
+for id in brainfuck cobol code-forest crystal deaddrop drogon-blog lisp lua nvidia pastebox taskmanager ruby pdf-editor pcep expense pixel-art micu-market; do
+  sudo install -o root -g webhook-cicd -m 0620 /dev/null "/var/lib/webhook-cicd/requests/$id"
+done
+sudo install -o root -g root -m 0755 ops/systemd/shared-host/scripts/webhook-cicd-* /usr/local/libexec/
+```
+
+Generate `/etc/webhook-cicd/hooks.json` from the current config without printing
+or changing its HMAC secret. For every hook, replace `execute-command` with
+`/usr/local/libexec/webhook-cicd-enqueue`, replace the working directory with
+`/var/lib/webhook-cicd`, and pass only its own hook ID as one fixed string
+argument. Install the four tracked units, daemon-reload, enable/start the path
+and receiver, then make the legacy config copies root-only.
+
+Acceptance requires: all 17 HMAC and main-branch rules remain present; an
+unsigned request causes no queue/deploy; a synthetic queue request starts only
+a dry-run test instance; the receiver namespace cannot see `/home/micu`; the
+request directory rejects new filenames; loopback and public hook endpoints
+respond; and the receiver's systemd exposure is `OK`. Do not trigger a real
+project deploy merely to test this boundary.
+
+The old mapping has known operational debt: multiple checkout paths are not Git
+worktrees and multiple legacy target unit names no longer exist. This migration
+preserves those mappings rather than guessing replacements. Repair each hook
+only with that project's build, migration, health and rollback contract.
