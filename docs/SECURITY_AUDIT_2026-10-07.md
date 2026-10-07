@@ -30,6 +30,14 @@ secret values are reproduced here.
   ownership and exact modes. This closes the `www-data` persistence path; S-01
   separately remains capable of root-level tampering until service isolation is
   complete.
+- 2026-10-07: S-05's stolen-session enrollment path was remediated and deployed
+  in commits `e3c6c20` and `fc7db21`. Enrollment now requires the current
+  password plus a five-minute, user-and-secret-bound marker; completion is
+  transactional, rotates the session and revokes all other sessions. Recovery
+  regeneration now requires password plus factor and is rate-limited. The P0
+  operational gate remains open because the one production staff account still
+  has no enrolled factor and `/admin/` has no independent Cloudflare Access/VPN
+  policy.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

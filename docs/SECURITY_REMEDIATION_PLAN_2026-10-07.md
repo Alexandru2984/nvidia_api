@@ -147,6 +147,35 @@ Exit gate: session possession alone cannot add a factor or obtain verified-admin
 state; the staff account has an enabled factor; admin requires both app and edge
 gates.
 
+Status: **code complete and deployed 2026-10-07; operational gate open**.
+
+- Commits `e3c6c20` and `fc7db21` require current-password reauthentication,
+  bind enrollment to a five-minute recent-auth marker, serialize completion,
+  rotate the bearer session, revoke other sessions, and protect recovery-code
+  regeneration with password, factor and a `5/h` limit. The responsive UI
+  clears password state after both success and error.
+- Local acceptance: 332 backend tests and 31 Playwright tests passed; Django
+  checks found no model drift, and frontend lint/build passed.
+- Pre-deploy recovery: database dump
+  `/home/micu/backups/nvidia_db/nvidia_db_20261007_085128_860483914.sql.gz`;
+  backend files under
+  `/home/micu/backups/aichat-rollbacks/2fa-20261007T055128Z`; previous frontend
+  `/var/www/aichat-releases/release-20261007T054248_670497515`.
+- The initial single-shot readiness probe caught a transient `502` before
+  gunicorn bound its socket. Automatic rollback restored the old backend and
+  left the frontend untouched; origin/public health returned to `200`. The
+  corrected rollout used a bounded readiness loop and activated frontend
+  `/var/www/aichat-releases/release-20261007T055240_859987432`.
+- Post-deploy origin and Cloudflare home/health probes returned `200`; anonymous
+  enroll, recovery regeneration, private API and admin probes returned `403`.
+  The release manifest and security-monitor dry-run passed, all relevant
+  services remained active, and no warning-or-higher backend/nginx journal
+  entries appeared after the successful rollout.
+- Manual gates: production still reports one active staff account and zero
+  enabled factors. The owner must enroll it from a trusted device and configure
+  an independent Cloudflare Access or VPN policy for `/admin/`; the application
+  continues to fail closed with `403` until enrollment.
+
 ## Wave 3 — shared-host identity isolation (P0)
 
 Repository/host work:
