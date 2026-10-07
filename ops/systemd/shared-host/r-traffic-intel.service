@@ -2,6 +2,7 @@
 Description=R Traffic Intelligence dashboard (isolated)
 Wants=network-online.target postgresql.service
 After=network-online.target postgresql.service
+ConditionPathIsDirectory=/usr/share/nodejs/bootstrap-sass/assets/fonts
 
 [Service]
 Type=simple
