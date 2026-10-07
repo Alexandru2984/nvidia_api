@@ -60,6 +60,10 @@ secret values are reproduced here.
   Cloudflare-origin, request-size, timeout and real-client rate controls at
   nginx. Thirty-four baseline services remain under `micu`, so S-01 stays
   Critical.
+- 2026-10-07: Finance moved in commit `220cb7f` from `micu` and `9.2 UNSAFE` to
+  dedicated `financeapp` and `2.7 OK`. Its database, cookie-signing keys,
+  configuration, writable state, release and home visibility are separated.
+  Thirty-three baseline services remain under `micu`; S-01 stays Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

@@ -6,15 +6,14 @@ list only after it runs under a dedicated non-login identity, passes its own
 functional probes, and cannot see unrelated projects or write its release.
 
 The baseline contained 38 running system services with `User=micu`. Umami,
-Pastebox, Video and the webhook receiver have been migrated; 34 remain. Loopback
-listeners are externally relevant whenever nginx or a Cloudflare tunnel
-publishes them.
+Pastebox, Video, the webhook receiver and Finance have been migrated; 33 remain.
+Loopback listeners are externally relevant whenever nginx or a Cloudflare
+tunnel publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
 | `bookmarks.service` | no | `3001` | `ruby.micutu.com` |
 | `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
-| `finance-anomaly-detector.service` | no | `5000` | `f.micutu.com` |
 | `gtshop.service` | no | `8087` | verify tunnel route |
 | `r-traffic-intel.service` | no | `3838` | `r.micutu.com` |
 | `traffic-analyzer.service` | no | `8070` | `crystal.micutu.com` |
@@ -128,6 +127,27 @@ publishes them.
   `/home/micu/backups/service-migrations/webhook-cicd-20261007T114224Z`.
 - nginx rollback copy:
   `/home/micu/backups/service-migrations/webhook-nginx-20261007T114808Z`.
+
+## Completed migration: Finance anomaly detector
+
+- Changed from `User=micu`, no sandbox and `9.2 UNSAFE` to dedicated non-login
+  UID/GID `financeapp`, `NoNewPrivileges=yes`, hidden home, read-only published
+  application/static assets, localhost-only IP policy, empty capabilities and
+  bounded resources at `2.7 OK`.
+- SQLite and ASP.NET Data Protection keys moved into a mode `0700` systemd state
+  directory; files are mode `0600`. The root-managed environment points only to
+  this state. The legacy database is mode `0600` and is absent from the service
+  namespace together with all unrelated home projects.
+- NuGet state was restored from the project's pinned references and all 77 tests
+  passed. Rollback and active databases passed `quick_check` with identical safe
+  counts (`2` users, `11` expenses, `4` anomalies, `0` budgets). The one Data
+  Protection key hash was preserved and a database write transaction rolled
+  back cleanly.
+- Loopback/public roots returned `200`; anonymous private API and an invalid
+  login returned `401`. Namespace, permissions, clean restart and journal probes
+  passed.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/finance-anomaly-20261007T115309Z`.
 
 ## Ordered next passes
 

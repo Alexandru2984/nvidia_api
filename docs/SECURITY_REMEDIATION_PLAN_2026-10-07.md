@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 4 of 38 baseline services migrated**.
+Status: **in progress — 5 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -231,6 +231,12 @@ Status: **in progress — 4 of 38 baseline services migrated**.
   Cloudflare/tunnel origin boundary and added real-client rate, body and timeout
   limits. Public-method, direct-origin and bounded-burst probes passed without
   enqueueing a deployment.
+- Commit `220cb7f` moved the Finance service from `micu` and `9.2 UNSAFE` to
+  dedicated `financeapp` at `2.7 OK`. SQLite and Data Protection keys now occupy
+  private state, while release/static content is read-only and unrelated homes
+  are hidden. All 77 tests, database/key continuity, write rollback,
+  public/private behavior and clean restart passed, leaving 33 baseline
+  `User=micu` services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
