@@ -1,5 +1,11 @@
 # Security audit
 
+> Superseded for current risk decisions by
+> [SECURITY_AUDIT_2026-10-07.md](SECURITY_AUDIT_2026-10-07.md). The new
+> end-to-end audit changes the production verdict to **RED** after confirming
+> shared-host privilege-collapse and browser supply-chain paths that were not
+> included in this 2026-10-06 assessment.
+
 Date: 2026-10-06
 Scope: Django/DRF backend, React/Vite frontend, PostgreSQL data path, attachment
 processing, nginx, systemd, backup automation, Cloudflare Tunnel, and CI.  
