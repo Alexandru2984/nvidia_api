@@ -372,3 +372,50 @@ assets and WebSockets on the same origin; only Cloudflare's edge-injected
 browser beacon remains external. Rollback must remove the new limit file before
 restoring the previous vhost, because nginx rate-limit zone names must be
 declared exactly once.
+
+## Unison Idea Evolution
+
+The public FastAPI service accepts anonymous seed ideas and deterministic
+mutations, so its application and edge controls must bound both persisted data
+and subprocess work. Run it as the dedicated `unisonapp` identity with no
+external network route, a read-only checkout and a private SQLite state file.
+The frontend is a build artifact: publish a reviewed build as root-owned,
+read-only files under `/var/www/unison.micutu.com`; never serve the
+`micu`-writable build directory directly.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin unisonapp
+sudo install -d -o unisonapp -g unisonapp -m 0700 /var/lib/unison-backend
+sudo install -d -o root -g root -m 0755 /var/www/unison.micutu.com
+sudo systemctl stop unison-backend.service
+sudo sqlite3 /home/micu/unisonTrying/backend/evolution.db \
+  ".backup '/var/lib/unison-backend/evolution.db'"
+sudo chown unisonapp:unisonapp /var/lib/unison-backend/evolution.db
+sudo chmod 0600 /var/lib/unison-backend/evolution.db
+sudo install -o root -g root -m 0644 \
+  ops/systemd/shared-host/unison-backend.service \
+  /etc/systemd/system/unison-backend.service
+sudo install -o root -g root -m 0644 \
+  ops/nginx/shared-host/unison-limits.conf /etc/nginx/conf.d/unison-limits.conf
+sudo install -o root -g root -m 0644 \
+  ops/nginx/shared-host/unison.conf /etc/nginx/sites-available/unison
+```
+
+Before stopping the legacy service, preserve its effective unit, vhost, dotenv
+metadata, database, frontend hashes and large legacy log metadata in a
+root-owned mode `0700` rollback directory. Take the final database backup while
+the service is stopped. Do not copy the 277 MiB legacy log unnecessarily; move
+it into the rollback directory after the new journald-backed service is healthy
+and retain its hash and original ownership/mode.
+
+Acceptance requires the backend unit tests, Python dependency audit, frontend
+lint/build/audit, matching row counts and SQLite `quick_check`, a non-persisting
+write test, and a direct mutation-engine smoke test. The deployed service must
+keep API documentation disabled, reject unknown mutations and cross-origin
+WebSockets, cap request bodies, rows and results, listen only on loopback, see
+only its checkout below `/home`, and be unable to change that checkout. The
+Nginx boundary admits only Cloudflare/loopback origin peers, applies a tighter
+POST budget than reads, overwrites client-address headers, validates the
+WebSocket origin and serves only root-owned static assets. Rollback must first
+SQLite-backup any new state, restore the old unit/vhost and copy the current
+database back to the legacy path before restarting as `micu`.
