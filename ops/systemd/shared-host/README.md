@@ -423,3 +423,50 @@ POST budget than reads, overwrites client-address headers, validates the
 WebSocket origin and serves only root-owned static assets. Rollback must first
 SQLite-backup any new state, restore the old unit/vhost and copy the current
 database back to the legacy path before restarting as `micu`.
+
+## Cloudflare analytics Telegram bot
+
+The bot handles untrusted Telegram updates and holds credentials for Telegram
+and read-only Cloudflare analytics. It must not run from the interactive user's
+home: deploy the pinned application and a fresh virtual environment in a
+versioned, root-owned directory below `/opt/cf-bot/releases`, then atomically
+replace `/opt/cf-bot/current`. Run it as the dedicated `cfbot` identity.
+
+Create `/etc/cf-bot/credentials.json` as `root:cfbot` mode `0640`. The JSON must
+contain exactly `bot_token`, `allowed_chat_id`, `cloudflare_api_token` and
+`cloudflare_zone_id`; never place their values in argv, unit `Environment=` or
+the repository. The application rejects symlinks, non-root ownership, broad
+permissions, unexpected fields and malformed values before network startup.
+
+```bash
+sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin cfbot
+sudo install -d -o root -g cfbot -m 0750 /etc/cf-bot
+sudo install -d -o root -g root -m 0755 /opt/cf-bot /opt/cf-bot/releases
+sudo install -o root -g root -m 0644 \
+  ops/systemd/shared-host/cf-bot.service /etc/systemd/system/cf_bot.service
+sudo systemctl daemon-reload
+sudo systemctl restart cf_bot.service
+```
+
+Membership in `adm` is required only so the process can read the single nginx
+error log that is bind-mounted read-only at `/run/cf-bot/nginx-error.log`.
+`/var/log` itself is inaccessible in the service namespace, as are every home
+directory and unrelated project. Outbound IPv4/IPv6 remains necessary for the
+Telegram, Cloudflare and HTTPS IP-information APIs; the service has no listener,
+capabilities or writable release path.
+
+Before migration, preserve the effective unit, dependency freeze, source and
+credential files in a root-owned mode `0700` rollback directory without
+printing values. After acceptance, move every legacy source/config backup that
+contains a credential into that directory instead of deleting it. The embedded
+Telegram token must be revoked and regenerated through BotFather, and the
+Cloudflare analytics token must be replaced with a zone-scoped read-only token;
+local isolation alone does not invalidate previously readable credentials.
+
+Acceptance requires unit tests, compile/lint/dependency checks, zero known
+advisories, successful root-owned configuration validation, Cloudflare query
+and Telegram identity probes that disclose no response bodies or identifiers,
+an unauthorized-update regression test, a bounded nginx-tail probe, namespace
+proof, read-only release proof, no listener, a clean restart and warning-level
+journal review. Roll back by stopping the isolated unit, restoring the saved
+unit and legacy files with their recorded ownership, then restarting as `micu`.
