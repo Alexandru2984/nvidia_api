@@ -386,7 +386,8 @@ read-only files under `/var/www/unison.micutu.com`; never serve the
 ```bash
 sudo useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin unisonapp
 sudo install -d -o unisonapp -g unisonapp -m 0700 /var/lib/unison-backend
-sudo install -d -o root -g root -m 0755 /var/www/unison.micutu.com
+sudo install -d -o root -g root -m 0755 \
+  /var/www/unison.micutu.com /var/www/unison.micutu.com/releases
 sudo systemctl stop unison-backend.service
 sudo sqlite3 /home/micu/unisonTrying/backend/evolution.db \
   ".backup '/var/lib/unison-backend/evolution.db'"
@@ -413,8 +414,11 @@ lint/build/audit, matching row counts and SQLite `quick_check`, a non-persisting
 write test, and a direct mutation-engine smoke test. The deployed service must
 keep API documentation disabled, reject unknown mutations and cross-origin
 WebSockets, cap request bodies, rows and results, listen only on loopback, see
-only its checkout below `/home`, and be unable to change that checkout. The
-Nginx boundary admits only Cloudflare/loopback origin peers, applies a tighter
+only its checkout below `/home`, and be unable to change that checkout. Publish
+each frontend build in a new root-owned, read-only directory below
+`/var/www/unison.micutu.com/releases`, then atomically replace the `current`
+symlink. Keep the preceding release until post-deploy verification completes.
+The Nginx boundary admits only Cloudflare/loopback origin peers, applies a tighter
 POST budget than reads, overwrites client-address headers, validates the
 WebSocket origin and serves only root-owned static assets. Rollback must first
 SQLite-backup any new state, restore the old unit/vhost and copy the current
