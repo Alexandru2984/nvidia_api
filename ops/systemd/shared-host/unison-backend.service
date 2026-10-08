@@ -13,6 +13,7 @@ Group=unisonapp
 WorkingDirectory=/home/micu/unisonTrying/backend
 Environment=HOME=/var/lib/unison-backend
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHON_DOTENV_DISABLED=1
 Environment=DB_PATH=/var/lib/unison-backend/evolution.db
 Environment=UNISON_BIN=/home/micu/unisonTrying/ucm-bin/ucm-bin
 Environment=UNISON_PROGRAM=/home/micu/unisonTrying/unison/evolution.uc
