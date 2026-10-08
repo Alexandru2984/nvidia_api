@@ -95,6 +95,16 @@ secret values are reproduced here.
   denied DDL/direct-origin/anonymous upload, every local asset, public and
   WebSocket probes passed. Twenty-nine baseline services remain under `micu`,
   so S-01 stays Critical.
+- 2026-10-08: Unison Idea Evolution moved in commits `647aebf`, `5add7b8` and
+  `f0c322b` from `micu`, a writable public release and `9.2 UNSAFE` to dedicated
+  `unisonapp`, private state, a read-only checkout, atomic root-owned frontend
+  releases and `2.7 OK`. Unison commits `3be9fa9`, `cc0303c` and `4fe7f72`
+  remove vulnerable/unused dependency families, bound public request and
+  subprocess work, disable production API documentation, sanitize errors and
+  enforce WebSocket origins. Tests/audits, exact database continuity, mutation
+  execution, namespace isolation, Cloudflare-origin enforcement, method/body/
+  rate bounds, CSP, public routes and WebSockets passed. Twenty-eight baseline
+  services remain under `micu`, so S-01 stays Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -425,8 +435,10 @@ production-entitlement decisions, and provide export/deletion status.
 2. Make the production webroot immutable to `www-data` and monitor its manifest.
 3. Require recent-password confirmation for 2FA enrollment; deploy it; enroll the
    staff account; put admin behind an independent edge gate.
-4. Migrate internet-facing services off `micu`, remove passwordless unrestricted
-   sudo, and establish per-service identities and root-owned deploy paths.
+4. Migrate internet-facing services off `micu` and establish per-service
+   identities and root-owned deploy paths. The retained passwordless sudo grant
+   is an explicit owner risk exception and must remain reachable only through
+   the trusted interactive identity, never through a network/content service.
 5. Rotate the shared NVIDIA/SMTP credentials into per-service credentials after
    isolation is effective.
 6. Apply supported host/tunnel security updates, reboot, and perform a complete

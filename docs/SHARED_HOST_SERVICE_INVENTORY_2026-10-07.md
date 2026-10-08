@@ -7,14 +7,14 @@ functional probes, and cannot see unrelated projects or write its release.
 
 The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
-Shop and R Traffic Intelligence have been migrated; 29 remain. Loopback
+Shop, R Traffic Intelligence and Unison Idea Evolution have been migrated; 28
+remain. Loopback
 listeners are externally relevant whenever nginx or a Cloudflare tunnel
 publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
 | `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
-| `unison-backend.service` | no | `8097` | verify tunnel route |
 | `asm-canary.service` | yes | `34624` | `asm.micutu.com` |
 | `brainfuck-canary.service` | yes | `34623` | `brainfuck.micutu.com` |
 | `clojure-eventpulse-canary.service` | yes | `8120` | `clojure.micutu.com` |
@@ -273,6 +273,39 @@ publishes them.
   and warning-free restart probes passed.
 - Rollback copy:
   `/home/micu/backups/service-migrations/r-traffic-intel-20261007T225125Z`.
+
+## Completed migration: Unison Idea Evolution
+
+- The public FastAPI service moved from `User=micu`, a writable checkout and
+  frontend, world-readable SQLite/log files and `9.2 UNSAFE` to dedicated
+  non-login UID/GID `unisonapp`, private state, a read-only checkout, hidden
+  unrelated homes, localhost-only network policy, empty capabilities and
+  bounded resources at `2.7 OK`.
+- Unison commits `3be9fa9`, `cc0303c` and `4fe7f72` update all vulnerable Python
+  and Node dependency families, constrain anonymous requests and subprocess
+  work, sanitize validation errors, bound database results, disable production
+  API documentation, enforce exact WebSocket origins and restore the missing
+  WebSocket runtime. Seven backend tests, Python compile/check/audit, frontend
+  lint/build and both npm audits pass with zero known dependency advisories.
+- The SQLite state moved to `/var/lib/unison-backend/evolution.db` at mode
+  `0600`. Pre-stop, final-backup and active copies pass `quick_check` with all
+  `14` ideas and the same mutation distribution. A write transaction rolled
+  back without persistence, and the deterministic mutation engine passed a
+  bounded direct smoke test.
+- Commits `647aebf`, `5add7b8` and `f0c322b` add the isolated unit, disable
+  production dotenv loading, publish root-owned read-only frontend releases
+  through an atomic symlink, and enforce Cloudflare-origin, method, body,
+  connection, request-rate, write-rate, CSP and WebSocket-origin controls at
+  nginx. Documentation/OpenAPI return `404`, oversized input returns `413`,
+  unknown mutation input returns a sanitized `422`, and direct-origin access
+  returns `403`. Same-origin WebSockets return `101`; cross-origin upgrades are
+  rejected at nginx and the application.
+- Namespace, read-only checkout, private state, exact deployed hashes, public
+  route, rate-limit, clean-restart and warning-level journal checks passed. The
+  277 MiB legacy log was moved without deletion into the root-only rollback
+  directory, and the legacy database mode was reduced from `0644` to `0600`.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/unison-20261008T105418Z`.
 
 ## Ordered next passes
 

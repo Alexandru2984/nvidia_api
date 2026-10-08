@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 9 of 38 baseline services migrated**.
+Status: **in progress — 10 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -273,6 +273,16 @@ Status: **in progress — 9 of 38 baseline services migrated**.
   hardens the Cloudflare/nginx boundary. All 46 assertions, DB continuity and
   least-privilege probes, every generated asset, WebSockets, namespace and
   clean-restart checks passed, leaving 29 baseline `User=micu` services.
+- Commits `647aebf`, `5add7b8` and `f0c322b` moved Unison Idea Evolution from
+  `micu`, a writable public release and `9.2 UNSAFE` to dedicated `unisonapp` at
+  `2.7 OK`, with a read-only checkout, private SQLite state, no external egress
+  and atomic root-owned frontend releases. Unison commits `3be9fa9`, `cc0303c`
+  and `4fe7f72` update vulnerable dependencies, bound anonymous request,
+  subprocess and result workloads, sanitize validation failures and restore the
+  missing WebSocket protocol. Tests and dependency audits, DB continuity,
+  direct mutation, namespace, origin/method/body/rate limits, CSP, WebSockets,
+  public routes and clean restart passed, leaving 28 baseline `User=micu`
+  services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
