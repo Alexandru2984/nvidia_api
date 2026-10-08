@@ -8,9 +8,9 @@ functional probes, and cannot see unrelated projects or write its release.
 The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
 Shop, R Traffic Intelligence, Unison Idea Evolution and the Cloudflare analytics
-bot, Dead Drop, and NuiGraph Studio have been migrated; 25 remain. Loopback
-listeners are externally relevant whenever nginx or a Cloudflare tunnel
-publishes them.
+bot, Dead Drop, NuiGraph Studio, and Micu Market have been migrated; 24 remain.
+Loopback listeners are externally relevant whenever nginx or a Cloudflare
+tunnel publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
@@ -26,7 +26,6 @@ publishes them.
 | `julia-benchmark-lab.service` | yes | `8095` | `julia.micutu.com` |
 | `lisp-canary.service` | yes | `8093` | `lisp.micutu.com` |
 | `lua-recon-canary.service` | yes | `8084` | `lua.micutu.com` |
-| `micu_market.service` | yes | none | background/network behavior to inventory |
 | `micupoker.service` | yes | `4100` | `poker.micutu.com` |
 | `nimplayground.service` | yes | `8888` | `nim.micutu.com` |
 | `pixelart-canary.service` | yes | `3000` | `pixelart.micutu.com` |
@@ -404,6 +403,44 @@ publishes them.
 - The checkout `.env` and initial-password file were moved without deletion to
   the root-only rollback. Rollback copy:
   `/home/micu/backups/service-migrations/nuigraph-20261008T163603Z`.
+
+## Completed migration: Micu Market
+
+- The Django/Channels marketplace moved from `User=micu`, a user-writable
+  checkout and shared owner-level PostgreSQL access to dedicated non-login
+  `micumarket` and `micumarket-backup` identities. Production now uses a
+  root-owned immutable release, private media/log/backup paths, root-only
+  environment files, empty capabilities and a `1.5 OK` systemd sandbox. The
+  retired `micu_market.service` is inactive; the replacement listens only on
+  `127.0.0.1:18082`.
+- Project commits `35b2afa`, `021c015`, `0b3601e`, `291c7fd`, `ebf7eb1`,
+  `15bedbc`, `6e06d83`, `9ea6ab1`, `2d88eff` and `74daac3` disable production
+  dotenv loading, remove known dependency advisories, separate operations,
+  deploy static assets per immutable release, close direct-origin access,
+  disable Gunicorn's control socket and enforce separate database identities.
+- PostgreSQL now uses `micu_market_migrate` as the sole database/table/sequence
+  owner, `micu_market_app` for table DML and sequence use, and
+  `micu_market_backup` for reads only. None has administrative role flags or
+  memberships. The legacy `micu` role has no database connect, schema usage or
+  table access for `micu_market`; its separate ownership of `vix_arena` and the
+  owner's explicit host sudo exception were not changed.
+- Runtime DML, denied runtime DDL, backup read, denied backup write, migration
+  DDL and post-migration default grants passed with no probe objects left. The
+  deployed `74daac3d34d2` release reran migrations with the owner credential,
+  reapplied least privilege, passed doctor and local/public smoke checks, and
+  produced no warning-level application/job/email journal entries.
+- Database continuity remains `7` users, `29` listings, `2` conversations and
+  `4` messages. The read-only backup identity produced a mode `0600` dump; a
+  full isolated restore passed and removed its scratch database. Public traffic
+  returns `200`, direct-origin traffic `403` and private chat media `404`.
+  Legacy dotenv/seed files and all `38` checkout media files were moved without
+  deletion into the root-only rollback tree after their media manifest matched
+  the isolated copy byte-for-byte.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/micu-market-20261008T164349Z`.
+  Provider-side replacement remains mandatory for any SMTP, Cloudflare,
+  media-object-store or backup-object-store credential retained in the
+  quarantined historical files; local isolation does not revoke a credential.
 
 ## Ordered next passes
 

@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 13 of 38 baseline services migrated**.
+Status: **in progress — 14 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -310,6 +310,17 @@ Status: **in progress — 13 of 38 baseline services migrated**.
   sanitizers/static/secret/dependency scans, DB least privilege and exact
   continuity, scratch restore, namespace, direct-origin/public routes and clean
   restarts passed, leaving 25 baseline `User=micu` services.
+- Micu Market commits `35b2afa`, `021c015`, `0b3601e`, `291c7fd`, `ebf7eb1`,
+  `15bedbc`, `6e06d83`, `9ea6ab1`, `2d88eff` and `74daac3` moved the public
+  Django/Channels service from `micu` to dedicated `micumarket` and
+  `micumarket-backup` identities, a root-owned immutable release, protected
+  config/media/log/backup paths and a `1.5 OK` sandbox. Runtime, migration and
+  read-only backup PostgreSQL roles are separate; the legacy role has no access
+  to this database. Dependency, application, database least-privilege, backup
+  restore, continuity, scheduled-job, direct-origin/public and clean-journal
+  checks passed. Legacy secrets and matching checkout media were quarantined
+  without deletion, leaving 24 baseline `User=micu` services; provider-side
+  credential replacement remains an explicit manual gate.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
