@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 10 of 38 baseline services migrated**.
+Status: **in progress — 11 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -283,6 +283,16 @@ Status: **in progress — 10 of 38 baseline services migrated**.
   direct mutation, namespace, origin/method/body/rate limits, CSP, WebSockets,
   public routes and clean restart passed, leaving 28 baseline `User=micu`
   services.
+- Commits `1875621`, `a3b04c3` and `c03e97d` moved the Cloudflare analytics bot
+  from `micu`, a hardcoded credential and `9.2 UNSAFE` to dedicated `cfbot` at
+  `2.9 OK`, with a root-owned atomic release, root-managed configuration, hidden
+  homes, a single read-only nginx-log bind and bounded private runtime. Three
+  known `urllib3` advisories were removed; authorization, input/upstream/log
+  bounds, HTTPS IP lookup, scheduled alerts/reports and log-secret redaction were
+  added. Ten tests, lint/dependency scans, required APIs, chart/PDF generation,
+  namespace, no-listener, secret-metadata and clean-restart probes passed,
+  leaving 27 baseline `User=micu` services. The exposed Telegram token and the
+  formerly shared Cloudflare token still require provider-side replacement.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

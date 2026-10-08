@@ -105,6 +105,19 @@ secret values are reproduced here.
   execution, namespace isolation, Cloudflare-origin enforcement, method/body/
   rate bounds, CSP, public routes and WebSockets passed. Twenty-eight baseline
   services remain under `micu`, so S-01 stays Critical.
+- 2026-10-08: The Cloudflare analytics Telegram bot moved in commits `1875621`,
+  `a3b04c3` and `c03e97d` from `micu`, a hardcoded token and `9.2 UNSAFE` to
+  dedicated `cfbot`, root-managed configuration, a root-owned release, hidden
+  homes, private state and `2.9 OK`. Three known `urllib3` advisories were fixed;
+  message authorization, input/upstream/log bounds, HTTPS IP lookup, active
+  alert/report schedules and secret-redacting logs were added. Tests, dependency
+  scans, API and local artifact probes, namespace, no-listener, exact-secret and
+  clean-restart checks passed. The initially deployed INFO logger exposed the
+  Telegram token to journald before commit `a3b04c3`; retained tool history also
+  contains the legacy hardcoded value. BotFather revocation/regeneration and
+  replacement of the Cloudflare token remain mandatory provider-side incident
+  gates. Twenty-seven baseline services remain under `micu`, so S-01 stays
+  Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

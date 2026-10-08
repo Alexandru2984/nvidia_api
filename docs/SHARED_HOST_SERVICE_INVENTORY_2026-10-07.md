@@ -7,14 +7,13 @@ functional probes, and cannot see unrelated projects or write its release.
 
 The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
-Shop, R Traffic Intelligence and Unison Idea Evolution have been migrated; 28
-remain. Loopback
+Shop, R Traffic Intelligence, Unison Idea Evolution and the Cloudflare analytics
+bot have been migrated; 27 remain. Loopback
 listeners are externally relevant whenever nginx or a Cloudflare tunnel
 publishes them.
 
 | Service | NNP | Listener(s) | Known public route / note |
 |---|---:|---|---|
-| `cf_bot.service` | no | none | outbound bot; handles untrusted messages |
 | `asm-canary.service` | yes | `34624` | `asm.micutu.com` |
 | `brainfuck-canary.service` | yes | `34623` | `brainfuck.micutu.com` |
 | `clojure-eventpulse-canary.service` | yes | `8120` | `clojure.micutu.com` |
@@ -306,6 +305,41 @@ publishes them.
   directory, and the legacy database mode was reduced from `0644` to `0600`.
 - Rollback copy:
   `/home/micu/backups/service-migrations/unison-20261008T105418Z`.
+
+## Completed migration: Cloudflare analytics Telegram bot
+
+- The outbound bot moved from `User=micu`, a hardcoded Telegram credential,
+  home-root working directory and `9.2 UNSAFE` to dedicated non-login UID/GID
+  `cfbot`, a root-owned atomic release, hidden homes, private state/cache/runtime,
+  empty capabilities and bounded resources at `2.9 OK`. It has no listener and
+  retains external IPv4/IPv6 only for its required APIs.
+- Commit `1875621` replaces the untracked legacy script with reviewed code and a
+  fully pinned dependency set. It fixes three known `urllib3 2.7.0` advisories by
+  selecting `2.8.0`, centralizes private-chat plus user authorization, bounds
+  upstream bodies/log reads/labels, validates only public IP addresses, switches
+  lookup traffic from plaintext HTTP to HTTPS, uses private unique temporary
+  paths and sanitizes upstream failures. Ten tests, Python compilation, Ruff,
+  `pip check` and `pip-audit` pass with zero known advisories.
+- The previously defined but inactive alert and daily-report functions now have
+  scheduled jobs. Cloudflare analytics, Telegram identity, HTTPS IP lookup,
+  the bounded single-file nginx tail and local PNG/PDF generation passed from
+  the isolated namespace. The service sees no home project or host log tree;
+  only `/var/log/nginx/error.log` is bind-mounted read-only under its private
+  runtime directory.
+- Commit `a3b04c3` fixes a deployment-discovered logging leak: routine HTTPX
+  request logs exposed the Telegram token in the first isolated-start journal.
+  HTTP client verbosity is reduced and the final formatter redacts Telegram and
+  bearer tokens, including formatted exceptions. The affected process was
+  stopped, replaced atomically and restarted; exact-token scans of its journal,
+  argv and environment are clean and the installed code hash matches the repo.
+- All legacy source, config, backup and bytecode copies were moved without
+  deletion to the root-only rollback directory. Exact scans still find the old
+  Telegram token in retained tool history, the initial incident journal and the
+  root-only rollback. It must be revoked and regenerated in BotFather. The
+  Cloudflare token must also be replaced with a zone-scoped read-only token;
+  neither provider-side gate is closed by local quarantine.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/cf-bot-20261008T111013Z`.
 
 ## Ordered next passes
 
