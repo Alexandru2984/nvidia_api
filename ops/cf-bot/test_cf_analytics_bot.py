@@ -1,6 +1,7 @@
 import asyncio
 import ast
 import json
+import logging
 import re
 import tempfile
 import unittest
@@ -183,6 +184,23 @@ class SecurityTests(unittest.TestCase):
     def test_safe_label_removes_controls_and_applies_limit(self):
         self.assertEqual(bot.safe_label("a\n\tb", 3), "a b")
         self.assertEqual(bot.safe_label("abcdef", 4), "abcd")
+
+    def test_log_formatter_redacts_tokens_in_messages_and_exceptions(self):
+        telegram_token = "12345678:" + "T" * 35
+        bearer_token = "B" * 40
+        record = logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg=f"url=/bot{telegram_token}/getMe Authorization: Bearer {bearer_token}",
+            args=(),
+            exc_info=None,
+        )
+        rendered = bot.RedactingFormatter("%(message)s").format(record)
+        self.assertNotIn(telegram_token, rendered)
+        self.assertNotIn(bearer_token, rendered)
+        self.assertIn("REDACTED", rendered)
 
 
 if __name__ == "__main__":

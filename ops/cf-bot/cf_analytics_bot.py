@@ -43,6 +43,8 @@ MAX_LOG_LINES = 10
 CF_GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"
 IP_LOOKUP_URL = "https://ipwho.is/{ip}"
 TELEGRAM_TOKEN_PATTERN = re.compile(r"^[0-9]{8,12}:[A-Za-z0-9_-]{30,}$")
+TELEGRAM_TOKEN_IN_TEXT = re.compile(r"[0-9]{8,12}:[A-Za-z0-9_-]{30,}")
+BEARER_TOKEN_IN_TEXT = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]{20,}")
 ZONE_ID_PATTERN = re.compile(r"^[A-Fa-f0-9]{32}$")
 
 MENU_BUTTONS = [
@@ -60,6 +62,27 @@ class ConfigurationError(RuntimeError):
 
 class UpstreamError(RuntimeError):
     pass
+
+
+def redact_sensitive(value: str) -> str:
+    value = TELEGRAM_TOKEN_IN_TEXT.sub("[REDACTED_TELEGRAM_TOKEN]", value)
+    return BEARER_TOKEN_IN_TEXT.sub(r"\1[REDACTED_TOKEN]", value)
+
+
+class RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_sensitive(super().format(record))
+
+
+def configure_logging() -> None:
+    logging.basicConfig(level=os.environ.get("CF_BOT_LOG_LEVEL", "INFO"))
+    formatter = RedactingFormatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(formatter)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 @dataclass(frozen=True)
@@ -836,10 +859,7 @@ def build_application(settings: Settings) -> Application:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=os.environ.get("CF_BOT_LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging()
     settings = Settings.load()
     settings.runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     application = build_application(settings)
