@@ -127,6 +127,17 @@ secret values are reproduced here.
   continuity, backup restore validation, namespace, clean restart, loopback,
   Cloudflare and Tor delivery checks passed. Twenty-six baseline services remain
   under `micu`, so S-01 stays Critical.
+- 2026-10-08: NuiGraph Studio moved in repository commits `1181c73`, `164c575`
+  and `298e8c2` from `micu`, a user-writable executable/release, visible homes,
+  owner-level DB access and `8.5 EXPOSED` to dedicated `nuigraph`, root-owned
+  atomic releases, systemd credentials, a DML-only runtime role and `1.3 OK`.
+  Strict config validation, health rollback and protected-config test execution
+  were added; two vulnerable frontend build dependencies and a reproduced
+  libpqxx normal-exit double-free were fixed. Five test suites, ASan/UBSan,
+  Cppcheck, gitleaks, npm audit, DML/denied-DDL, exact DB continuity, full
+  scratch restore, namespace, direct-origin, public and clean-restart probes
+  passed. Twenty-five baseline services remain under `micu`, so S-01 stays
+  Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

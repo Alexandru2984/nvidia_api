@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 12 of 38 baseline services migrated**.
+Status: **in progress — 13 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -301,6 +301,15 @@ Status: **in progress — 12 of 38 baseline services migrated**.
   all browser cryptography/protocol/property tests, dependency and secret scans,
   exact state continuity, backup restore validation, namespace, public/Tor
   delivery and clean restart passed, leaving 26 baseline `User=micu` services.
+- NuiGraph commits `1181c73`, `164c575` and `298e8c2` moved the public C++
+  service from `micu`, a user-writable executable/release, owner-level DB access
+  and `8.5 EXPOSED` to dedicated `nuigraph`, root-owned atomic releases, private
+  systemd credentials, a DML-only runtime role and `1.3 OK`. Strict config
+  validation and deployment rollback were added, two npm advisories were fixed,
+  and a reproduced libpqxx clean-exit double-free was removed. Five suites,
+  sanitizers/static/secret/dependency scans, DB least privilege and exact
+  continuity, scratch restore, namespace, direct-origin/public routes and clean
+  restarts passed, leaving 25 baseline `User=micu` services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

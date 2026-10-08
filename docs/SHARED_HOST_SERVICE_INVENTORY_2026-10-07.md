@@ -8,7 +8,7 @@ functional probes, and cannot see unrelated projects or write its release.
 The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
 Shop, R Traffic Intelligence, Unison Idea Evolution and the Cloudflare analytics
-bot, and Dead Drop have been migrated; 26 remain. Loopback
+bot, Dead Drop, and NuiGraph Studio have been migrated; 25 remain. Loopback
 listeners are externally relevant whenever nginx or a Cloudflare tunnel
 publishes them.
 
@@ -29,7 +29,6 @@ publishes them.
 | `micu_market.service` | yes | none | background/network behavior to inventory |
 | `micupoker.service` | yes | `4100` | `poker.micutu.com` |
 | `nimplayground.service` | yes | `8888` | `nim.micutu.com` |
-| `nuigraph-studio.service` | yes | `18081` | `nuicpp.micutu.com` |
 | `pixelart-canary.service` | yes | `3000` | `pixelart.micutu.com` |
 | `prolog-security-canary.service` | yes | `3050` | `prolog.micutu.com` |
 | `racket-canary.service` | yes | `8345` | `racket.micutu.com` |
@@ -367,6 +366,44 @@ publishes them.
   rollback directory.
 - Rollback copy:
   `/home/micu/backups/service-migrations/deaddrop-20261008T112337Z`.
+
+## Completed migration: NuiGraph Studio
+
+- The public C++ service moved from `User=micu`, `8.5 EXPOSED`, a user-writable
+  checkout/binary and owner-level database credential to dedicated non-login
+  `nuigraph`, root-owned atomic releases and `1.3 OK`. Its checkout/home and
+  root configuration directory are hidden, only loopback networking and TCP
+  bind `18081` are permitted, capabilities are empty, and syscall/resource/core
+  limits are explicit.
+- NuiGraph commits `1181c73`, `164c575` and `298e8c2` add strict startup bounds,
+  canonical 256-bit session-secret and PBKDF2 validation, a non-secret-printing
+  config check, protected-config test execution, root-owned atomic deployment
+  with health rollback, a private systemd credential, and distinct migration
+  and runtime database roles. Two vulnerable frontend build dependencies were
+  updated; npm audit now reports zero advisories.
+- A normal-exit double-free in the Ubuntu `libpqxx 7.10` shared-library/header
+  combination was reproduced under ASan. Linking the package-provided static
+  libpqxx archive removes the duplicate destructor while OpenSSL, libpq and all
+  other libraries remain dynamically linked. Clean stops now log normally with
+  no abort or coredump.
+- The database owner remains `nuigraph_user` only for root-run migrations. New
+  `nuigraph_app` owns no database/schema/table/sequence, has no memberships or
+  elevated role flags, and receives only connect, schema usage, table DML and
+  sequence usage/select. Runtime DML and owner DDL-in-rollback passed; runtime
+  database/schema DDL was denied.
+- All five C++/frontend/live API/security/rate suites pass against the protected
+  config. ASan/UBSan startup, Cppcheck, gitleaks, npm audit, config, namespace,
+  exact binary, clean restart and local/public probes pass. Direct-origin access
+  returns `403`; database continuity remains `15` diagrams, `60` nodes, `45`
+  edges and `16` versions. A full scratch restore reproduced those counts and
+  the scratch database was removed.
+- Cloudflare adds one dynamic Challenge Platform inline script to the public
+  HTML, so public/origin bytes differ. The delivered CSP has no `unsafe-inline`
+  and blocks that script. Disabling unnecessary Cloudflare JS injection for this
+  hostname remains preferable to weakening CSP.
+- The checkout `.env` and initial-password file were moved without deletion to
+  the root-only rollback. Rollback copy:
+  `/home/micu/backups/service-migrations/nuigraph-20261008T163603Z`.
 
 ## Ordered next passes
 
