@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 11 of 38 baseline services migrated**.
+Status: **in progress — 12 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -293,6 +293,14 @@ Status: **in progress — 11 of 38 baseline services migrated**.
   namespace, no-listener, secret-metadata and clean-restart probes passed,
   leaving 27 baseline `User=micu` services. The exposed Telegram token and the
   formerly shared Cloudflare token still require provider-side replacement.
+- Dead Drop commit `4498c99` moved the service from `micu`, a user-owned runtime
+  binary and checkout-local state to dedicated `deaddrop` at `1.3 OK`, with a
+  root-owned executable, private state, hidden homes and a root-only config. Its
+  atomic deploy now preserves a rollback and fails closed when health or doctor
+  fails; the network-denied root backup worker scores `1.6 OK`. Go race tests,
+  all browser cryptography/protocol/property tests, dependency and secret scans,
+  exact state continuity, backup restore validation, namespace, public/Tor
+  delivery and clean restart passed, leaving 26 baseline `User=micu` services.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

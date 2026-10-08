@@ -8,7 +8,7 @@ functional probes, and cannot see unrelated projects or write its release.
 The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
 Shop, R Traffic Intelligence, Unison Idea Evolution and the Cloudflare analytics
-bot have been migrated; 27 remain. Loopback
+bot, and Dead Drop have been migrated; 26 remain. Loopback
 listeners are externally relevant whenever nginx or a Cloudflare tunnel
 publishes them.
 
@@ -19,7 +19,6 @@ publishes them.
 | `clojure-eventpulse-canary.service` | yes | `8120` | `clojure.micutu.com` |
 | `cobol-canary.service` | yes | `9001` | `cobol.micutu.com` |
 | `code-forest-canary.service` | yes | `8089` | `forest.micutu.com` |
-| `deaddrop.service` | yes | `8100`, `8101` | `dead.micutu.com` plus internal listener |
 | `drogon-blog.service` | yes | `8092` | `blog.micutu.com` |
 | `evolving-minds-canary.service` | yes | `4001`, `37049` | `elixir.micutu.com` plus runtime listener |
 | `fortran-canary.service` | yes | `8080` | `fortran.micutu.com` |
@@ -340,6 +339,34 @@ publishes them.
   neither provider-side gate is closed by local quarantine.
 - Rollback copy:
   `/home/micu/backups/service-migrations/cf-bot-20261008T111013Z`.
+
+## Completed migration: Dead Drop
+
+- The Go signaling service moved from `User=micu`, a user-owned executable and
+  mutable state inside its checkout to dedicated non-login UID/GID `deaddrop`, a
+  root-owned executable under `/opt/deaddrop`, and private state under
+  `/var/lib/deaddrop`. Its mount namespace contains no deploy-user home or
+  checkout, its configuration remains root-only, capabilities are empty, and
+  its effective systemd exposure improved from `1.4 OK` to `1.3 OK`.
+- Dead Drop commit `4498c99` updates the unit, backup and deployment contracts.
+  Deploys now stage and atomically replace the root-owned executable, preserve a
+  same-filesystem rollback, and fail closed if health or any post-deploy doctor
+  check fails. The root backup job now reads only the private state path, has no
+  network access and scores `1.6 OK`.
+- Go vet and race tests, every browser cryptography/protocol/property test,
+  integrity and pinned-vendor verification, `govulncheck`, `gosec` and `gitleaks`
+  pass; dependency scans report no known vulnerability or repository secret.
+  Production now runs the current `0.3.0` source build instead of the stale
+  checkout binary that lacked the version command.
+- Exact pre/post hashes and sizes match for all account, invitation and SRP
+  anti-enumeration state. Configuration, embedded bundle, hub health, deployed
+  bundle, Cloudflare-delivered bundle and backup freshness all pass. Loopback,
+  public and Tor routes return healthy content; Tor delivery matches its origin.
+  Clean restart, private namespace, root-only config and backup restore checks
+  also pass. The ignored legacy executable was moved without deletion into the
+  rollback directory.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/deaddrop-20261008T112337Z`.
 
 ## Ordered next passes
 

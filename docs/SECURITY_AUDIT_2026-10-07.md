@@ -118,6 +118,15 @@ secret values are reproduced here.
   replacement of the Cloudflare token remain mandatory provider-side incident
   gates. Twenty-seven baseline services remain under `micu`, so S-01 stays
   Critical.
+- 2026-10-08: Dead Drop moved in repository commit `4498c99` from `micu`, a
+  user-owned runtime executable and checkout-local mutable state to dedicated
+  `deaddrop`, a root-owned executable, private state, hidden homes and `1.3 OK`.
+  Its fail-closed atomic deploy now rolls back on either health or doctor
+  failure, and its root backup worker is network-denied at `1.6 OK`. Go and
+  browser protocol/cryptography suites, vulnerability/secret scans, exact state
+  continuity, backup restore validation, namespace, clean restart, loopback,
+  Cloudflare and Tor delivery checks passed. Twenty-six baseline services remain
+  under `micu`, so S-01 stays Critical.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
