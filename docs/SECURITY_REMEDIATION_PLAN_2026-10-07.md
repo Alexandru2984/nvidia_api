@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 15 of 38 baseline services migrated**.
+Status: **in progress — 16 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -331,6 +331,17 @@ Status: **in progress — 15 of 38 baseline services migrated**.
   isolated restore probes passed. Legacy checkout artifacts were quarantined
   without deletion, leaving 23 baseline `User=micu` services. Independent
   alert delivery remains an open P1 control.
+- WebOS commits `71d2860`, `cdf0770`, `505dffc`, `725b84c` and `01aecd9`
+  moved the public Odin terminal from `micu`, a writable checkout and
+  third-party scripts on its password-entry page to dedicated `webos` and
+  `webos-backup` identities, a root-owned immutable release, strict self-only
+  browser policy, origin-validated WebSockets and `1.2 OK`/`0.6 SAFE` runtime
+  and backup sandboxes. All `37` unit tests and `14` integration suites,
+  executable-hardening, direct-origin, public route, namespace, continuity,
+  checksum and isolated-restore probes passed. A failed deployment gate
+  exercised automatic rollback before the corrected rollout passed. Legacy
+  artifacts were quarantined without deletion, leaving 22 baseline
+  `User=micu` services; alert delivery and off-host replication remain open.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

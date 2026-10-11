@@ -9,7 +9,7 @@ The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
 Shop, R Traffic Intelligence, Unison Idea Evolution and the Cloudflare analytics
 bot, Dead Drop, NuiGraph Studio, Micu Market, and VixArena have been migrated;
-23 remain.
+WebOS has also been migrated; 22 remain.
 Loopback listeners are externally relevant whenever nginx or a Cloudflare
 tunnel publishes them.
 
@@ -37,7 +37,6 @@ tunnel publishes them.
 | `spectre-link-canary.service` | yes | `4000`, `9100` | `spectre.micutu.com` plus metrics |
 | `testlab.service` | yes | `3011` | `test.micutu.com` |
 | `weather-canary.service` | yes | `8105` | `weather.micutu.com` |
-| `webos.service` | yes | `47271` | `odin.micutu.com` |
 
 ## Completed migration: Umami
 
@@ -473,6 +472,41 @@ tunnel publishes them.
   `/home/micu/backups/service-migrations/vix-arena-20261011T070040Z`.
   Independent integrity/health alert delivery and provider/governance evidence
   remain open P1 controls; journald and access logs are not alert delivery.
+
+## Completed migration: WebOS
+
+- The public Odin terminal moved from `User=micu`, a user-writable checkout and
+  third-party scripts on its password-entry page to dedicated non-login `webos`
+  and `webos-backup` identities, a root-owned immutable release, self-only
+  script policy and no third-party browser connections.
+- Project commits `71d2860`, `cdf0770`, `505dffc`, `725b84c` and `01aecd9`
+  remove the injected analytics scripts, reject missing or hostile WebSocket
+  origins, pin and verify the official Odin toolchain, and define transactional
+  deployment, backup, restore and incident-response controls.
+- Production has zero effective capabilities, a hidden checkout, localhost-only
+  network access and a `1.2 OK` systemd exposure score. The no-network backup
+  job scores `0.6 SAFE`; releases are not writable by the runtime identity.
+- All `37` unit tests and `14` integration suites passed, including `128`
+  concurrent sessions. PIE, NX, RELRO and immediate binding checks passed.
+  Public HTTP and approved WebSocket probes return success; missing and hostile
+  WebSocket origins, public metrics and direct-origin HTTPS return `403`, while
+  TRACE returns `405`.
+- Production continuity remained `8` filesystem entries, `137` bytes and zero
+  accounts. The first immutable-release gate intentionally rolled the service
+  back after a root-only writability check produced a false negative; the
+  corrected runtime-identity gate and subsequent rollout passed. This supplies
+  exercised rollback evidence rather than an untested rollback path.
+- The dedicated backup identity produced a mode-`0600` checksummed archive and
+  its isolated restore reproduced all `8` entries and `137` bytes; the daily
+  timer is active. Matching legacy state and binaries were moved without
+  deletion into the root-only rollback tree.
+- Migration rollback:
+  `/home/micu/backups/service-migrations/webos-20261011T120455Z`; current deploy
+  rollback:
+  `/home/micu/backups/service-migrations/webos-deploy-725b84cf2555-20261011T120923Z`.
+  Independent alert delivery, off-host backup replication, privacy retention
+  evidence and vendor review remain open P1/P2 controls; the remaining shared
+  service identities remain the host-level P0 risk.
 
 ## Ordered next passes
 
