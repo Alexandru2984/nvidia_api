@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 14 of 38 baseline services migrated**.
+Status: **in progress — 15 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -321,6 +321,16 @@ Status: **in progress — 14 of 38 baseline services migrated**.
   checks passed. Legacy secrets and matching checkout media were quarantined
   without deletion, leaving 24 baseline `User=micu` services; provider-side
   credential replacement remains an explicit manual gate.
+- VixArena commits `0952c32`, `f34c428`, `7b2b06a`, `82d9744`, `cc7fa1a`,
+  `4511c63`, `6f81ced` and `bc51146` moved the public C++/WebSocket service from
+  `micu` to dedicated `vixarena` and `vixarena-backup` identities, a root-owned
+  immutable release, root-only configuration, distinct migration/select-insert
+  runtime/read-only backup PostgreSQL roles, direct-origin denial and a `1.3 OK`
+  sandbox. Dependency, clean-exit, least-privilege, public/WebSocket,
+  direct-origin, immutable-release, namespace, restart, backup checksum and
+  isolated restore probes passed. Legacy checkout artifacts were quarantined
+  without deletion, leaving 23 baseline `User=micu` services. Independent
+  alert delivery remains an open P1 control.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 

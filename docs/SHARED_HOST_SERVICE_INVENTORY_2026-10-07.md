@@ -8,7 +8,8 @@ functional probes, and cannot see unrelated projects or write its release.
 The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
 Shop, R Traffic Intelligence, Unison Idea Evolution and the Cloudflare analytics
-bot, Dead Drop, NuiGraph Studio, and Micu Market have been migrated; 24 remain.
+bot, Dead Drop, NuiGraph Studio, Micu Market, and VixArena have been migrated;
+23 remain.
 Loopback listeners are externally relevant whenever nginx or a Cloudflare
 tunnel publishes them.
 
@@ -35,7 +36,6 @@ tunnel publishes them.
 | `simulation-canary.service` | yes | `8094` | `simulation.micutu.com` |
 | `spectre-link-canary.service` | yes | `4000`, `9100` | `spectre.micutu.com` plus metrics |
 | `testlab.service` | yes | `3011` | `test.micutu.com` |
-| `vix-arena.service` | yes | `18080` | `vix.micutu.com` |
 | `weather-canary.service` | yes | `8105` | `weather.micutu.com` |
 | `webos.service` | yes | `47271` | `odin.micutu.com` |
 
@@ -441,6 +441,38 @@ tunnel publishes them.
   Provider-side replacement remains mandatory for any SMTP, Cloudflare,
   media-object-store or backup-object-store credential retained in the
   quarantined historical files; local isolation does not revoke a credential.
+
+## Completed migration: VixArena
+
+- The public C++/WebSocket game moved from `User=micu`, a user-writable checkout
+  and an owner-level PostgreSQL credential to dedicated non-login `vixarena`
+  and `vixarena-backup` identities. Production runs a root-owned immutable
+  release with root-only configuration, zero effective capabilities, hidden
+  checkout/home paths, localhost-only networking and a `1.3 OK` sandbox.
+- Project commits `0952c32`, `f34c428`, `7b2b06a`, `82d9744`, `cc7fa1a`,
+  `4511c63`, `6f81ced` and `bc51146` patch the high-severity `ws` advisory,
+  harden probes, separate migration/runtime behavior, avoid a reproduced Ubuntu
+  `libpqxx 7.10` clean-exit double-free, and define deployment, least-privilege,
+  backup and incident-response controls.
+- PostgreSQL uses `vix_arena_migrate` as owner, `vix_arena_app` for select and
+  insert only, and `vix_arena_backup` for reads only. Runtime update, delete,
+  migration-ledger writes and DDL were denied; backup writes were denied;
+  migration DDL passed. The legacy `micu` role has no database/schema/table
+  access or memberships, owns no database and no longer has `CREATEDB`. The
+  owner's explicit host sudo exception was not changed.
+- Public HTTP and WebSocket probes passed. Missing and hostile WebSocket origins,
+  public metrics and direct-origin HTTPS return `403`; TRACE returns `405`.
+  Nginx enforces fail-closed Cloudflare peers plus per-client request and
+  connection limits. A clean restart produced no warning-level journal entries.
+- The read-only backup identity produced a mode-`0600` checksummed dump whose
+  isolated restore matched schema version `2`, zero matches and zero players;
+  the scratch database was removed and the daily timer is active. Legacy
+  dotenv/state/binary artifacts were moved without deletion into the root-only
+  rollback tree after an exact state-manifest comparison.
+- Rollback copy:
+  `/home/micu/backups/service-migrations/vix-arena-20261011T070040Z`.
+  Independent integrity/health alert delivery and provider/governance evidence
+  remain open P1 controls; journald and access logs are not alert delivery.
 
 ## Ordered next passes
 
