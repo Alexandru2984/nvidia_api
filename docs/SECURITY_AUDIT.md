@@ -539,6 +539,41 @@ is required before describing those controls as complete.
   anonymous model access returned 403, nginx validation passed, the backend had
   zero automatic restarts and no warning-level entries after restart.
 
+### Hosted-model catalog rollout — 2026-10-13
+
+- Deployed repository states `eb4dbbc`, `4849a91`, and `8b0f17c` without a
+  database migration or user-data write. A root-owned `0600` copy of the prior
+  runtime status is retained at
+  `/home/micu/backups/nvidia_ops/model_status.pre-4849a91.json`.
+- Catalog refresh reduced 39 mostly retired entries to 20 currently documented
+  NVIDIA-hosted chat endpoints. The production probe completed successfully in
+  93 seconds and exposes 12 live models, with Nemotron 3.5 Lightning 30B A3B as
+  the available default. Eight remain hidden: one current `404` retirement and
+  seven inconclusive timeouts.
+- Five exposed models accept images. Before rollout, six then-live multimodal
+  endpoints accepted a synthetic 186,695-byte inline PNG with `200`; Muse Glimmer
+  subsequently changed from `200` to `404` and is correctly hidden. Capability
+  metadata stays conservative at one JPEG/PNG unless an official hosted contract
+  documents more; GLM 5.3 Flash alone declares up to eight JPEG/PNG/WebP images.
+- A catalog ID absent from the private probe file is now automatically hidden and
+  counted as awaiting verification. This closes the deployment window where new
+  code could previously expose an unprobed endpoint before the scheduled status
+  refresh.
+- Probe classification now treats only `404/410` as retired and `400/422` as
+  app-contract rejection. Authentication, entitlement, throttling, timeout,
+  network, ambiguous 4xx and 5xx failures preserve trusted prior decisions;
+  authorization/entitlement failures emit a separate privacy-minimized alert.
+- All 358 backend tests, 32 responsive Playwright tests and 10 monitor tests
+  passed, with lint, production build, compile, migration-drift, Django,
+  `pip check` and npm audit also clean. The deploy check retained only the
+  deliberate HSTS-preload warning.
+- Root-owned frontend release
+  `/var/www/aichat-releases/release-20261012T230158_666603612` is active with the
+  previous release retained for rollback. Public health returned 200, `/media/`
+  returned 404, anonymous model access returned 403, nginx validation passed,
+  all application timers are active, both probe and monitor completed with exit
+  status zero, and the backend has zero automatic restarts or post-boot warnings.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
@@ -556,4 +591,8 @@ remain open.
 - [ICO personal data breach guidance](https://ico.org.uk/for-organisations/report-a-breach/personal-data-breach/personal-data-breaches-a-guide/)
 - [NVIDIA NIM product and licensing FAQ](https://docs.api.nvidia.com/nim/docs/product)
 - [NVIDIA vision-language model support](https://docs.nvidia.com/nim/vision-language-models/2.0.10-variant/introduction.html)
-- [NVIDIA Nemotron Nano 12B V2 VL model contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-nemotron-nano-12b-v2-vl)
+- [NVIDIA hosted LLM API catalog](https://docs.api.nvidia.com/nim/reference/llm-apis)
+- [NVIDIA Nemotron 3.5 Lightning model card](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard)
+- [NVIDIA GLM 5.3 Flash model card](https://build.nvidia.com/z-ai/glm-5.3-flash/modelcard)
+- [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
+- [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)

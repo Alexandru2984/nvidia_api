@@ -2,7 +2,10 @@
 
 ![CI](https://github.com/Alexandru2984/nvidia_api/actions/workflows/ci.yml/badge.svg)
 
-A self-hosted chat UI for NVIDIA's NIM-hosted open-weight LLMs (Llama, Nemotron, Qwen, DeepSeek, GPT-OSS — ~40 validated models). Pick a model, chat, save conversations per-user. Deployed at `https://aichat.micutu.com`.
+A self-hosted chat UI for NVIDIA's NIM-hosted open models. Its conservative
+catalog currently tracks 20 documented chat endpoints and exposes only those
+verified by the private runtime probe. Pick a model, chat, and save private
+conversations per user. Deployed at `https://aichat.micutu.com`.
 
 ## Stack
 
@@ -168,11 +171,16 @@ cost rather than an assumed per-token price.
 
 ## Model catalog
 
-`chat/models_catalog.py` is the validated list of NVIDIA NIM models that respond to chat completions. It was built by:
+`chat/models_catalog.py` is the allowlisted set of documented NVIDIA NIM chat
+endpoints. It was built by:
 
 1. Calling `GET https://integrate.api.nvidia.com/v1/models` to get the live list.
-2. Filtering out non-chat models (embeddings, retrievers, parsers, classifiers, reward models).
-3. Probing each candidate with a minimal `messages: [{role: "user", content: "hi"}]` request and keeping only those returning `200`.
+2. Filtering out embeddings, retrievers, parsers, reward models and detectors;
+   chat-compatible safety and translation models remain explicitly classified.
+3. Checking the official model card for context, purpose and modalities, then
+   probing each candidate with a one-token chat request. The source allowlist may
+   retain a documented endpoint through a transient outage, but the runtime
+   status exposes it only after a successful probe or trusted prior decision.
 
 NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both directions, so availability is re-checked automatically:
 
@@ -183,12 +191,12 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   validated when read. Production requires this file and accepts it for eight
   days; missing, stale, future-dated or malformed state fails closed and triggers
   the security monitor.
-- Definitive endpoint failures (`404/410` and other incompatible 4xx responses)
-  mark a model unavailable. Throttling, timeouts, network errors and provider 5xx
-  responses are inconclusive: an already verified model keeps its last decision,
-  while a never-verified model remains blocked. A degraded run is alerted and is
-  explicit in the authenticated API and responsive UI without exposing per-model
-  provider failures.
+- Definitive endpoint failures (`404/410`) and payload-contract rejection
+  (`400/422`) mark a model unavailable. Authentication/entitlement failures,
+  throttling, timeouts, network errors, ambiguous 4xx and provider 5xx responses
+  are inconclusive: an already verified model keeps its last decision, while a
+  never-verified model remains blocked. Degraded and authorization failures are
+  alerted and explicit in the authenticated UI without exposing provider bodies.
 - `/api/models/` subtracts the resolved unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
 - Each catalog row exposes `purpose`, `recommended`, conservative `best_for`, and a
   `capabilities` contract. The UI groups assistant/coding/translation/safety/

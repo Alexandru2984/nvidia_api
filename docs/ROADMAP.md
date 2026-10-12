@@ -63,7 +63,10 @@ timed evidence.
   sample caveats, and recommendation/latency/context/name sorting are shipped.
   Availability now has verified/degraded/fail-closed states, expires after the
   weekly timer window, preserves verified decisions across transient provider
-  failures, and alerts degraded probes without leaking provider error details.
+  failures, blocks newly added IDs until their first successful probe, and alerts
+  degraded or authorization-failed probes without leaking provider error details.
+  The October 2026 catalog tracks 20 current documented endpoints; its deployed
+  probe currently exposes 12, including five verified image-capable models.
   Expose reasoning, tool use, structured output, and output modality controls only
   when verified and declared by the selected model.
 - **Resilient attachment intake is shipped:** picker, drag/drop, clipboard image
