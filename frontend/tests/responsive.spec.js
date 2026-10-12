@@ -48,6 +48,10 @@ async function mockAPI(
         deduplicated: false,
       } })
     }
+    if (/^\/api\/attachments\/upload\/[0-9a-f-]{36}\/$/.test(path)
+        && route.request().method() === 'DELETE') {
+      return route.fulfill({ status: 204, body: '' })
+    }
     if (/^\/api\/attachments\/(900|910)\/$/.test(path) && route.request().method() === 'DELETE') {
       return route.fulfill({ status: 204, body: '' })
     }
@@ -681,7 +685,12 @@ test('failed upload is retryable without choosing the file again', async ({ page
 test('in-flight upload can be canceled without becoming pending', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockAPI(page)
+  let uploadedAttemptId = null
+  let canceledAttemptId = null
   await page.route('**/api/attachments/upload/', async (route) => {
+    uploadedAttemptId = route.request().postData()?.match(
+      /name="upload_attempt_id"\r\n\r\n([0-9a-f-]{36})/,
+    )?.[1]
     await new Promise((resolve) => setTimeout(resolve, 800))
     try {
       await route.fulfill({ status: 201, json: {
@@ -689,6 +698,10 @@ test('in-flight upload can be canceled without becoming pending', async ({ page 
         size: 68, url: '/api/attachments/902/download/', has_text: false, deletable: true,
       } })
     } catch { /* the browser canceled the intercepted request */ }
+  })
+  await page.route('**/api/attachments/upload/*/', async (route) => {
+    canceledAttemptId = new URL(route.request().url()).pathname.split('/').at(-2)
+    await route.fulfill({ status: 204, body: '' })
   })
   await page.goto('/')
   await page.getByRole('button', { name: 'Add attachments' }).click()
@@ -701,6 +714,8 @@ test('in-flight upload can be canceled without becoming pending', async ({ page 
   await expect(page.getByText('Upload canceled')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
   await expect(page.getByAltText('slow.png')).toHaveCount(0)
+  await expect.poll(() => uploadedAttemptId).toMatch(/^[0-9a-f-]{36}$/)
+  await expect.poll(() => canceledAttemptId).toBe(uploadedAttemptId)
 })
 
 test('logout clears pending attachment previews from browser memory', async ({ page }) => {

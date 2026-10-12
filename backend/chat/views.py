@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import time
+import uuid
 from datetime import timedelta
 from pathlib import Path
 
@@ -46,6 +47,7 @@ from .attachments import content_fingerprint, detect_mime, extract_text, kind_fo
 from .model_status import get_status, unavailable_model_ids
 from .models import (
     Attachment,
+    AttachmentUploadAttempt,
     Conversation,
     EmailVerification,
     Message,
@@ -1172,10 +1174,89 @@ def _attachment_capability_response(request, model_id, issue, response_status=40
     }, status=response_status)
 
 
-def _attachment_upload_response(attachment, *, deduplicated, response_status):
+def _attachment_upload_response(attachment, *, deduplicated, response_status, replayed=False):
     data = dict(AttachmentSerializer(attachment).data)
     data['deduplicated'] = deduplicated
+    data['replayed'] = replayed
     return Response(data, status=response_status)
+
+
+def _upload_attempt_error(code, message):
+    return Response(
+        {'error': message, 'code': code},
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _upload_attempt_id(request):
+    raw = request.data.get('upload_attempt_id')
+    if raw in (None, ''):
+        return None, None
+    if not isinstance(raw, str) or len(raw) > 36:
+        return None, Response(
+            {'error': 'upload_attempt_id must be a UUID.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        attempt_id = uuid.UUID(raw)
+    except (AttributeError, ValueError):
+        return None, Response(
+            {'error': 'upload_attempt_id must be a UUID.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if str(attempt_id) != raw.lower():
+        return None, Response(
+            {'error': 'upload_attempt_id must use canonical UUID form.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return attempt_id, None
+
+
+def _attempt_state_response(attempt):
+    if attempt.state == AttachmentUploadAttempt.STATE_CANCELED:
+        return _upload_attempt_error(
+            'upload_canceled',
+            'This upload attempt was canceled.',
+        )
+    if attempt.state == AttachmentUploadAttempt.STATE_COMPLETED:
+        if attempt.attachment_id and attempt.attachment:
+            return _attachment_upload_response(
+                attempt.attachment,
+                deduplicated=not attempt.owns_attachment,
+                replayed=True,
+                response_status=status.HTTP_200_OK,
+            )
+        return _upload_attempt_error(
+            'upload_expired',
+            'This upload attempt no longer has an attachment. Retry with a new attempt.',
+        )
+    return None
+
+
+def _prepare_upload_attempt(user, attempt_id):
+    if attempt_id is None:
+        return None
+    User = get_user_model()
+    with transaction.atomic():
+        User.objects.select_for_update().get(pk=user.pk)
+        attempt = AttachmentUploadAttempt.objects.select_for_update().filter(pk=attempt_id).first()
+        if attempt is None:
+            attempt = AttachmentUploadAttempt.objects.create(id=attempt_id, user=user)
+        elif attempt.user_id != user.pk:
+            return _upload_attempt_error(
+                'invalid_upload_attempt',
+                'This upload attempt is unavailable.',
+            )
+        return _attempt_state_response(attempt)
+
+
+def _complete_upload_attempt(attempt, attachment, *, owns_attachment):
+    if attempt is None:
+        return
+    attempt.state = AttachmentUploadAttempt.STATE_COMPLETED
+    attempt.attachment = attachment
+    attempt.owns_attachment = owns_attachment
+    attempt.save(update_fields=['state', 'attachment', 'owns_attachment', 'updated_at'])
 
 
 @api_view(['POST'])
@@ -1208,14 +1289,37 @@ def upload_attachment(request):
         if issue:
             return _attachment_capability_response(request, model_id, issue)
 
+    attempt_id, attempt_error = _upload_attempt_id(request)
+    if attempt_error is not None:
+        return attempt_error
+    attempt_response = _prepare_upload_attempt(request.user, attempt_id)
+    if attempt_response is not None:
+        return attempt_response
+
     content_hash = content_fingerprint(f, request.user.pk)
-    duplicate = Attachment.objects.filter(
-        user=request.user,
-        message__isnull=True,
-        content_sha256=content_hash,
-    ).first()
-    if duplicate:
-        return _attachment_upload_response(duplicate, deduplicated=True, response_status=200)
+    User = get_user_model()
+    with transaction.atomic():
+        User.objects.select_for_update().get(pk=request.user.pk)
+        attempt = None
+        if attempt_id is not None:
+            attempt = AttachmentUploadAttempt.objects.select_for_update().select_related(
+                'attachment',
+            ).get(pk=attempt_id, user=request.user)
+            attempt_response = _attempt_state_response(attempt)
+            if attempt_response is not None:
+                return attempt_response
+        duplicate = Attachment.objects.filter(
+            user=request.user,
+            message__isnull=True,
+            content_sha256=content_hash,
+        ).first()
+        if duplicate:
+            _complete_upload_attempt(attempt, duplicate, owns_attachment=False)
+            return _attachment_upload_response(
+                duplicate,
+                deduplicated=True,
+                response_status=status.HTTP_200_OK,
+            )
 
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
     if used + f.size > settings.MAX_USER_STORAGE:
@@ -1241,17 +1345,29 @@ def upload_attachment(request):
 
     # Race-free quota: lock the user row, recompute usage inside the lock, then
     # commit the new attachment. Two parallel uploads serialise here.
-    User = get_user_model()
     try:
         with transaction.atomic():
-            User.objects.select_for_update().filter(pk=request.user.pk).first()
+            User.objects.select_for_update().get(pk=request.user.pk)
+            attempt = None
+            if attempt_id is not None:
+                attempt = AttachmentUploadAttempt.objects.select_for_update().select_related(
+                    'attachment',
+                ).get(pk=attempt_id, user=request.user)
+                attempt_response = _attempt_state_response(attempt)
+                if attempt_response is not None:
+                    return attempt_response
             duplicate = Attachment.objects.filter(
                 user=request.user,
                 message__isnull=True,
                 content_sha256=content_hash,
             ).first()
             if duplicate:
-                return _attachment_upload_response(duplicate, deduplicated=True, response_status=200)
+                _complete_upload_attempt(attempt, duplicate, owns_attachment=False)
+                return _attachment_upload_response(
+                    duplicate,
+                    deduplicated=True,
+                    response_status=status.HTTP_200_OK,
+                )
             used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
             if used + f.size > settings.MAX_USER_STORAGE:
                 return Response({
@@ -1268,10 +1384,48 @@ def upload_attachment(request):
                 extracted_text=extracted,
                 content_sha256=content_hash,
             )
+            _complete_upload_attempt(attempt, att, owns_attachment=True)
     except Exception:
         log.exception('Upload failed for user_id=%s', request.user.pk)
         return Response({'error': 'Upload failed.'}, status=500)
     return _attachment_upload_response(att, deduplicated=False, response_status=201)
+
+
+@api_view(['DELETE'])
+@ratelimit(key='user', rate='60/m', block=False)
+def cancel_attachment_upload(request, attempt_id):
+    """Cancel an upload before commit or remove the row it just created."""
+    if (r := _rate_limited(request)): return r
+    User = get_user_model()
+    with transaction.atomic():
+        User.objects.select_for_update().get(pk=request.user.pk)
+        attempt = AttachmentUploadAttempt.objects.select_for_update().filter(pk=attempt_id).first()
+        if attempt is None:
+            AttachmentUploadAttempt.objects.create(
+                id=attempt_id,
+                user=request.user,
+                state=AttachmentUploadAttempt.STATE_CANCELED,
+            )
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if attempt.user_id != request.user.pk:
+            raise Http404
+        if attempt.owns_attachment and attempt.attachment_id:
+            attachment = Attachment.objects.select_for_update().filter(
+                pk=attempt.attachment_id,
+                user=request.user,
+            ).first()
+            if attachment is not None and attachment.message_id is not None:
+                return _upload_attempt_error(
+                    'upload_already_linked',
+                    'The uploaded file is already linked to a message.',
+                )
+            if attachment is not None:
+                attachment.delete()
+        attempt.state = AttachmentUploadAttempt.STATE_CANCELED
+        attempt.attachment = None
+        attempt.owns_attachment = False
+        attempt.save(update_fields=['state', 'attachment', 'owns_attachment', 'updated_at'])
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['GET'])

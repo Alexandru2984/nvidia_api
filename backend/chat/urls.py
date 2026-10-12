@@ -32,6 +32,10 @@ urlpatterns = [
     path('messages/<int:pk>/regenerate/', views.regenerate_message),
     path('attachments/', views.list_attachments),
     path('attachments/upload/', views.upload_attachment),
+    path(
+        'attachments/upload/<uuid:attempt_id>/',
+        views.cancel_attachment_upload,
+    ),
     path('attachments/<int:pk>/', views.delete_attachment),
     path('attachments/<int:pk>/preview/', views.attachment_preview),
     path('attachments/<int:pk>/download/', views.download_attachment, name='attachment-download'),

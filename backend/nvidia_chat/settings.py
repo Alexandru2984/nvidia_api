@@ -187,6 +187,9 @@ def _nonnegative_int_env(name, default):
 
 REGISTRATION_INVITE_AUDIT_DAYS = _nonnegative_int_env('REGISTRATION_INVITE_AUDIT_DAYS', 90)
 ADMIN_AUDIT_RETENTION_DAYS = _nonnegative_int_env('ADMIN_AUDIT_RETENTION_DAYS', 365)
+ATTACHMENT_UPLOAD_ATTEMPT_TTL_HOURS = _nonnegative_int_env(
+    'ATTACHMENT_UPLOAD_ATTEMPT_TTL_HOURS', 24,
+)
 
 
 # Durable daily provider budgets. Set AI_GENERATION_ENABLED=False and restart

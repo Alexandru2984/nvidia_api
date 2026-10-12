@@ -266,6 +266,51 @@ class Attachment(models.Model):
         return reverse('attachment-download', args=[self.pk]) if self.file else ''
 
 
+class AttachmentUploadAttempt(models.Model):
+    """Durable coordination record for one browser upload attempt.
+
+    The client-generated UUID lets a cancellation request race safely with the
+    upload across Gunicorn workers.  An attempt only owns an attachment when it
+    created that row; deduplication may point several attempts at an older file
+    which cancellation must never delete.
+    """
+
+    STATE_ACTIVE = 'active'
+    STATE_COMPLETED = 'completed'
+    STATE_CANCELED = 'canceled'
+    STATE_CHOICES = [
+        (STATE_ACTIVE, 'Active'),
+        (STATE_COMPLETED, 'Completed'),
+        (STATE_CANCELED, 'Canceled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='attachment_upload_attempts',
+        on_delete=models.CASCADE,
+    )
+    state = models.CharField(max_length=12, choices=STATE_CHOICES, default=STATE_ACTIVE)
+    attachment = models.ForeignKey(
+        Attachment,
+        related_name='upload_attempts',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    owns_attachment = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=['user', '-updated_at'],
+                name='chat_upload_user_updated_idx',
+            ),
+        ]
+
+
 @receiver(pre_delete, sender=Attachment)
 def _attachment_pre_delete(sender, instance, **kwargs):
     if instance.file:

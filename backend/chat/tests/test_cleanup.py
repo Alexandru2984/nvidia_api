@@ -11,6 +11,7 @@ from django.utils import timezone
 from chat.models import (
     AdminAuditEvent,
     Attachment,
+    AttachmentUploadAttempt,
     Conversation,
     EmailVerification,
     Message,
@@ -93,6 +94,25 @@ class TestCleanupAttachments:
         _make_att(user, days_old=5)
         call_command('cleanup_attachments', '--days=1', stdout=StringIO())
         assert Attachment.objects.count() == 0
+
+    def test_removes_expired_upload_attempts(self, user, settings):
+        settings.ATTACHMENT_UPLOAD_ATTEMPT_TTL_HOURS = 24
+        old = AttachmentUploadAttempt.objects.create(
+            id='00000000-0000-4000-8000-000000000001',
+            user=user,
+        )
+        recent = AttachmentUploadAttempt.objects.create(
+            id='00000000-0000-4000-8000-000000000002',
+            user=user,
+        )
+        AttachmentUploadAttempt.objects.filter(pk=old.pk).update(
+            updated_at=timezone.now() - timedelta(hours=25),
+        )
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        assert not AttachmentUploadAttempt.objects.filter(pk=old.pk).exists()
+        assert AttachmentUploadAttempt.objects.filter(pk=recent.pk).exists()
 
     def test_removes_expired_and_old_used_invitation_audit_rows(self, user, settings):
         settings.REGISTRATION_INVITE_AUDIT_DAYS = 90

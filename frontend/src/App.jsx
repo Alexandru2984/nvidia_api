@@ -17,6 +17,10 @@ const PURPOSE_GROUPS = [
 ]
 const PURPOSE_LABELS = Object.fromEntries(PURPOSE_GROUPS)
 
+function newUploadAttemptId() {
+  return globalThis.crypto.randomUUID()
+}
+
 function fileExt(name) {
   const i = (name || '').lastIndexOf('.')
   return i >= 0 ? name.slice(i + 1).toLowerCase() : ''
@@ -873,6 +877,7 @@ export default function App() {
   const attachButtonRef = useRef(null)
   const uploadFilesRef = useRef(new Map())
   const uploadControllersRef = useRef(new Map())
+  const uploadJobsRef = useRef(uploadJobs)
   const uploadSequenceRef = useRef(0)
   const previewReturnFocusRef = useRef(null)
   const abortRef = useRef(null)
@@ -882,10 +887,14 @@ export default function App() {
   const conversationQueryKeyRef = useRef('active\u0000')
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
+  uploadJobsRef.current = uploadJobs
   conversationQueryKeyRef.current = `${conversationView}\u0000${search.trim()}`
 
   useEffect(() => () => {
     for (const controller of uploadControllersRef.current.values()) controller.abort()
+    for (const job of uploadJobsRef.current) {
+      if (job.attemptId) api.cancelAttachmentUpload(job.attemptId).catch(() => {})
+    }
     uploadControllersRef.current.clear()
     uploadFilesRef.current.clear()
   }, [])
@@ -1139,10 +1148,17 @@ export default function App() {
     const controller = new AbortController()
     uploadControllersRef.current.set(job.key, controller)
     setUploadJobs((jobs) => jobs.map((item) => item.key === job.key
-      ? { ...item, status: 'uploading', progress: 0, error: null }
+      ? {
+          ...item,
+          attemptId: job.attemptId,
+          status: 'uploading',
+          progress: 0,
+          error: null,
+        }
       : item))
     try {
       const attachment = await api.uploadAttachment(stored.file, job.modelId, {
+        attemptId: job.attemptId,
         signal: controller.signal,
         onProgress: (progress) => setUploadJobs((jobs) => jobs.map((item) =>
           item.key === job.key ? { ...item, progress } : item)),
@@ -1239,6 +1255,7 @@ export default function App() {
         size: file.size,
         kind,
         modelId: currentModelId,
+        attemptId: newUploadAttemptId(),
         progress: 0,
         status: 'queued',
         error: null,
@@ -1263,18 +1280,31 @@ export default function App() {
     event.target.value = ''
   }
 
-  function cancelUpload(key) {
+  async function cancelUpload(key) {
+    const job = uploadJobsRef.current.find((item) => item.key === key)
     uploadControllersRef.current.get(key)?.abort()
+    if (!job?.attemptId) return
+    try {
+      await api.cancelAttachmentUpload(job.attemptId)
+    } catch (cancelError) {
+      setError(cancelError.message || 'The upload stopped locally, but server cleanup could not be confirmed.')
+    }
   }
 
   function retryUpload(key) {
     const job = uploadJobs.find((item) => item.key === key)
     if (!job || !uploadFilesRef.current.has(key)) return
-    startUpload({ ...job, modelId: currentModelId })
+    startUpload({
+      ...job,
+      modelId: currentModelId,
+      attemptId: newUploadAttemptId(),
+    })
   }
 
   function dismissUpload(key) {
+    const job = uploadJobsRef.current.find((item) => item.key === key)
     uploadControllersRef.current.get(key)?.abort()
+    if (job?.attemptId) api.cancelAttachmentUpload(job.attemptId).catch(() => {})
     uploadControllersRef.current.delete(key)
     uploadFilesRef.current.delete(key)
     setUploadJobs((jobs) => jobs.filter((item) => item.key !== key))
@@ -1284,6 +1314,9 @@ export default function App() {
     abortRef.current?.abort()
     abortRef.current = null
     for (const controller of uploadControllersRef.current.values()) controller.abort()
+    const cancellations = uploadJobsRef.current
+      .filter((job) => job.attemptId)
+      .map((job) => api.cancelAttachmentUpload(job.attemptId))
     uploadControllersRef.current.clear()
     uploadFilesRef.current.clear()
     setUploadJobs([])
@@ -1295,6 +1328,7 @@ export default function App() {
     setDraggingFiles(false)
     setAttachmentMenuOpen(false)
     setDraft('')
+    return Promise.allSettled(cancellations)
   }
 
   function handleComposerPaste(event) {
@@ -1712,7 +1746,7 @@ export default function App() {
   }
 
   async function handleLogout() {
-    clearAttachmentWork()
+    await clearAttachmentWork()
     try {
       await api.logout()
     } catch {}

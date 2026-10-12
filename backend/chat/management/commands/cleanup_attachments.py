@@ -14,6 +14,7 @@ from chat.admin_audit import audit_event_is_valid, security_log
 from chat.models import (
     AdminAuditEvent,
     Attachment,
+    AttachmentUploadAttempt,
     EmailVerification,
     PasswordReset,
     RegistrationInvite,
@@ -49,11 +50,18 @@ class Command(BaseCommand):
         admin_audit_cutoff = now - timedelta(days=settings.ADMIN_AUDIT_RETENTION_DAYS)
         admin_audit_qs = AdminAuditEvent.objects.filter(occurred_at__lt=admin_audit_cutoff)
         admin_log_qs = LogEntry.objects.filter(action_time__lt=admin_audit_cutoff)
+        upload_attempt_cutoff = now - timedelta(
+            hours=settings.ATTACHMENT_UPLOAD_ATTEMPT_TTL_HOURS,
+        )
+        upload_attempt_qs = AttachmentUploadAttempt.objects.filter(
+            updated_at__lt=upload_attempt_cutoff,
+        )
         ev_count = ev_qs.count()
         pr_count = pr_qs.count()
         invite_count = invite_qs.count()
         admin_audit_count = admin_audit_qs.count()
         admin_log_count = admin_log_qs.count()
+        upload_attempt_count = upload_attempt_qs.count()
 
         invalid_audits = sum(
             not audit_event_is_valid(event)
@@ -79,6 +87,7 @@ class Command(BaseCommand):
                 f'  - {admin_audit_count} expired admin audit events and '
                 f'{admin_log_count} admin log entries'
             )
+            self.stdout.write(f'  - {upload_attempt_count} expired upload attempts')
             self.stdout.write(
                 f'  - audit integrity: {invalid_audits} invalid, {missing_audits} missing'
             )
@@ -91,10 +100,12 @@ class Command(BaseCommand):
         invite_qs.delete()
         admin_audit_qs.delete()
         admin_log_qs.delete()
+        upload_attempt_qs.delete()
 
         self.stdout.write(self.style.SUCCESS(
             f'Deleted {att_count} orphan attachments ({att_bytes / 1024 / 1024:.1f} MB), '
             f'{ev_count} expired email verifications, {pr_count} expired password resets, '
             f'{invite_count} expired invitation audit rows, {admin_audit_count} expired admin '
-            f'audit events, {admin_log_count} expired admin log entries.'
+            f'audit events, {admin_log_count} expired admin log entries, '
+            f'{upload_attempt_count} expired upload attempts.'
         ))

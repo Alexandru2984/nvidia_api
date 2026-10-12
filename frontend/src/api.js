@@ -149,10 +149,11 @@ export const api = {
     if (cursor) params.set('cursor', cursor)
     return request(`/attachments/?${params.toString()}`)
   },
-  uploadAttachment: (file, modelId, { onProgress, signal } = {}) => {
+  uploadAttachment: (file, modelId, { attemptId, onProgress, signal } = {}) => {
     const fd = new FormData()
     fd.append('file', file)
     if (modelId) fd.append('model_id', modelId)
+    if (attemptId) fd.append('upload_attempt_id', attemptId)
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       let settled = false
@@ -193,6 +194,8 @@ export const api = {
       xhr.send(fd)
     })
   },
+  cancelAttachmentUpload: (attemptId) =>
+    request(`/attachments/upload/${attemptId}/`, { method: 'DELETE', keepalive: true }),
   deleteAttachment: (id) => request(`/attachments/${id}/`, { method: 'DELETE' }),
   previewAttachment: (id) => request(`/attachments/${id}/preview/`),
   listImageModels: () => request('/images/models/'),

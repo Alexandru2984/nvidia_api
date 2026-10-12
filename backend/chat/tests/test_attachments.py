@@ -1,6 +1,7 @@
 """Tests for attachment upload, MIME sniffing, quota, text extraction."""
 import hashlib
 import hmac
+import uuid
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -11,7 +12,7 @@ from chat.attachments import (
     extract_text,
     kind_for_mime,
 )
-from chat.models import Attachment, Message
+from chat.models import Attachment, AttachmentUploadAttempt, Message
 
 
 def _png_bytes():
@@ -149,6 +150,108 @@ class TestUploadDeduplication:
         assert second.status_code == 201
         assert second.json()['id'] != first.json()['id']
         assert Attachment.objects.filter(user=user).count() == 2
+
+
+@pytest.mark.django_db
+class TestUploadAttempts:
+    def test_replaying_an_attempt_returns_the_same_attachment(self, auth_client, user):
+        attempt_id = uuid.uuid4()
+        first = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload(), 'upload_attempt_id': str(attempt_id)},
+            format='multipart',
+        )
+        replay = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload('replay.png'), 'upload_attempt_id': str(attempt_id)},
+            format='multipart',
+        )
+
+        assert first.status_code == 201
+        assert replay.status_code == 200
+        assert replay.json()['id'] == first.json()['id']
+        assert replay.json()['replayed'] is True
+        assert Attachment.objects.filter(user=user).count() == 1
+
+    def test_cancel_after_commit_removes_the_attempts_new_attachment(self, auth_client, user):
+        attempt_id = uuid.uuid4()
+        uploaded = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload(), 'upload_attempt_id': str(attempt_id)},
+            format='multipart',
+        )
+
+        canceled = auth_client.delete(f'/api/attachments/upload/{attempt_id}/')
+
+        assert uploaded.status_code == 201
+        assert canceled.status_code == 204
+        assert not Attachment.objects.filter(pk=uploaded.json()['id']).exists()
+        attempt = AttachmentUploadAttempt.objects.get(pk=attempt_id)
+        assert attempt.state == AttachmentUploadAttempt.STATE_CANCELED
+        assert attempt.attachment_id is None
+        assert attempt.owns_attachment is False
+
+    def test_cancel_before_commit_blocks_a_late_upload(self, auth_client, user):
+        attempt_id = uuid.uuid4()
+
+        assert auth_client.delete(f'/api/attachments/upload/{attempt_id}/').status_code == 204
+        uploaded = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload(), 'upload_attempt_id': str(attempt_id)},
+            format='multipart',
+        )
+
+        assert uploaded.status_code == 409
+        assert uploaded.json()['code'] == 'upload_canceled'
+        assert not Attachment.objects.filter(user=user).exists()
+
+    def test_canceling_a_deduplicated_attempt_keeps_the_older_file(self, auth_client, user):
+        original = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload()},
+            format='multipart',
+        )
+        attempt_id = uuid.uuid4()
+        duplicate = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload('duplicate.png'), 'upload_attempt_id': str(attempt_id)},
+            format='multipart',
+        )
+
+        assert duplicate.status_code == 200
+        assert duplicate.json()['id'] == original.json()['id']
+        assert duplicate.json()['deduplicated'] is True
+        assert auth_client.delete(f'/api/attachments/upload/{attempt_id}/').status_code == 204
+        assert Attachment.objects.filter(pk=original.json()['id'], user=user).exists()
+
+    def test_attempt_ids_are_owner_scoped(self, auth_client, other_client, user):
+        attempt_id = uuid.uuid4()
+        uploaded = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload(), 'upload_attempt_id': str(attempt_id)},
+            format='multipart',
+        )
+
+        assert other_client.delete(f'/api/attachments/upload/{attempt_id}/').status_code == 404
+        collision = other_client.post(
+            '/api/attachments/upload/',
+            {'file': _txt_upload(), 'upload_attempt_id': str(attempt_id)},
+            format='multipart',
+        )
+
+        assert collision.status_code == 409
+        assert collision.json()['code'] == 'invalid_upload_attempt'
+        assert Attachment.objects.filter(pk=uploaded.json()['id'], user=user).exists()
+
+    @pytest.mark.parametrize('attempt_id', ['not-a-uuid', '00000000000000000000000000000000'])
+    def test_upload_rejects_noncanonical_attempt_ids(self, auth_client, attempt_id):
+        response = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload(), 'upload_attempt_id': attempt_id},
+            format='multipart',
+        )
+
+        assert response.status_code == 400
 
 
 @pytest.mark.django_db
