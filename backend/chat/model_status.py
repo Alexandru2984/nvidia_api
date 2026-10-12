@@ -11,9 +11,11 @@ import json
 import logging
 import os
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 MAX_STATUS_FILE_BYTES = 512 * 1024
@@ -22,6 +24,10 @@ ALLOWED_OUTCOMES = {
     'available', 'retired', 'rejected', 'throttled', 'provider_error',
     'timeout', 'network_error',
 }
+TRANSIENT_OUTCOMES = frozenset({
+    'throttled', 'provider_error', 'timeout', 'network_error',
+})
+MAX_CLOCK_SKEW = timedelta(minutes=5)
 security_log = logging.getLogger('security')
 
 
@@ -29,12 +35,55 @@ def _status_file() -> Path:
     return Path(getattr(settings, 'MODEL_STATUS_FILE', Path(settings.BASE_DIR) / '.cache/model_status.json'))
 
 
-def _fail_closed_status() -> dict:
+def _fail_closed_status(state='invalid', checked_at=None) -> dict:
     from .models_catalog import MODEL_IDS
-    return {'unavailable': sorted(MODEL_IDS)}
+    result = {'unavailable': sorted(MODEL_IDS), 'state': state, 'inconclusive_models': 0}
+    if checked_at:
+        result['checked_at'] = checked_at
+    return result
 
 
-_cache = {'path': None, 'mtime_ns': None, 'data': {}}
+_cache = {'path': None, 'mtime_ns': None, 'data': {}, 'reported_problem': None}
+
+
+def _report_problem_once(path_key, marker, reason):
+    problem = (path_key, marker, reason)
+    if _cache['reported_problem'] == problem:
+        return
+    security_log.error('event=model_status_invalid reason=%s', reason)
+    _cache['reported_problem'] = problem
+
+
+def _runtime_status(value, *, path_key, marker, now=None):
+    """Apply time-sensitive trust rules to a schema-validated status."""
+    if value.get('state') == 'invalid':
+        return value
+
+    checked_at = value.get('checked_at')
+    parsed = parse_datetime(checked_at) if checked_at else None
+    if parsed is None or not timezone.is_aware(parsed):
+        _report_problem_once(path_key, marker, 'timestamp')
+        return _fail_closed_status('invalid', checked_at)
+
+    now = now or timezone.now()
+    if parsed > now + MAX_CLOCK_SKEW:
+        _report_problem_once(path_key, marker, 'future_timestamp')
+        return _fail_closed_status('invalid', checked_at)
+    if now - parsed > timedelta(seconds=settings.MODEL_STATUS_MAX_AGE_SECONDS):
+        _report_problem_once(path_key, marker, 'stale')
+        return _fail_closed_status('stale', checked_at)
+
+    _cache['reported_problem'] = None
+    results = value.get('results', {})
+    inconclusive = sum(
+        result.get('outcome') in TRANSIENT_OUTCOMES
+        for result in results.values()
+        if isinstance(result, dict)
+    )
+    runtime = dict(value)
+    runtime['state'] = 'degraded' if inconclusive else 'verified'
+    runtime['inconclusive_models'] = inconclusive
+    return runtime
 
 
 def _validated_status(value) -> dict:
@@ -45,8 +94,15 @@ def _validated_status(value) -> dict:
     from .models_catalog import MODEL_IDS
 
     checked_at = value.get('checked_at')
-    if not isinstance(checked_at, str) or len(checked_at) > 64 or parse_datetime(checked_at) is None:
-        checked_at = None
+    parsed_checked_at = parse_datetime(checked_at) if isinstance(checked_at, str) else None
+    if (
+        not isinstance(checked_at, str)
+        or len(checked_at) > 64
+        or parsed_checked_at is None
+        or not timezone.is_aware(parsed_checked_at)
+    ):
+        security_log.error('event=model_status_invalid reason=timestamp')
+        return _fail_closed_status()
 
     raw_unavailable = value.get('unavailable')
     unavailable = sorted({
@@ -77,9 +133,7 @@ def _validated_status(value) -> dict:
                 'attempts': attempts,
             }
 
-    cleaned = {'unavailable': unavailable}
-    if checked_at:
-        cleaned['checked_at'] = checked_at
+    cleaned = {'unavailable': unavailable, 'checked_at': checked_at}
     if results:
         cleaned['results'] = results
     return cleaned
@@ -87,13 +141,18 @@ def _validated_status(value) -> dict:
 
 def get_status() -> dict:
     path = _status_file()
+    path_key = str(path.resolve())
     try:
         stat = path.stat()
     except FileNotFoundError:
-        return {}
+        if getattr(settings, 'MODEL_STATUS_REQUIRED', not settings.DEBUG):
+            _report_problem_once(path_key, None, 'missing')
+            return _fail_closed_status('missing')
+        _cache['reported_problem'] = None
+        return {'unavailable': [], 'state': 'unverified', 'inconclusive_models': 0}
     except OSError:
+        _report_problem_once(path_key, None, 'unreadable')
         return _fail_closed_status()
-    path_key = str(path.resolve())
     if stat.st_size > MAX_STATUS_FILE_BYTES:
         if _cache['path'] != path_key or _cache['mtime_ns'] != stat.st_mtime_ns:
             security_log.error('event=model_status_invalid reason=oversized')
@@ -110,11 +169,15 @@ def get_status() -> dict:
             _cache['data'] = _fail_closed_status()
         _cache['path'] = path_key
         _cache['mtime_ns'] = stat.st_mtime_ns
-    return _cache['data'] or {}
+    return _runtime_status(
+        _cache['data'] or _fail_closed_status(),
+        path_key=path_key,
+        marker=stat.st_mtime_ns,
+    )
 
 
-def unavailable_model_ids() -> set:
-    return set(get_status().get('unavailable', []))
+def unavailable_model_ids(runtime_status=None) -> set:
+    return set((runtime_status or get_status()).get('unavailable', []))
 
 
 def write_status(unavailable, checked_at, results=None):

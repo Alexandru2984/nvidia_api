@@ -3,6 +3,9 @@ import { Buffer } from 'node:buffer'
 
 async function mockAPI(
   page, signedIn = true, conversationModel = 'test/model', registrationMode = 'open',
+  modelAvailability = {
+    state: 'verified', checked_at: '2026-10-06T00:19:57Z', inconclusive_models: 0,
+  },
 ) {
   let conversation = {
     id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
@@ -96,6 +99,7 @@ async function mockAPI(
         ],
         default: 'test/model',
         availability_checked_at: '2026-10-06T00:19:57Z',
+        availability: modelAvailability,
         attachment_limits: {
           max_files_per_message: 8, max_file_bytes: 10485760,
           max_bytes_per_message: 20971520,
@@ -586,6 +590,20 @@ test('model explorer ignores malformed local preferences', async ({ page }) => {
   const dialog = page.getByRole('dialog', { name: 'Choose a model' })
   await expect(dialog.getByRole('button', { name: 'Use Test Vision' })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Use Text Only' })).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('degraded model availability is explicit without disabling last verified models', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page, true, 'test/model', 'open', {
+    state: 'degraded', checked_at: '2026-10-06T00:19:57Z', inconclusive_models: 1,
+  })
+  await page.goto('/')
+
+  await expect(page.getByRole('status')).toContainText('1 NVIDIA availability check was inconclusive')
+  await expect(page.getByLabel('Chat model')).toBeEnabled()
+  await page.getByRole('button', { name: 'Open model explorer' }).click()
+  await expect(page.getByRole('dialog')).toContainText('last verified availability was retained')
   await expectNoPageOverflow(page)
 })
 

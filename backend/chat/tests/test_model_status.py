@@ -2,6 +2,7 @@
 import json
 import os
 import stat
+from datetime import timedelta
 from unittest import mock
 
 import pytest
@@ -26,6 +27,17 @@ class TestModelsEndpoint:
         assert r.status_code == 200
         assert len(r.json()['models']) == len(MODEL_IDS)
         assert r.json()['default'] == DEFAULT_MODEL_ID
+        assert r.json()['availability'] == {
+            'state': 'unverified', 'checked_at': None, 'inconclusive_models': 0,
+        }
+
+    def test_required_missing_status_fails_closed(self, auth_client, status_file, settings):
+        settings.MODEL_STATUS_REQUIRED = True
+        response = auth_client.get('/api/models/')
+        assert response.status_code == 200
+        assert response.json()['models'] == []
+        assert response.json()['default'] is None
+        assert response.json()['availability']['state'] == 'missing'
 
     def test_unavailable_models_are_hidden(self, auth_client, status_file):
         some_id = sorted(MODEL_IDS - {DEFAULT_MODEL_ID})[0]
@@ -35,6 +47,7 @@ class TestModelsEndpoint:
         assert some_id not in ids
         assert len(ids) == len(MODEL_IDS) - 1
         assert r.json()['availability_checked_at'] is not None
+        assert r.json()['availability']['state'] == 'verified'
 
     def test_default_falls_back_when_down(self, auth_client, status_file):
         write_status([DEFAULT_MODEL_ID], timezone.now().isoformat())
@@ -48,6 +61,27 @@ class TestModelsEndpoint:
         r = auth_client.get('/api/models/')
         assert r.json()['models'] == []
         assert r.json()['default'] is None
+        assert r.json()['availability']['state'] == 'invalid'
+
+    def test_stale_status_fails_closed(self, auth_client, status_file, settings):
+        settings.MODEL_STATUS_MAX_AGE_SECONDS = 60 * 60
+        checked_at = timezone.now() - timedelta(hours=2)
+        write_status([], checked_at.isoformat())
+
+        response = auth_client.get('/api/models/')
+
+        assert response.json()['models'] == []
+        assert response.json()['default'] is None
+        assert response.json()['availability']['state'] == 'stale'
+        assert response.json()['availability']['checked_at'] == checked_at.isoformat()
+
+    def test_future_status_timestamp_fails_closed(self, auth_client, status_file):
+        write_status([], (timezone.now() + timedelta(minutes=10)).isoformat())
+
+        response = auth_client.get('/api/models/')
+
+        assert response.json()['models'] == []
+        assert response.json()['availability']['state'] == 'invalid'
 
     def test_successful_probe_exposes_only_coarse_performance(self, auth_client, status_file):
         write_status([], timezone.now().isoformat(), results={
@@ -94,7 +128,9 @@ class TestModelsEndpoint:
                 'unexpected': 'discard me',
             }, status)
 
-        assert get_status() == {'unavailable': [DEFAULT_MODEL_ID]}
+        status = get_status()
+        assert status['state'] == 'invalid'
+        assert set(status['unavailable']) == MODEL_IDS
 
 
 class TestProbeCommand:
@@ -122,6 +158,50 @@ class TestProbeCommand:
         # dead model was retried once before being marked
         dead_calls = [c for c in m_post.call_args_list if c.kwargs['json']['model'] == dead_id]
         assert len(dead_calls) == 2
+
+    @mock.patch('chat.management.commands.probe_models.requests.post')
+    def test_transient_failure_preserves_last_verified_availability(
+        self, m_post, status_file,
+    ):
+        write_status([], timezone.now().isoformat(), results={
+            DEFAULT_MODEL_ID: {
+                'outcome': 'available', 'latency_ms': 100, 'attempts': 1,
+            },
+        })
+
+        def fake_post(url, json=None, **kwargs):
+            if json['model'] == DEFAULT_MODEL_ID:
+                raise requests.ReadTimeout
+            response = mock.Mock()
+            response.status_code = 200
+            return response
+
+        m_post.side_effect = fake_post
+        call_command('probe_models')
+
+        data = json.loads(open(status_file).read())
+        assert DEFAULT_MODEL_ID not in data['unavailable']
+        assert data['results'][DEFAULT_MODEL_ID]['outcome'] == 'timeout'
+        assert get_status()['state'] == 'degraded'
+        assert get_status()['inconclusive_models'] == 1
+
+    @mock.patch('chat.management.commands.probe_models.requests.post')
+    def test_transient_failure_for_unverified_model_fails_closed(
+        self, m_post, status_file,
+    ):
+        def fake_post(url, json=None, **kwargs):
+            if json['model'] == DEFAULT_MODEL_ID:
+                raise requests.ConnectionError
+            response = mock.Mock()
+            response.status_code = 200
+            return response
+
+        m_post.side_effect = fake_post
+        call_command('probe_models')
+
+        data = json.loads(open(status_file).read())
+        assert DEFAULT_MODEL_ID in data['unavailable']
+        assert data['results'][DEFAULT_MODEL_ID]['outcome'] == 'network_error'
 
     @mock.patch('chat.management.commands.probe_models.requests.post')
     def test_dry_run_writes_nothing(self, m_post, status_file):

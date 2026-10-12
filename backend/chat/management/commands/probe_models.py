@@ -8,6 +8,7 @@ check is a real chat/completions call with max_tokens=1 per model.
 Scheduled in production by `aichat-model-probe.timer`.
 """
 import concurrent.futures
+import logging
 import time
 
 import requests
@@ -15,8 +16,29 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from chat.model_status import write_status
+from chat.model_status import TRANSIENT_OUTCOMES, get_status, write_status
 from chat.models_catalog import MODEL_IDS
+
+
+DEFINITIVE_UNAVAILABLE_OUTCOMES = frozenset({'retired', 'rejected'})
+security_log = logging.getLogger('security')
+
+
+def resolve_unavailable(results, previous_status):
+    """Resolve probes without turning a transient provider outage into a week-long block."""
+    prior_unavailable = set(previous_status.get('unavailable', []))
+    prior_trusted = previous_status.get('state') in {'verified', 'degraded'}
+    unavailable = set()
+    for model_id, result in results.items():
+        outcome = result['outcome']
+        if outcome == 'available':
+            continue
+        if outcome in DEFINITIVE_UNAVAILABLE_OUTCOMES:
+            unavailable.add(model_id)
+            continue
+        if outcome in TRANSIENT_OUTCOMES and (not prior_trusted or model_id in prior_unavailable):
+            unavailable.add(model_id)
+    return sorted(unavailable)
 
 
 class Command(BaseCommand):
@@ -60,6 +82,7 @@ class Command(BaseCommand):
         workers = max(1, min(opts['workers'], 16))
         dry = opts['dry_run']
         ids = sorted(MODEL_IDS)
+        previous_status = get_status()
         results = {}
         with concurrent.futures.ThreadPoolExecutor(workers) as ex:
             for mid, outcome in ex.map(lambda m: self._probe(m, timeout), ids):
@@ -74,17 +97,24 @@ class Command(BaseCommand):
                     outcome['attempts'] = 2
                     results[mid] = outcome
 
-        unavailable = sorted(
+        unavailable = resolve_unavailable(results, previous_status)
+        inconclusive = sorted(
             model_id for model_id, result in results.items()
-            if result['outcome'] != 'available'
+            if result['outcome'] in TRANSIENT_OUTCOMES
         )
         ok = len(ids) - len(unavailable)
         for m in unavailable:
             self.stdout.write(f"  DOWN ({results[m]['outcome']}): {m}")
         summary = f'{ok}/{len(ids)} models available; {len(unavailable)} marked unavailable.'
+        if inconclusive:
+            summary += f' {len(inconclusive)} probe results were inconclusive.'
 
         if dry:
             self.stdout.write(f'[dry-run] {summary}')
             return
         write_status(unavailable, timezone.now().isoformat(), results=results)
+        if inconclusive:
+            security_log.warning(
+                'event=model_probe_degraded inconclusive=%s', len(inconclusive),
+            )
         self.stdout.write(self.style.SUCCESS(summary))

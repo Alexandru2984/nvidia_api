@@ -826,6 +826,9 @@ export default function App() {
   const [models, setModels] = useState([])
   const [defaultModel, setDefaultModel] = useState('')
   const [availabilityCheckedAt, setAvailabilityCheckedAt] = useState(null)
+  const [modelAvailability, setModelAvailability] = useState({
+    state: 'unverified', checked_at: null, inconclusive_models: 0,
+  })
   const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
   const [active, setActive] = useState(null)
@@ -984,6 +987,11 @@ export default function App() {
         setModels(m.models)
         setDefaultModel(m.default)
         setAvailabilityCheckedAt(m.availability_checked_at || null)
+        setModelAvailability(m.availability || {
+          state: m.availability_checked_at ? 'verified' : 'unverified',
+          checked_at: m.availability_checked_at || null,
+          inconclusive_models: 0,
+        })
         setAttachmentLimits((limits) => ({ ...limits, ...(m.attachment_limits || {}) }))
         const conversationPage = normalizeConversationPage(c, 'active')
         setConversations(conversationPage.results)
@@ -2025,6 +2033,7 @@ export default function App() {
                 models={models}
                 currentModelId={currentModelId}
                 availabilityCheckedAt={availabilityCheckedAt}
+                availability={modelAvailability}
                 disabled={sending}
                 onSelect={handleSwitchModel}
               />
@@ -2033,6 +2042,29 @@ export default function App() {
         </div>
 
         {mode === 'chat' && (<>
+        {modelAvailability.state !== 'verified' && (
+          <div
+            className="model-status-banner availability-status-banner"
+            role={modelAvailability.state === 'degraded' || modelAvailability.state === 'unverified'
+              ? 'status' : 'alert'}
+          >
+            {modelAvailability.state === 'degraded' ? (
+              <span>
+                <strong>Model availability is partially verified.</strong>{' '}
+                {modelAvailability.inconclusive_models || 'Some'} NVIDIA availability
+                {(modelAvailability.inconclusive_models || 0) === 1 ? ' check was' : ' checks were'}
+                {' '}inconclusive; last verified decisions remain in use.
+              </span>
+            ) : modelAvailability.state === 'unverified' ? (
+              <span><strong>Model availability is not verified yet.</strong> The configured catalog is shown.</span>
+            ) : (
+              <span>
+                <strong>Model availability cannot be trusted.</strong>{' '}
+                Generation is paused until the NVIDIA probe recovers.
+              </span>
+            )}
+          </div>
+        )}
         {currentModel && (
           <div className="model-summary" id="model-capability-summary" aria-live="polite">
             <span className="model-badge purpose">{PURPOSE_LABELS[currentModel.purpose] || 'Assistant'}</span>

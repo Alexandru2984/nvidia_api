@@ -47,6 +47,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=registration_invite_rejected'] * 5
             + ['event=attachment_capability_rejected'] * 5
             + ['event=model_status_invalid reason=schema']
+            + ['event=model_probe_degraded inconclusive=2']
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
@@ -58,6 +59,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'token_reservation_overrun', 'invite_rejection_burst',
              'attachment_capability_burst',
              'model_status_invalid',
+             'model_probe_degraded',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
 

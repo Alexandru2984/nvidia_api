@@ -140,6 +140,7 @@ def evaluate_frontend_release(
 def read_journal():
     result = subprocess.run(
         ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
+         '--unit=aichat-model-probe.service',
          f'--since={JOURNAL_WINDOW}',
          '--output=cat', '--no-pager', '--quiet'],
         capture_output=True, text=True, timeout=20, check=False,
@@ -220,6 +221,7 @@ def evaluate(
     invite_rejections = journal.count('event=registration_invite_rejected')
     attachment_rejections = journal.count('event=attachment_capability_rejected')
     model_status_invalid = journal.count('event=model_status_invalid')
+    model_probe_degraded = journal.count('event=model_probe_degraded')
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -257,6 +259,8 @@ def evaluate(
         )
     if model_status_invalid:
         issues['model_status_invalid'] = 'The runtime model-status file failed validation.'
+    if model_probe_degraded:
+        issues['model_probe_degraded'] = 'The NVIDIA model probe had inconclusive results.'
     if invite_consumed:
         issues['registration_invite_consumed'] = (
             f'{invite_consumed} registration invitations were consumed in six minutes.'

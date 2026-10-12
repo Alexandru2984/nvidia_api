@@ -190,6 +190,14 @@ ADMIN_AUDIT_RETENTION_DAYS = _nonnegative_int_env('ADMIN_AUDIT_RETENTION_DAYS', 
 ATTACHMENT_UPLOAD_ATTEMPT_TTL_HOURS = _nonnegative_int_env(
     'ATTACHMENT_UPLOAD_ATTEMPT_TTL_HOURS', 24,
 )
+MODEL_STATUS_REQUIRED = os.environ.get(
+    'MODEL_STATUS_REQUIRED', str(not DEBUG),
+).lower() == 'true'
+MODEL_STATUS_MAX_AGE_SECONDS = _nonnegative_int_env(
+    'MODEL_STATUS_MAX_AGE_SECONDS', 8 * 24 * 60 * 60,
+)
+if MODEL_STATUS_MAX_AGE_SECONDS < 60 * 60:
+    raise ImproperlyConfigured('MODEL_STATUS_MAX_AGE_SECONDS must be at least 3600.')
 
 
 # Durable daily provider budgets. Set AI_GENERATION_ENABLED=False and restart

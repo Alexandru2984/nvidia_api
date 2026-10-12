@@ -97,7 +97,7 @@ function comparisonValue(model, field) {
 }
 
 export default function ModelExplorer({
-  models, currentModelId, availabilityCheckedAt, disabled = false, onSelect,
+  models, currentModelId, availabilityCheckedAt, availability, disabled = false, onSelect,
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -284,7 +284,7 @@ export default function ModelExplorer({
             <header className="model-explorer-header">
               <div>
                 <h2 id="model-explorer-title">Choose a model</h2>
-                <p>{models.length} available · {checkedLabel(availabilityCheckedAt)}</p>
+                <p>{models.length} available · {checkedLabel(availability?.checked_at || availabilityCheckedAt)}</p>
               </div>
               <button
                 type="button"
@@ -450,6 +450,9 @@ export default function ModelExplorer({
             </div>
             <p className="model-probe-note">
               Probe latency is one synthetic 1-token availability check, not a quality benchmark.
+              {availability?.state === 'degraded' && (
+                <span> Some checks were inconclusive; last verified availability was retained.</span>
+              )}
             </p>
           </section>
         </div>

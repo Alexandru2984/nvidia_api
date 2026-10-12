@@ -695,7 +695,7 @@ def auth_delete_account(request):
 @api_view(['GET'])
 def list_models(request):
     runtime_status = get_status()
-    down = unavailable_model_ids()
+    down = unavailable_model_ids(runtime_status)
     probe_results = runtime_status.get('results', {})
     models = []
     for catalog_model in NVIDIA_MODELS:
@@ -710,6 +710,11 @@ def list_models(request):
         'models': models,
         'default': default,
         'availability_checked_at': runtime_status.get('checked_at'),
+        'availability': {
+            'state': runtime_status.get('state', 'unverified'),
+            'checked_at': runtime_status.get('checked_at'),
+            'inconclusive_models': runtime_status.get('inconclusive_models', 0),
+        },
         'attachment_limits': {
             'max_files_per_message': settings.CHAT_MAX_ATTACHMENTS_PER_MESSAGE,
             'max_file_bytes': settings.MAX_ATTACHMENT_SIZE,
