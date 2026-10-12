@@ -714,6 +714,7 @@ def list_models(request):
             'state': runtime_status.get('state', 'unverified'),
             'checked_at': runtime_status.get('checked_at'),
             'inconclusive_models': runtime_status.get('inconclusive_models', 0),
+            'unverified_models': runtime_status.get('unverified_models', 0),
         },
         'attachment_limits': {
             'max_files_per_message': settings.CHAT_MAX_ATTACHMENTS_PER_MESSAGE,

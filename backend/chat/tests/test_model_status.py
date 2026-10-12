@@ -21,6 +21,18 @@ def status_file(settings, tmp_path):
     return settings.MODEL_STATUS_FILE
 
 
+def complete_results(unavailable=()):
+    unavailable = set(unavailable)
+    return {
+        model_id: {
+            'outcome': 'retired' if model_id in unavailable else 'available',
+            'latency_ms': 100,
+            'attempts': 1,
+        }
+        for model_id in MODEL_IDS
+    }
+
+
 class TestModelsEndpoint:
     def test_all_models_when_no_status_file(self, auth_client, status_file):
         r = auth_client.get('/api/models/')
@@ -29,6 +41,7 @@ class TestModelsEndpoint:
         assert r.json()['default'] == DEFAULT_MODEL_ID
         assert r.json()['availability'] == {
             'state': 'unverified', 'checked_at': None, 'inconclusive_models': 0,
+            'unverified_models': len(MODEL_IDS),
         }
 
     def test_required_missing_status_fails_closed(self, auth_client, status_file, settings):
@@ -41,7 +54,9 @@ class TestModelsEndpoint:
 
     def test_unavailable_models_are_hidden(self, auth_client, status_file):
         some_id = sorted(MODEL_IDS - {DEFAULT_MODEL_ID})[0]
-        write_status([some_id], timezone.now().isoformat())
+        write_status(
+            [some_id], timezone.now().isoformat(), results=complete_results([some_id]),
+        )
         r = auth_client.get('/api/models/')
         ids = {m['id'] for m in r.json()['models']}
         assert some_id not in ids
@@ -50,7 +65,10 @@ class TestModelsEndpoint:
         assert r.json()['availability']['state'] == 'verified'
 
     def test_default_falls_back_when_down(self, auth_client, status_file):
-        write_status([DEFAULT_MODEL_ID], timezone.now().isoformat())
+        write_status(
+            [DEFAULT_MODEL_ID], timezone.now().isoformat(),
+            results=complete_results([DEFAULT_MODEL_ID]),
+        )
         r = auth_client.get('/api/models/')
         assert r.json()['default'] != DEFAULT_MODEL_ID
         assert r.json()['default'] in {m['id'] for m in r.json()['models']}
@@ -66,7 +84,7 @@ class TestModelsEndpoint:
     def test_stale_status_fails_closed(self, auth_client, status_file, settings):
         settings.MODEL_STATUS_MAX_AGE_SECONDS = 60 * 60
         checked_at = timezone.now() - timedelta(hours=2)
-        write_status([], checked_at.isoformat())
+        write_status([], checked_at.isoformat(), results=complete_results())
 
         response = auth_client.get('/api/models/')
 
@@ -76,7 +94,10 @@ class TestModelsEndpoint:
         assert response.json()['availability']['checked_at'] == checked_at.isoformat()
 
     def test_future_status_timestamp_fails_closed(self, auth_client, status_file):
-        write_status([], (timezone.now() + timedelta(minutes=10)).isoformat())
+        write_status(
+            [], (timezone.now() + timedelta(minutes=10)).isoformat(),
+            results=complete_results(),
+        )
 
         response = auth_client.get('/api/models/')
 
@@ -102,15 +123,27 @@ class TestModelsEndpoint:
         assert 'outcome' not in json.dumps(model)
 
     def test_failed_probe_details_are_not_exposed(self, auth_client, status_file):
-        write_status([], timezone.now().isoformat(), results={
-            DEFAULT_MODEL_ID: {
-                'outcome': 'provider_error', 'latency_ms': 9876, 'attempts': 2,
-            },
-        })
+        results = complete_results()
+        results[DEFAULT_MODEL_ID] = {
+            'outcome': 'provider_error', 'latency_ms': 9876, 'attempts': 2,
+        }
+        write_status([], timezone.now().isoformat(), results=results)
 
         response = auth_client.get('/api/models/')
         model = next(item for item in response.json()['models'] if item['id'] == DEFAULT_MODEL_ID)
         assert model['performance'] is None
+
+    def test_model_without_probe_result_stays_hidden(self, auth_client, status_file):
+        results = complete_results()
+        results.pop(DEFAULT_MODEL_ID)
+        write_status([], timezone.now().isoformat(), results=results)
+
+        response = auth_client.get('/api/models/')
+
+        ids = {model['id'] for model in response.json()['models']}
+        assert DEFAULT_MODEL_ID not in ids
+        assert response.json()['availability']['state'] == 'degraded'
+        assert response.json()['availability']['unverified_models'] == 1
 
     def test_runtime_status_is_catalog_scoped_and_schema_validated(self, status_file):
         with open(status_file, 'w') as status:

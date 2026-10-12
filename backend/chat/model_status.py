@@ -37,7 +37,12 @@ def _status_file() -> Path:
 
 def _fail_closed_status(state='invalid', checked_at=None) -> dict:
     from .models_catalog import MODEL_IDS
-    result = {'unavailable': sorted(MODEL_IDS), 'state': state, 'inconclusive_models': 0}
+    result = {
+        'unavailable': sorted(MODEL_IDS),
+        'state': state,
+        'inconclusive_models': 0,
+        'unverified_models': 0,
+    }
     if checked_at:
         result['checked_at'] = checked_at
     return result
@@ -74,15 +79,20 @@ def _runtime_status(value, *, path_key, marker, now=None):
         return _fail_closed_status('stale', checked_at)
 
     _cache['reported_problem'] = None
+    from .models_catalog import MODEL_IDS
+
     results = value.get('results', {})
+    unverified = MODEL_IDS - set(results)
     inconclusive = sum(
         result.get('outcome') in TRANSIENT_OUTCOMES
         for result in results.values()
         if isinstance(result, dict)
     )
     runtime = dict(value)
-    runtime['state'] = 'degraded' if inconclusive else 'verified'
+    runtime['unavailable'] = sorted(set(value['unavailable']) | unverified)
+    runtime['state'] = 'degraded' if inconclusive or unverified else 'verified'
     runtime['inconclusive_models'] = inconclusive
+    runtime['unverified_models'] = len(unverified)
     return runtime
 
 
@@ -149,7 +159,13 @@ def get_status() -> dict:
             _report_problem_once(path_key, None, 'missing')
             return _fail_closed_status('missing')
         _cache['reported_problem'] = None
-        return {'unavailable': [], 'state': 'unverified', 'inconclusive_models': 0}
+        from .models_catalog import MODEL_IDS
+        return {
+            'unavailable': [],
+            'state': 'unverified',
+            'inconclusive_models': 0,
+            'unverified_models': len(MODEL_IDS),
+        }
     except OSError:
         _report_problem_once(path_key, None, 'unreadable')
         return _fail_closed_status()

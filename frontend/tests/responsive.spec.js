@@ -5,6 +5,7 @@ async function mockAPI(
   page, signedIn = true, conversationModel = 'test/model', registrationMode = 'open',
   modelAvailability = {
     state: 'verified', checked_at: '2026-10-06T00:19:57Z', inconclusive_models: 0,
+    unverified_models: 0,
   },
 ) {
   let conversation = {
@@ -597,10 +598,12 @@ test('degraded model availability is explicit without disabling last verified mo
   await page.setViewportSize({ width: 320, height: 844 })
   await mockAPI(page, true, 'test/model', 'open', {
     state: 'degraded', checked_at: '2026-10-06T00:19:57Z', inconclusive_models: 1,
+    unverified_models: 1,
   })
   await page.goto('/')
 
   await expect(page.getByRole('status')).toContainText('1 NVIDIA availability check was inconclusive')
+  await expect(page.getByRole('status')).toContainText('1 new model is disabled pending verification')
   await expect(page.getByLabel('Chat model')).toBeEnabled()
   await page.getByRole('button', { name: 'Open model explorer' }).click()
   await expect(page.getByRole('dialog')).toContainText('last verified availability was retained')

@@ -827,7 +827,7 @@ export default function App() {
   const [defaultModel, setDefaultModel] = useState('')
   const [availabilityCheckedAt, setAvailabilityCheckedAt] = useState(null)
   const [modelAvailability, setModelAvailability] = useState({
-    state: 'unverified', checked_at: null, inconclusive_models: 0,
+    state: 'unverified', checked_at: null, inconclusive_models: 0, unverified_models: 0,
   })
   const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
@@ -991,6 +991,7 @@ export default function App() {
           state: m.availability_checked_at ? 'verified' : 'unverified',
           checked_at: m.availability_checked_at || null,
           inconclusive_models: 0,
+          unverified_models: 0,
         })
         setAttachmentLimits((limits) => ({ ...limits, ...(m.attachment_limits || {}) }))
         const conversationPage = normalizeConversationPage(c, 'active')
@@ -2054,6 +2055,11 @@ export default function App() {
                 {modelAvailability.inconclusive_models || 'Some'} NVIDIA availability
                 {(modelAvailability.inconclusive_models || 0) === 1 ? ' check was' : ' checks were'}
                 {' '}inconclusive; last verified decisions remain in use.
+                {modelAvailability.unverified_models > 0 && (
+                  <> {modelAvailability.unverified_models} new
+                    {modelAvailability.unverified_models === 1 ? ' model is' : ' models are'}
+                    {' '}disabled pending verification.</>
+                )}
               </span>
             ) : modelAvailability.state === 'unverified' ? (
               <span><strong>Model availability is not verified yet.</strong> The configured catalog is shown.</span>
