@@ -196,7 +196,7 @@ Exit gate: no network-facing service runs as `micu`; each migrated service passe
 functional and sandbox tests; retained sudo is reachable only through the
 interactive trusted identity, not a service unit.
 
-Status: **in progress — 16 of 38 baseline services migrated**.
+Status: **in progress — 17 of 38 baseline services migrated**.
 
 - Commits `a1ddb3a` and `cbb8aee` moved Umami to a dedicated non-login identity,
   root-managed environment, masked dotenv copies, read-only release, hidden
@@ -342,6 +342,20 @@ Status: **in progress — 16 of 38 baseline services migrated**.
   exercised automatic rollback before the corrected rollout passed. Legacy
   artifacts were quarantined without deletion, leaving 22 baseline
   `User=micu` services; alert delivery and off-host replication remain open.
+- MicuPoker commits `13394eb`, `4c97628`, `a75614e`, `16efa5c`, `e64bac7`,
+  `57e9ecf`, `67788a9`, `700ad20`, `b8646a9`, `af52417`, `321113b`, `05f5dc3`,
+  `154811f`, `fa33666` and `bf56ff5` moved the public Phoenix/WebSocket service
+  from `micu`, a writable checkout and checkout-local production secrets to
+  dedicated runtime, backup and monitor identities, a root-owned immutable
+  release, systemd credentials, separate migration/DML-only/read-only database
+  roles and `1.4 OK`/`1.4 OK`/`1.5 OK` sandboxes. The exact `fa33666` revision
+  passed `300` tests and all detached build/audit gates without a checkout
+  `.env`; strict database, namespace, release-integrity, public/origin/header/
+  WebSocket and backup-restore probes passed. A failed rollout exercised
+  rollback, and legacy artifacts were quarantined without deletion. Real alert
+  delivery and duplicate throttling passed, leaving 21 baseline `User=micu`
+  services; off-host backup replication, alert credential rotation and an
+  incident tabletop remain open.
 
 ## Wave 4 — credential separation and lifecycle (P0)
 
