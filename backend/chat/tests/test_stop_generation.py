@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from chat.models import Conversation, Message
+from chat.models_catalog import DEFAULT_MODEL_ID
 
 
 def _stream_many(model_id, messages, **kw):
@@ -31,7 +32,9 @@ class TestStopGeneration:
         assert msgs[1].content == 'Hello '
 
     def test_abort_mid_stream_titles_new_chat(self, auth_client, user):
-        convo = Conversation.objects.create(user=user, title='New Chat', model_id='meta/llama-3.1-8b-instruct')
+        convo = Conversation.objects.create(
+            user=user, title='New Chat', model_id=DEFAULT_MODEL_ID,
+        )
         with patch('chat.views._stream_nvidia', side_effect=_stream_many):
             r = auth_client.post(
                 f'/api/conversations/{convo.id}/messages/',

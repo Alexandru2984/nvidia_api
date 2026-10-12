@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from chat.models import Conversation
+from chat.models_catalog import DEFAULT_MODEL_ID
 
 
 @pytest.fixture
@@ -43,5 +44,5 @@ def other_client(client, other_user):
 @pytest.fixture
 def convo(user):
     return Conversation.objects.create(
-        user=user, title='Test convo', model_id='meta/llama-3.1-8b-instruct',
+        user=user, title='Test convo', model_id=DEFAULT_MODEL_ID,
     )

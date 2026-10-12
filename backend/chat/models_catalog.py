@@ -1,300 +1,167 @@
-"""Catalog of NVIDIA NIM chat models, validated live against the API."""
+"""Documented NVIDIA-hosted chat models, conservatively gated by live probes."""
 
 NVIDIA_MODELS = [
     {
-        "id": 'abacusai/dracarys-llama-3.1-70b-instruct',
-        "name": 'Dracarys Llama 3.1 70B Instruct',
-        "vendor": 'AbacusAI',
-        "description": 'AbacusAI fine-tune of Llama 3.1 70B optimized for coding tasks.',
-        "context": 128000,
+        'id': 'nvidia/nemotron-3.5-lightning-30b-a3b',
+        'name': 'Nemotron 3.5 Lightning 30B A3B',
+        'vendor': 'NVIDIA',
+        'description': 'Fast 30B/3B-active MoE for chat, coding, reasoning, and agentic work.',
+        'context': 1_048_576,
     },
     {
-        "id": 'bytedance/seed-oss-36b-instruct',
-        "name": 'Seed Oss 36B Instruct',
-        "vendor": 'ByteDance',
-        "description": 'ByteDance open-source 36B instruct model.',
-        "context": 32768,
+        'id': 'z-ai/glm-5.3-flash',
+        'name': 'GLM 5.3 Flash',
+        'vendor': 'Z.ai',
+        'description': 'Efficient multimodal reasoning MoE with long context and image understanding.',
+        'context': 1_048_576,
     },
     {
-        "id": 'meta/llama-3.1-70b-instruct',
-        "name": 'Llama 3.1 70B Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.1 70B Instruct.',
-        "context": 128000,
+        'id': 'nvidia/nemotron-3-super-120b-a12b',
+        'name': 'Nemotron 3 Super 120B A12B',
+        'vendor': 'NVIDIA',
+        'description': 'Long-context MoE for reasoning, planning, instruction following, and coding.',
+        'context': 1_048_576,
     },
     {
-        "id": 'meta/llama-3.1-8b-instruct',
-        "name": 'Llama 3.1 8B Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.1 8B Instruct — fast general-purpose.',
-        "context": 128000,
+        'id': 'nvidia/nemotron-3-ultra-550b-a55b',
+        'name': 'Nemotron 3 Ultra 550B A55B',
+        'vendor': 'NVIDIA',
+        'description': 'Large long-context MoE for advanced reasoning, coding, and planning.',
+        'context': 1_048_576,
     },
     {
-        "id": 'meta/llama-3.2-11b-vision-instruct',
-        "name": 'Llama 3.2 11B Vision Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.2 11B Vision Instruct.',
-        "context": 128000,
+        'id': 'poolside/laguna-xs-2.1',
+        'name': 'Laguna XS 2.1',
+        'vendor': 'Poolside',
+        'description': '33B/3B-active MoE for coding and long-horizon software engineering.',
+        'context': 262_144,
     },
     {
-        "id": 'meta/llama-3.2-3b-instruct',
-        "name": 'Llama 3.2 3B Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.2 3B — small efficient model.',
-        "context": 128000,
+        'id': 'openai/gpt-oss-20b',
+        'name': 'GPT-OSS 20B',
+        'vendor': 'OpenAI',
+        'description': 'Efficient open-weight MoE for reasoning, math, and general chat.',
+        'context': 128_000,
     },
     {
-        "id": 'meta/llama-3.2-90b-vision-instruct',
-        "name": 'Llama 3.2 90B Vision Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.2 90B Vision — large multimodal.',
-        "context": 128000,
+        'id': 'meta/muse-glimmer-30b',
+        'name': 'Muse Glimmer 30B',
+        'vendor': 'Meta',
+        'description': 'Multimodal reasoning model for text, images, and visual analysis.',
+        'context': 131_072,
     },
     {
-        "id": 'meta/llama-3.3-70b-instruct',
-        "name": 'Llama 3.3 70B Instruct',
-        "vendor": 'Meta',
-        "description": 'Meta Llama 3.3 70B — improved reasoning over 3.1.',
-        "context": 128000,
+        'id': 'google/diffusiongemma-26b-a4b-it',
+        'name': 'DiffusionGemma 26B A4B IT',
+        'vendor': 'Google',
+        'description': 'Multimodal diffusion LLM for fast reasoning over text and images.',
+        'context': 262_144,
     },
     {
-        "id": 'meta/llama-guard-4-12b',
-        "name": 'Llama Guard 4 12B',
-        "vendor": 'Meta',
-        "description": 'Meta Llama Guard 4 — safety classifier.',
-        "context": 32768,
+        'id': 'meta/llama-3.2-11b-vision-instruct',
+        'name': 'Llama 3.2 11B Vision Instruct',
+        'vendor': 'Meta',
+        'description': 'Vision-language assistant for image reasoning, captioning, and visual Q&A.',
+        'context': 128_000,
     },
     {
-        "id": 'mistralai/ministral-14b-instruct-2512',
-        "name": 'Ministral 14B Instruct 2512',
-        "vendor": 'Mistral AI',
-        "description": 'Mistral Ministral 14B — efficient instruct.',
-        "context": 32768,
+        'id': 'nvidia/ising-calibration-1.5-31b',
+        'name': 'Ising Calibration 1.5 31B',
+        'vendor': 'NVIDIA',
+        'description': 'Specialized vision model for quantum-computing calibration plots.',
+        'context': 262_144,
     },
     {
-        "id": 'mistralai/mistral-large-3-675b-instruct-2512',
-        "name": 'Mistral Large 3 675B Instruct 2512',
-        "vendor": 'Mistral AI',
-        "description": 'Mistral Large 3 675B — flagship MoE.',
-        "context": 131072,
+        'id': 'nvidia/riva-translate-4b-instruct-v2',
+        'name': 'Riva Translate 4B Instruct V2',
+        'vendor': 'NVIDIA',
+        'description': 'Translation model covering 37 languages, including Romanian.',
+        'context': 32_768,
     },
     {
-        "id": 'mistralai/mistral-nemotron',
-        "name": 'Mistral Nemotron',
-        "vendor": 'Mistral AI',
-        "description": 'NVIDIA + Mistral collaboration model.',
-        "context": 128000,
+        'id': 'nvidia/llama-3.1-nemotron-safety-guard-8b-v3',
+        'name': 'Llama 3.1 Nemotron Safety Guard 8B V3',
+        'vendor': 'NVIDIA',
+        'description': 'Multilingual safety and moderation classifier for LLM conversations.',
+        'context': 128_000,
     },
     {
-        "id": 'mistralai/mistral-small-4-119b-2603',
-        "name": 'Mistral Small 4 119B 2603',
-        "vendor": 'Mistral AI',
-        "description": 'Mistral Small 4 119B.',
-        "context": 131072,
+        'id': 'nvidia/nemotron-3.5-content-safety',
+        'name': 'Nemotron 3.5 Content Safety',
+        'vendor': 'NVIDIA',
+        'description': 'Multilingual, multimodal classifier for unsafe or toxic content.',
+        'context': 128_000,
     },
     {
-        "id": 'mistralai/mixtral-8x7b-instruct-v0.1',
-        "name": 'Mixtral 8X7B Instruct V0.1',
-        "vendor": 'Mistral AI',
-        "description": 'Mistral Mixtral 8x7B MoE Instruct.',
-        "context": 32768,
+        'id': 'deepseek-ai/deepseek-v4.1-flash',
+        'name': 'DeepSeek V4.1 Flash',
+        'vendor': 'DeepSeek AI',
+        'description': 'Long-context multimodal MoE for reasoning, coding, and agents.',
+        'context': 1_048_576,
     },
     {
-        "id": 'nvidia/ising-calibration-1-35b-a3b',
-        "name": 'Ising Calibration 1 35B A3B',
-        "vendor": 'NVIDIA',
-        "description": 'NVIDIA Ising calibration MoE 35B/A3B.',
-        "context": 32768,
+        'id': 'google/gemma-4-31b-it',
+        'name': 'Gemma 4 31B IT',
+        'vendor': 'Google',
+        'description': 'Multimodal reasoning model for coding, agentic, and visual workflows.',
+        'context': 262_144,
     },
     {
-        "id": 'nvidia/llama-3.1-nemoguard-8b-content-safety',
-        "name": 'Llama 3.1 Nemoguard 8B Content Safety',
-        "vendor": 'NVIDIA',
-        "description": 'NemoGuard content-safety classifier.',
-        "context": 128000,
+        'id': 'meta/llama-3.2-90b-vision-instruct',
+        'name': 'Llama 3.2 90B Vision Instruct',
+        'vendor': 'Meta',
+        'description': 'Large vision-language assistant for detailed image reasoning.',
+        'context': 128_000,
     },
     {
-        "id": 'nvidia/llama-3.1-nemoguard-8b-topic-control',
-        "name": 'Llama 3.1 Nemoguard 8B Topic Control',
-        "vendor": 'NVIDIA',
-        "description": 'NemoGuard topic-control classifier.',
-        "context": 128000,
+        'id': 'meta/llama-guard-4-12b',
+        'name': 'Llama Guard 4 12B',
+        'vendor': 'Meta',
+        'description': 'Multimodal safety classifier for prompts and model responses.',
+        'context': 128_000,
     },
     {
-        "id": 'nvidia/llama-3.1-nemotron-nano-8b-v1',
-        "name": 'Llama 3.1 Nemotron Nano 8B V1',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron Nano 8B — efficient assistant.',
-        "context": 128000,
+        'id': 'moonshotai/kimi-k3',
+        'name': 'Kimi K3',
+        'vendor': 'Moonshot AI',
+        'description': 'Native multimodal MoE for long-horizon coding, reasoning, and visual work.',
+        'context': 1_048_576,
     },
     {
-        "id": 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
-        "name": 'Llama 3.1 Nemotron Nano Vl 8B V1',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron Nano VL 8B — vision-language.',
-        "context": 128000,
+        'id': 'nvidia/llama-3.1-nemoguard-8b-content-safety',
+        'name': 'Llama 3.1 NemoGuard 8B Content Safety',
+        'vendor': 'NVIDIA',
+        'description': 'Text safety classifier for prompts and assistant responses.',
+        'context': 128_000,
     },
     {
-        "id": 'nvidia/llama-3.1-nemotron-safety-guard-8b-v3',
-        "name": 'Llama 3.1 Nemotron Safety Guard 8B V3',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron safety guard v3.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/llama-3.3-nemotron-super-49b-v1',
-        "name": 'Llama 3.3 Nemotron Super 49B V1',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron Super 49B v1 — strong reasoning.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-        "name": 'Llama 3.3 Nemotron Super 49B V1.5',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron Super 49B v1.5.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/nemotron-3-content-safety',
-        "name": 'Nemotron 3 Content Safety',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron 3 content-safety classifier.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/nemotron-3-nano-30b-a3b',
-        "name": 'Nemotron 3 Nano 30B A3B',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron 3 Nano 30B/A3B MoE.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/nemotron-3-super-120b-a12b',
-        "name": 'Nemotron 3 Super 120B A12B',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron 3 Super 120B/A12B MoE.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/nemotron-content-safety-reasoning-4b',
-        "name": 'Nemotron Content Safety Reasoning 4B',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron 4B safety reasoner.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/nemotron-mini-4b-instruct',
-        "name": 'Nemotron Mini 4B Instruct',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron Mini 4B Instruct.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/nemotron-nano-12b-v2-vl',
-        "name": 'Nemotron Nano 12B V2 Vl',
-        "vendor": 'NVIDIA',
-        "description": 'Nemotron Nano 12B v2 VL.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/nvidia-nemotron-nano-9b-v2',
-        "name": 'Nvidia Nemotron Nano 9B V2',
-        "vendor": 'NVIDIA',
-        "description": 'NVIDIA Nemotron Nano 9B v2.',
-        "context": 128000,
-    },
-    {
-        "id": 'nvidia/riva-translate-4b-instruct-v1.1',
-        "name": 'Riva Translate 4B Instruct V1.1',
-        "vendor": 'NVIDIA',
-        "description": 'NVIDIA Riva Translate 4B v1.1.',
-        "context": 32768,
-    },
-    {
-        "id": 'openai/gpt-oss-120b',
-        "name": 'Gpt Oss 120B',
-        "vendor": 'OpenAI',
-        "description": 'OpenAI GPT-OSS 120B — open-weight flagship.',
-        "context": 128000,
-    },
-    {
-        "id": 'openai/gpt-oss-20b',
-        "name": 'Gpt Oss 20B',
-        "vendor": 'OpenAI',
-        "description": 'OpenAI GPT-OSS 20B — open-weight efficient.',
-        "context": 128000,
-    },
-    {
-        "id": 'qwen/qwen3-next-80b-a3b-instruct',
-        "name": 'QWEN3 Next 80B A3B Instruct',
-        "vendor": 'Alibaba Qwen',
-        "description": 'Qwen 3 Next 80B/A3B Instruct.',
-        "context": 128000,
-    },
-    {
-        "id": 'qwen/qwen3.5-122b-a10b',
-        "name": 'QWEN3.5 122B A10B',
-        "vendor": 'Alibaba Qwen',
-        "description": 'Qwen 3.5 122B/A10B MoE.',
-        "context": 128000,
-    },
-    {
-        "id": 'qwen/qwen3.5-397b-a17b',
-        "name": 'QWEN3.5 397B A17B',
-        "vendor": 'Alibaba Qwen',
-        "description": 'Qwen 3.5 397B/A17B MoE — flagship.',
-        "context": 128000,
-    },
-    {
-        "id": 'sarvamai/sarvam-m',
-        "name": 'Sarvam M',
-        "vendor": 'Sarvam AI',
-        "description": 'Sarvam M — Indic-language LLM.',
-        "context": 32768,
-    },
-    {
-        "id": 'stepfun-ai/step-3.5-flash',
-        "name": 'Step 3.5 Flash',
-        "vendor": 'StepFun',
-        "description": 'StepFun Step 3.5 Flash.',
-        "context": 32768,
-    },
-    {
-        "id": 'stockmark/stockmark-2-100b-instruct',
-        "name": 'Stockmark 2 100B Instruct',
-        "vendor": 'Stockmark',
-        "description": 'Stockmark 2 100B — Japanese-focused.',
-        "context": 32768,
-    },
-    {
-        "id": 'upstage/solar-10.7b-instruct',
-        "name": 'Solar 10.7B Instruct',
-        "vendor": 'Upstage',
-        "description": 'Upstage Solar 10.7B Instruct.',
-        "context": 4096,
+        'id': 'z-ai/glm-5.3',
+        'name': 'GLM 5.3',
+        'vendor': 'Z.ai',
+        'description': 'Large text MoE for deep reasoning, tool use, and long-context chat.',
+        'context': 1_048_576,
     },
 ]
 
-DEFAULT_MODEL_ID = "meta/llama-3.1-8b-instruct"
-MODEL_IDS = {m["id"] for m in NVIDIA_MODELS}
+DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-lightning-30b-a3b'
+MODEL_IDS = {model['id'] for model in NVIDIA_MODELS}
 
 
 # Capability metadata is a security boundary, not just UI decoration. Keep this
 # conservative: a model is image-capable only after its NVIDIA endpoint/model
 # card documents OpenAI-compatible image_url input.
 MODEL_IMAGE_CAPABILITIES = {
+    'deepseek-ai/deepseek-v4.1-flash',
+    'google/diffusiongemma-26b-a4b-it',
+    'google/gemma-4-31b-it',
     'meta/llama-3.2-11b-vision-instruct',
     'meta/llama-3.2-90b-vision-instruct',
     'meta/llama-guard-4-12b',
-    'mistralai/ministral-14b-instruct-2512',
-    'mistralai/mistral-large-3-675b-instruct-2512',
-    'mistralai/mistral-small-4-119b-2603',
-    'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
-    'nvidia/nemotron-3-content-safety',
-    'nvidia/nemotron-nano-12b-v2-vl',
-    'qwen/qwen3.5-122b-a10b',
-    'qwen/qwen3.5-397b-a17b',
+    'meta/muse-glimmer-30b',
+    'moonshotai/kimi-k3',
+    'nvidia/ising-calibration-1.5-31b',
+    'nvidia/nemotron-3.5-content-safety',
+    'z-ai/glm-5.3-flash',
 }
 VISION_MODEL_IDS = frozenset(MODEL_IMAGE_CAPABILITIES)
 
@@ -307,16 +174,11 @@ IMAGE_EXTENSIONS_BY_MIME = {
 }
 
 # Provider-specific constraints. Unknown limits stay conservative: one JPEG/PNG
-# per provider request. The older Nano VL inline endpoint requires assets above
-# 180 KiB, which this application intentionally does not upload to third-party
-# object storage.
+# per request. Raise a limit only after the hosted contract documents it and an
+# inline-data probe succeeds.
 MODEL_IMAGE_OVERRIDES = {
-    'nvidia/llama-3.1-nemotron-nano-vl-8b-v1': {
-        'max_images': 1,
-        'max_image_bytes': 180 * 1024,
-    },
-    'nvidia/nemotron-nano-12b-v2-vl': {
-        'max_images': 5,
+    'z-ai/glm-5.3-flash': {
+        'max_images': 8,
         'image_mime_types': (*DEFAULT_IMAGE_MIME_TYPES, 'image/webp'),
     },
 }
@@ -324,18 +186,12 @@ MODEL_IMAGE_OVERRIDES = {
 SAFETY_MODEL_IDS = {
     'meta/llama-guard-4-12b',
     'nvidia/llama-3.1-nemoguard-8b-content-safety',
-    'nvidia/llama-3.1-nemoguard-8b-topic-control',
     'nvidia/llama-3.1-nemotron-safety-guard-8b-v3',
-    'nvidia/nemotron-3-content-safety',
-    'nvidia/nemotron-content-safety-reasoning-4b',
+    'nvidia/nemotron-3.5-content-safety',
 }
-TRANSLATION_MODEL_IDS = {'nvidia/riva-translate-4b-instruct-v1.1'}
-CODING_MODEL_IDS = {'abacusai/dracarys-llama-3.1-70b-instruct'}
-SPECIALIZED_MODEL_IDS = {
-    'nvidia/ising-calibration-1-35b-a3b',
-    # NVIDIA labels this older VL endpoint demonstration-only, not production.
-    'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
-}
+TRANSLATION_MODEL_IDS = {'nvidia/riva-translate-4b-instruct-v2'}
+CODING_MODEL_IDS = {'poolside/laguna-xs-2.1'}
+SPECIALIZED_MODEL_IDS = {'nvidia/ising-calibration-1.5-31b'}
 
 
 def _purpose_for(model_id):
@@ -390,15 +246,27 @@ def _best_for(model_id):
     return 'General chat and document analysis'
 
 
+_CLASSIFIED_MODEL_IDS = (
+    MODEL_IMAGE_CAPABILITIES
+    | SAFETY_MODEL_IDS
+    | TRANSLATION_MODEL_IDS
+    | CODING_MODEL_IDS
+    | SPECIALIZED_MODEL_IDS
+)
+if len(MODEL_IDS) != len(NVIDIA_MODELS):
+    raise RuntimeError('Duplicate NVIDIA model ID in catalog.')
+if DEFAULT_MODEL_ID not in MODEL_IDS or not _CLASSIFIED_MODEL_IDS <= MODEL_IDS:
+    raise RuntimeError('Model capability metadata references an unknown catalog ID.')
+
 MODEL_BY_ID = {model['id']: model for model in NVIDIA_MODELS}
 
 # Keep the legacy `vision` flag while exposing an extensible capability contract.
-for _m in NVIDIA_MODELS:
-    _m['vision'] = _m['id'] in VISION_MODEL_IDS
-    _m['purpose'] = _purpose_for(_m['id'])
-    _m['recommended'] = _m['purpose'] in {'assistant', 'coding'}
-    _m['best_for'] = _best_for(_m['id'])
-    _m['capabilities'] = _capabilities_for(_m['id'])
+for _model in NVIDIA_MODELS:
+    _model['vision'] = _model['id'] in VISION_MODEL_IDS
+    _model['purpose'] = _purpose_for(_model['id'])
+    _model['recommended'] = _model['purpose'] in {'assistant', 'coding'}
+    _model['best_for'] = _best_for(_model['id'])
+    _model['capabilities'] = _capabilities_for(_model['id'])
 
 
 def model_capabilities(model_id):
@@ -458,5 +326,5 @@ IMAGE_GEN_MODELS = [
         'allowed_dims': FLUX_ALLOWED_DIMS,
     },
 ]
-IMAGE_GEN_MODEL_IDS = {m['id'] for m in IMAGE_GEN_MODELS}
+IMAGE_GEN_MODEL_IDS = {model['id'] for model in IMAGE_GEN_MODELS}
 DEFAULT_IMAGE_GEN_MODEL_ID = 'black-forest-labs/flux.1-schnell'

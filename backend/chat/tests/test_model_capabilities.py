@@ -54,7 +54,7 @@ def _capturing_stream(target):
 
 def test_catalog_exposes_conservative_capabilities():
     assert 'meta/llama-4-scout-17b-16e-instruct' not in VISION_MODEL_IDS
-    assert 'nvidia/nemotron-nano-12b-v2-vl' in VISION_MODEL_IDS
+    assert 'z-ai/glm-5.3-flash' in VISION_MODEL_IDS
     assert model_capabilities(DEFAULT_MODEL_ID) == {
         'input_modalities': ['text', 'document'],
         'attachment_extensions': ['pdf', 'txt', 'md', 'docx'],
@@ -64,9 +64,9 @@ def test_catalog_exposes_conservative_capabilities():
         'max_images': 0,
         'max_image_bytes': None,
     }
-    nano_vl = model_capabilities('nvidia/nemotron-nano-12b-v2-vl')
-    assert nano_vl['max_images'] == 5
-    assert nano_vl['image_mime_types'] == ['image/jpeg', 'image/png', 'image/webp']
+    glm_flash = model_capabilities('z-ai/glm-5.3-flash')
+    assert glm_flash['max_images'] == 8
+    assert glm_flash['image_mime_types'] == ['image/jpeg', 'image/png', 'image/webp']
 
 
 @patch('chat.views.unavailable_model_ids')

@@ -18,6 +18,7 @@ from chat.models import (
     PasswordReset,
     RegistrationInvite,
 )
+from chat.models_catalog import DEFAULT_MODEL_ID
 
 
 def _make_att(user, days_old=0, linked=False):
@@ -28,7 +29,7 @@ def _make_att(user, days_old=0, linked=False):
     if days_old:
         Attachment.objects.filter(pk=att.pk).update(created_at=timezone.now() - timedelta(days=days_old))
     if linked:
-        c = Conversation.objects.create(user=user, title='c', model_id='meta/llama-3.1-8b-instruct')
+        c = Conversation.objects.create(user=user, title='c', model_id=DEFAULT_MODEL_ID)
         m = Message.objects.create(conversation=c, role='user', content='x')
         att.message = m
         att.save()
