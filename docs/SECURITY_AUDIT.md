@@ -130,7 +130,7 @@ is required before describing those controls as complete.
 
 ## Verification evidence
 
-- 301 backend tests pass, including ownership, CSRF, concurrency, recovery,
+- 340 backend tests pass, including ownership, CSRF, concurrency, recovery,
   anti-enumeration, transactional mail-failure, provider token reconciliation,
   fail-closed usage validation, atomic invite consumption, privacy-safe admin
   auditing and tamper detection, SSE byte parsing, retired-model handling,
@@ -471,6 +471,41 @@ is required before describing those controls as complete.
   transactions. Concurrent writes can shift page boundaries; clients deduplicate
   repeated IDs, and re-opening a conversation or settings obtains a fresh first
   page. Cursor expiry never deletes data or prevents a new traversal.
+
+### Cancellable-upload rollout — 2026-10-12
+
+- Deployed repository state `e571c7f` after retaining pre-migration database
+  dump `nvidia_db_20261012_192614_328639300.sql.gz`. Migration
+  `0019_attachment_upload_attempt` applied under the dedicated `aichat` identity;
+  the backend restarted with three workers and zero automatic restarts.
+- Every browser upload now carries a cryptographically random UUID. A durable,
+  owner-bound attempt row serializes completion and cancellation across Gunicorn
+  workers: cancellation before commit blocks the late write, while cancellation
+  after commit removes the new unlinked attachment. Replays return the same row
+  rather than consuming storage twice.
+- An attempt records whether it created its attachment. When content
+  deduplication reuses an older owner-scoped file, canceling the newer attempt
+  cannot delete that existing file. Cross-owner UUID reuse receives a generic
+  denial, and linked message attachments remain protected from cancellation.
+- Retry creates a fresh attempt; explicit cancel, dismiss, logout and component
+  teardown request server cleanup with keepalive semantics. The browser reports
+  when server cleanup cannot be confirmed instead of claiming success. Stale
+  coordination rows expire through daily maintenance after 24 hours; normal
+  orphan-file retention remains unchanged.
+- All 340 backend tests and 31 responsive Playwright tests passed, along with
+  migration-drift, Django, compile, lint, production-build and npm-audit gates.
+  The production deploy check reported only the deliberate HSTS-preload warning.
+- Frontend release
+  `/var/www/aichat-releases/release-20261012T162631_053280375` activated
+  atomically with the 2026-10-07 release retained as rollback. Public health and
+  `security.txt` returned 200, `/media/` returned 404, and anonymous conversation
+  and upload-cancellation requests returned 403. CSP, HSTS, MIME, frame,
+  referrer and permissions headers were each present once.
+- Post-migration dump `nvidia_db_20261012_192642_189457187.sql.gz` restored into
+  an isolated scratch database with `37` migrations, `3` users, `6`
+  conversations and `16` messages; cleanup removed the scratch database. The
+  maintenance, model-probe and security-monitor timers are active, the monitor
+  completed successfully, and the backend journal contained no rollout warning.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

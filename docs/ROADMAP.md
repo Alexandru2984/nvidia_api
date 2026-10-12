@@ -67,8 +67,10 @@ timed evidence.
   paste, per-file progress/cancel/retry/dismiss, capability rejection, and
   session-bound state clearing share one bounded queue. Secret-keyed owner-scoped
   duplicate detection, no-store extracted-text preview, and per-file inclusion
-  toggles are also shipped. Add upload-attempt identifiers to reconcile late
-  cancellation and background processing for large documents.
+  toggles are also shipped. Client-generated upload-attempt identifiers now make
+  retries idempotent and reconcile cancellation before or after database commit
+  across workers without deleting an older deduplicated file. Move large-document
+  processing to the background before raising upload or parser limits.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page
