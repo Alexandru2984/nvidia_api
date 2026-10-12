@@ -61,6 +61,9 @@ timed evidence.
   supports three models, and the live availability-check timestamp is visible.
   Conservative “best for” guidance, rounded successful-probe latency, explicit
   sample caveats, and recommendation/latency/context/name sorting are shipped.
+  Availability now has verified/degraded/fail-closed states, expires after the
+  weekly timer window, preserves verified decisions across transient provider
+  failures, and alerts degraded probes without leaking provider error details.
   Expose reasoning, tool use, structured output, and output modality controls only
   when verified and declared by the selected model.
 - **Resilient attachment intake is shipped:** picker, drag/drop, clipboard image

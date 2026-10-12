@@ -78,7 +78,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
-| A-18 | Medium | A malformed/tampered runtime model-status file could reactivate retired endpoints, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range validated and atomically replaced; an existing invalid file hides all models and raises a monitored event; the authenticated API exposes only rounded successful samples and labels them as a synthetic 1-token availability check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
+| A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability, while transient outcomes retain the last trusted decision and emit a degraded-probe alert. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
 
 ## Quantitative risk view
 
@@ -99,7 +99,8 @@ login failures, unexpected admin access, rate-limit spikes, backup/restore
 failures, 2FA disable, backend error bursts, missing provider usage, token
 reservation overruns, privileged admin changes or audit-integrity failures, and
 global NVIDIA budget exhaustion. Five incompatible attachment/model rejections in
-six minutes and any invalid runtime model-status file use the same alert path.
+six minutes, any invalid runtime model-status file and any degraded scheduled
+model probe use the same alert path.
 External log retention and contractual/GPU-spend signals remain open. Target
 containment time is 60 minutes after a confirmed high-severity alert.
 
@@ -506,6 +507,37 @@ is required before describing those controls as complete.
   conversations and `16` messages; cleanup removed the scratch database. The
   maintenance, model-probe and security-monitor timers are active, the monitor
   completed successfully, and the backend journal contained no rollout warning.
+
+### Resilient model-status rollout — 2026-10-13
+
+- Deployed repository state `20badbf` without a database migration or user-data
+  write. Production now requires a timezone-aware model-status file no older than
+  eight days; missing, corrupt, stale or implausibly future-dated state hides all
+  chat models until a trusted probe succeeds.
+- Probe reconciliation distinguishes definitive retirement/contract rejection
+  from timeout, throttling, network and provider failures. A transient result
+  preserves an existing verified decision, but cannot activate a new or
+  previously unavailable model. Aggregate `verified/degraded` state and an
+  inconclusive count reach the authenticated UI; provider failure details remain
+  server-side.
+- The security monitor now reads the sandboxed model-probe journal and alerts a
+  degraded run. Its installed root-owned copy matches the repository and the
+  manual post-deploy execution completed successfully; model-probe and monitor
+  timers remain active.
+- All 345 backend tests, 32 responsive Playwright tests and 10 monitor tests
+  passed, along with lint, production build, compile, migration-drift, Django,
+  `pip check` and npm-audit gates. The production deploy check reported only the
+  deliberate HSTS-preload warning.
+- Frontend release
+  `/var/www/aichat-releases/release-20261012T224959_108218921` activated
+  atomically with the preceding release retained for rollback. The first switch
+  encountered a backend-startup `502`, rolled back automatically, and its staged
+  release was moved intact to the private operations backup directory.
+- The authenticated read-only production contract reported three available
+  models, five inconclusive historical probe results, a degraded state and an
+  available fallback default. Public health returned 200, `/media/` returned 404,
+  anonymous model access returned 403, nginx validation passed, the backend had
+  zero automatic restarts and no warning-level entries after restart.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

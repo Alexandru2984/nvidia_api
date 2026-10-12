@@ -179,9 +179,17 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
 - `python manage.py probe_models` probes every catalog model with a 1-token completion
   (with one retry for cold starts) and writes the private `0600` runtime file
   `backend/.cache/model_status.json` atomically. Its schema, size, model IDs,
-  outcome vocabulary, latency range, and attempt count are validated when read;
-  an existing malformed file fails closed and triggers the security monitor.
-- `/api/models/` subtracts the unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
+  outcome vocabulary, latency range, attempt count, timezone and freshness are
+  validated when read. Production requires this file and accepts it for eight
+  days; missing, stale, future-dated or malformed state fails closed and triggers
+  the security monitor.
+- Definitive endpoint failures (`404/410` and other incompatible 4xx responses)
+  mark a model unavailable. Throttling, timeouts, network errors and provider 5xx
+  responses are inconclusive: an already verified model keeps its last decision,
+  while a never-verified model remains blocked. A degraded run is alerted and is
+  explicit in the authenticated API and responsive UI without exposing per-model
+  provider failures.
+- `/api/models/` subtracts the resolved unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
 - Each catalog row exposes `purpose`, `recommended`, conservative `best_for`, and a
   `capabilities` contract. The UI groups assistant/coding/translation/safety/
   specialized models and derives its image/document picker from that contract;
