@@ -9,7 +9,7 @@ The baseline contained 38 running system services with `User=micu`. Umami,
 Pastebox, Video, the webhook receiver, Finance, Traffic Analyzer, Bookmarks, GT
 Shop, R Traffic Intelligence, Unison Idea Evolution and the Cloudflare analytics
 bot, Dead Drop, NuiGraph Studio, Micu Market, and VixArena have been migrated;
-WebOS and MicuPoker have also been migrated; 21 remain.
+WebOS has also been migrated; 22 remain.
 Loopback listeners are externally relevant whenever nginx or a Cloudflare
 tunnel publishes them.
 
@@ -27,6 +27,7 @@ tunnel publishes them.
 | `julia-benchmark-lab.service` | yes | `8095` | `julia.micutu.com` |
 | `lisp-canary.service` | yes | `8093` | `lisp.micutu.com` |
 | `lua-recon-canary.service` | yes | `8084` | `lua.micutu.com` |
+| `micupoker.service` | yes | `4100` | `poker.micutu.com` |
 | `nimplayground.service` | yes | `8888` | `nim.micutu.com` |
 | `pixelart-canary.service` | yes | `3000` | `pixelart.micutu.com` |
 | `prolog-security-canary.service` | yes | `3050` | `prolog.micutu.com` |
@@ -506,48 +507,6 @@ tunnel publishes them.
   Independent alert delivery, off-host backup replication, privacy retention
   evidence and vendor review remain open P1/P2 controls; the remaining shared
   service identities remain the host-level P0 risk.
-
-## Completed migration: MicuPoker
-
-- The public Phoenix/WebSocket game moved from `User=micu`, a writable checkout
-  and checkout-local production secrets to dedicated non-login `micupoker`,
-  `micupoker-backup` and `micupoker-monitor` identities. Production runs a
-  checksummed, root-owned immutable release and the runtime cannot see the
-  checkout in its mount namespace.
-- Project commits `13394eb`, `4c97628`, `a75614e`, `16efa5c`, `e64bac7`,
-  `57e9ecf`, `67788a9`, `700ad20`, `b8646a9`, `af52417`, `321113b`, `05f5dc3`,
-  `154811f`, `fa33666` and `bf56ff5` patch dependencies, reject originless
-  WebSockets, define immutable deployment and rollback, separate database
-  authority, add protected backup/restore and monitoring, and isolate build
-  credentials from production secrets.
-- The runtime has zero effective capabilities, `NoNewPrivileges=yes`,
-  localhost-only binding and a `1.4 OK` systemd exposure score. Backup and
-  health workers score `1.4 OK` and `1.5 OK`; releases are not writable by the
-  runtime identity.
-- PostgreSQL uses `micupoker_migrate` as owner, `micupoker_app` for table DML
-  and sequence use, and `micupoker_backup` for reads only. Runtime DDL and
-  migration-ledger access are denied, backup writes are denied, and the legacy
-  `micupoker_user` and `micu` roles cannot reach the production database.
-- The exact `fa33666` revision passed a detached build without a checkout
-  `.env`: `300` tests, production compile/release, dependency audit, formatting
-  and shell gates. Public routes and headers, Cloudflare delivery,
-  direct-origin denial, authenticated admin access, approved WebSockets and
-  denial of missing/hostile WebSocket origins passed after rollout.
-- The dedicated backup identity produced a protected checksummed PostgreSQL
-  dump. Its isolated restore reproduced the latest migrations and expected
-  data, found no invalid constraints or non-zero hand ledgers, and removed its
-  scratch database and role. The daily timer is active.
-- A failed first rollout exposed and then exercised the legacy-unit rollback;
-  later release switching and health gates passed. Legacy production secrets,
-  crash output and the old production build were checksummed and moved without
-  deletion into root-only quarantine at
-  `/home/micu/backups/service-migrations/micupoker-checkout-quarantine-20261012T160319Z`.
-- The five-minute monitor validates identity, local/public health, release
-  integrity, restart count and backup freshness. Real e-mail alert delivery and
-  duplicate throttling were exercised. Encrypted off-host backup replication,
-  alert-provider credential rotation and a recorded incident tabletop remain
-  open P1 controls; the remaining shared service identities remain the
-  host-level P0 risk.
 
 ## Ordered next passes
 
