@@ -22,10 +22,11 @@ MAX_STATUS_FILE_BYTES = 512 * 1024
 MAX_PROBE_LATENCY_MS = 120_000
 ALLOWED_OUTCOMES = {
     'available', 'retired', 'rejected', 'throttled', 'provider_error',
-    'timeout', 'network_error',
+    'authorization_error', 'entitlement_error', 'timeout', 'network_error',
 }
 TRANSIENT_OUTCOMES = frozenset({
-    'throttled', 'provider_error', 'timeout', 'network_error',
+    'throttled', 'provider_error', 'authorization_error',
+    'entitlement_error', 'timeout', 'network_error',
 })
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 security_log = logging.getLogger('security')

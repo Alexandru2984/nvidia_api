@@ -48,6 +48,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=attachment_capability_rejected'] * 5
             + ['event=model_status_invalid reason=schema']
             + ['event=model_probe_degraded inconclusive=2']
+            + ['event=model_probe_authorization_failed count=2']
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
@@ -60,6 +61,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'attachment_capability_burst',
              'model_status_invalid',
              'model_probe_degraded',
+             'model_probe_authorization',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
 

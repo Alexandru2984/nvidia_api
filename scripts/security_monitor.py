@@ -222,6 +222,7 @@ def evaluate(
     attachment_rejections = journal.count('event=attachment_capability_rejected')
     model_status_invalid = journal.count('event=model_status_invalid')
     model_probe_degraded = journal.count('event=model_probe_degraded')
+    model_probe_authorization = journal.count('event=model_probe_authorization_failed')
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -261,6 +262,10 @@ def evaluate(
         issues['model_status_invalid'] = 'The runtime model-status file failed validation.'
     if model_probe_degraded:
         issues['model_probe_degraded'] = 'The NVIDIA model probe had inconclusive results.'
+    if model_probe_authorization:
+        issues['model_probe_authorization'] = (
+            'The NVIDIA model probe encountered an authorization or entitlement failure.'
+        )
     if invite_consumed:
         issues['registration_invite_consumed'] = (
             f'{invite_consumed} registration invitations were consumed in six minutes.'

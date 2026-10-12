@@ -63,10 +63,14 @@ class Command(BaseCommand):
                 outcome = 'available'
             elif r.status_code in (404, 410):
                 outcome = 'retired'
+            elif r.status_code in (400, 422):
+                outcome = 'rejected'
             elif r.status_code == 429:
                 outcome = 'throttled'
-            elif 400 <= r.status_code < 500:
-                outcome = 'rejected'
+            elif r.status_code in (401, 403):
+                outcome = 'authorization_error'
+            elif r.status_code == 402:
+                outcome = 'entitlement_error'
             else:
                 outcome = 'provider_error'
         except requests.Timeout:
@@ -114,7 +118,16 @@ class Command(BaseCommand):
             return
         write_status(unavailable, timezone.now().isoformat(), results=results)
         if inconclusive:
+            authorization_failures = sum(
+                result['outcome'] in {'authorization_error', 'entitlement_error'}
+                for result in results.values()
+            )
             security_log.warning(
                 'event=model_probe_degraded inconclusive=%s', len(inconclusive),
             )
+            if authorization_failures:
+                security_log.error(
+                    'event=model_probe_authorization_failed count=%s',
+                    authorization_failures,
+                )
         self.stdout.write(self.style.SUCCESS(summary))

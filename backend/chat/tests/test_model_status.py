@@ -250,3 +250,27 @@ class TestProbeCommand:
         model_id, result = Command()._probe(DEFAULT_MODEL_ID, 45)
         assert model_id == DEFAULT_MODEL_ID
         assert result == {'outcome': 'timeout', 'latency_ms': 1500, 'attempts': 1}
+
+    @pytest.mark.parametrize(('status_code', 'expected'), [
+        (200, 'available'),
+        (400, 'rejected'),
+        (401, 'authorization_error'),
+        (402, 'entitlement_error'),
+        (403, 'authorization_error'),
+        (404, 'retired'),
+        (408, 'provider_error'),
+        (410, 'retired'),
+        (422, 'rejected'),
+        (425, 'provider_error'),
+        (429, 'throttled'),
+        (500, 'provider_error'),
+    ])
+    @mock.patch('chat.management.commands.probe_models.requests.post')
+    def test_probe_classifies_only_model_contract_errors_as_definitive(
+        self, m_post, status_code, expected,
+    ):
+        m_post.return_value.status_code = status_code
+
+        _, result = Command()._probe(DEFAULT_MODEL_ID, 45)
+
+        assert result['outcome'] == expected
