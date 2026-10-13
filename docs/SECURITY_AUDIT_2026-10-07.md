@@ -138,6 +138,15 @@ secret values are reproduced here.
   scratch restore, namespace, direct-origin, public and clean-restart probes
   passed. Twenty-five baseline services remain under `micu`, so S-01 stays
   Critical.
+- 2026-10-13: S-11 was substantially remediated in commit `f9db80a` and
+  production. Token-owned PostgreSQL leases now serialize send/regenerate per
+  conversation across workers, heartbeat long streams, reject conflicts with a
+  bounded retry hint, and clean up expired crash residue. Pending attachment
+  rows are revalidated under row lock before linking; unstarted responses release
+  reservations and pending messages; regeneration retains the old branch until
+  replacement content exists. Conversation mutation and message editing are
+  fenced while generation is active. Explicit request idempotency keys and a
+  durable generation-job state machine remain open for safe automatic retries.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -332,12 +341,13 @@ Remediation: add an absolute lifetime, rotate sessions after privilege changes,
 record `auth_time`, and require recent password/2FA confirmation for 2FA setup,
 recovery-code regeneration, email changes, staff elevation and exports.
 
-### S-11 — Medium — concurrent generation/attachment integrity is unlocked
+### S-11 — Medium — concurrent generation/attachment integrity
 
-Evidence: pending attachments are selected before message creation without row
-locks or a uniqueness constraint on attachment-to-request consumption. Two
-concurrent sends can both resolve the same pending attachment and race to
-reassign it; concurrent regenerations can truncate and recreate the same branch.
+Pre-fix evidence: pending attachments were selected before message creation
+without row locks or a uniqueness constraint on attachment-to-request
+consumption. Two concurrent sends could both resolve the same pending attachment
+and race to reassign it; concurrent regenerations could truncate and recreate the
+same branch.
 
 Impact: authenticated users can create duplicate provider work, inconsistent
 message history and unexpected cost/data loss inside their own account.
@@ -345,6 +355,13 @@ message history and unexpected cost/data loss inside their own account.
 Remediation: introduce per-conversation generation locks and idempotency keys;
 lock the conversation and pending attachment rows in one transaction; represent
 generation jobs explicitly; make cancellation/retry state durable.
+
+Status: the deployed per-conversation lease, mutation fences, attachment row
+locks, stream lifecycle cleanup and non-destructive regeneration close the
+confirmed duplicate-generation and attachment/history races. Client request
+idempotency and explicit durable job/cancellation state remain residual work;
+after a worker crash, cost accounting stays fail-closed and the expiring lease
+temporarily rejects a retry rather than risking duplicate provider work.
 
 ### S-12 — Medium — authenticated storage/egress paths lack complete quotas
 
@@ -421,6 +438,9 @@ production-entitlement decisions, and provide export/deletion status.
 - Provider URLs are configuration-controlled, polling IDs are allow-listed, raw
   provider errors are not returned, and PostgreSQL-backed per-user/global request
   and token budgets include a kill switch and fail-closed reservations.
+- PostgreSQL generation leases serialize conversation work across workers,
+  heartbeat active streams, fence conflicting mutation, row-lock attachment
+  claims, and preserve the prior regeneration branch until replacement exists.
 - Password reset/verification codes are keyed hashes with expiry, attempt limits,
   transactional consumption and anti-enumeration response bodies. Password resets
   revoke sessions and do not bypass enabled 2FA.
@@ -451,8 +471,8 @@ production-entitlement decisions, and provide export/deletion status.
   reachable commit snapshots, all reviewed test/config placeholders or
   non-secret entropy; zero candidates in four unreachable Git objects. `.env`
   files were never tracked.
-- Backend: 327 tests passed; migration drift check and `pip check` passed.
-- Frontend: ESLint, production build and 29 Playwright checks at mobile/desktop
+- Backend: 415 tests passed; migration drift check and `pip check` passed.
+- Frontend: ESLint, production build and 33 Playwright checks at mobile/desktop
   widths passed.
 - Django `check --deploy`: only `SECURE_HSTS_PRELOAD=False`; one-year HSTS with
   subdomains is active.
@@ -484,8 +504,9 @@ production-entitlement decisions, and provide export/deletion status.
    limits.
 2. Replace loopback TCP/backend trust with permissioned/authenticated origin
    paths.
-3. Add recent-auth and absolute-session policy, generation/idempotency locks,
-   durable storage/object/egress quotas, and session cleanup.
+3. Add recent-auth and absolute-session policy, request idempotency/durable job
+   state, durable storage/object/egress quotas, and session cleanup. The
+   per-conversation generation lease and attachment claim lock are deployed.
 4. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
 5. Pin CI Actions and lock Python artifacts by hash.

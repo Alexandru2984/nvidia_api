@@ -634,6 +634,40 @@ is required before describing those controls as complete.
   or warning-level journal entries, and the security monitor completed with
   exit status zero.
 
+### Conversation-generation integrity rollout — 2026-10-13
+
+- Deployed repository state `f9db80a` with migration
+  `0021_conversationgenerationlease`. A token-owned, expiring PostgreSQL lease
+  permits one send or regeneration per conversation across every Gunicorn
+  worker; conflicts return stable `409 generation_in_progress` and
+  `Retry-After`. Long streams heartbeat the lease, token-matched release cannot
+  delete a newer claimant, and daily maintenance removes expired crash residue.
+- The stream wrapper finalizes the lease and provider budget exactly once on
+  success, provider failure, application exception, Stop/disconnect, and even a
+  response closed before its first iteration. No-provider paths reconcile with
+  zero usage and remove the pending user message; provider-started calls retain
+  the existing fail-closed missing-usage behavior.
+- Pending attachments are re-resolved with `SELECT FOR UPDATE` immediately
+  before the user-message link, closing cross-conversation double claims.
+  Regeneration no longer deletes the old branch before dispatch: provider error,
+  empty output or an unstarted response preserves it, while success or an
+  explicitly stopped partial atomically replaces it. Conversation mutation and
+  source-message edits are fenced for the same lease lifetime.
+- All 415 backend tests passed with Django checks, compile, migration-drift,
+  dependency consistency and diff checks. The pre-migration gzip-validated
+  rollback dump is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261013_183544_680447112.sql.gz`.
+- Production applied `0021` under `aichat`; the primary key, expiry index and
+  foreign key were inspected. A rollback-only live smoke transaction proved
+  acquire, conflicting `409`, token-owned release and zero residual rows.
+  Origin/public health returned 200; private/config/media probes retained
+  403/404 boundaries; nginx validated; all three application timers are active;
+  the security monitor exited successfully; the backend remains active with
+  three workers and zero automatic restarts. No error-level post-restart journal
+  entries appeared; the only warning was the intentional anonymous private-route
+  probe. Rollback is the retained dump plus code rollback and reverse migration
+  to `0020`; no rollback was required.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

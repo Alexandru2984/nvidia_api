@@ -80,6 +80,14 @@ timed evidence.
   retries idempotent and reconcile cancellation before or after database commit
   across workers without deleting an older deduplicated file. Move large-document
   processing to the background before raising upload or parser limits.
+- **Conversation generation integrity is shipped:** a token-owned PostgreSQL
+  lease serializes send/regenerate across workers, returns a bounded retry hint,
+  heartbeats long streams, safely reclaims crashes, and blocks branch edits or
+  conversation mutation while active. Token reservations and pending messages
+  are reconciled even when a response is never iterated; pending attachments are
+  claimed under row lock; failed or unstarted regeneration preserves the old
+  branch. Add client idempotency keys and explicit durable generation jobs before
+  automatic network retries or horizontal queue processing.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page
@@ -112,8 +120,8 @@ owner-scoped and auditable.
 ## P2 — reliability, scale, and platform
 
 - Move long model/image/document work to background jobs with cancellation,
-  idempotency keys, retry policy, dead-letter visibility, and per-conversation
-  generation locks.
+  idempotency keys, retry policy, dead-letter visibility, and reuse the shipped
+  per-conversation lease as the execution fence.
 - Adopt ASGI-native streaming with reconnect/resume semantics and clear partial
   response state.
 - Add OpenTelemetry metrics/traces with redaction, SLOs for request success and

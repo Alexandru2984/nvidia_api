@@ -169,6 +169,15 @@ malformed usage fails closed until the UTC reset and is security-monitored. Tune
 `AI_USER_DAILY_TOKEN_LIMIT`, `AI_GLOBAL_DAILY_TOKEN_LIMIT`, and
 `AI_CHAT_TOKEN_RESERVATION` for the deployment's capacity.
 
+Only one send or regeneration may run per conversation across all workers.
+PostgreSQL-backed leases return `409 generation_in_progress` with `Retry-After`,
+are heartbeated during long streams, and expire fail-safe after
+`CHAT_GENERATION_LEASE_SECONDS` (default 900; allowed 300–3600). Closing a stream
+before provider dispatch removes its pending user message and releases its token
+reservation. Pending attachment rows are revalidated under row lock before they
+are linked, and regeneration keeps the previous branch until replacement text
+exists. Expired leases are removed by the normal maintenance command.
+
 The token limit is a consumption/capacity control, not a fabricated currency
 estimate. NVIDIA documents production NIM pricing around licensing/GPU capacity,
 so monetary enforcement must use the owner's actual contract or infrastructure
