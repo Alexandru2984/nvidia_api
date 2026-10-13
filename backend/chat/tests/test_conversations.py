@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from chat.models import Attachment, Conversation, Message
@@ -179,6 +180,17 @@ class TestConversationCreate:
         r = auth_client.post('/api/conversations/', {'model_id': m}, format='json')
         assert r.status_code == 201
         assert r.json()['model_id'] == m
+
+    def test_create_uses_model_specific_generation_defaults(self, auth_client):
+        model_id = 'nvidia/riva-translate-4b-instruct-v2'
+
+        response = auth_client.post(
+            '/api/conversations/', {'model_id': model_id}, format='json',
+        )
+
+        assert response.status_code == 201
+        assert response.json()['temperature'] == 0.0
+        assert response.json()['max_tokens'] == 512
 
     def test_create_rejects_unknown_model(self, auth_client):
         r = auth_client.post('/api/conversations/', {'model_id': 'fake/model'}, format='json')
@@ -712,24 +724,67 @@ class TestConversationGenSettings:
     def test_patch_sets_all_fields(self, auth_client, convo):
         r = auth_client.patch(f'/api/conversations/{convo.id}/', {
             'system_prompt': '  You are terse.  ',
-            'temperature': 1.3,
+            'temperature': 1.0,
             'max_tokens': 2048,
         }, format='json')
         assert r.status_code == 200, r.content
         body = r.json()
         assert body['system_prompt'] == 'You are terse.'
-        assert body['temperature'] == 1.3
+        assert body['temperature'] == 1.0
         assert body['max_tokens'] == 2048
 
     def test_temperature_out_of_range_400(self, auth_client, convo):
-        r = auth_client.patch(f'/api/conversations/{convo.id}/', {'temperature': 2.5}, format='json')
+        r = auth_client.patch(f'/api/conversations/{convo.id}/', {'temperature': 1.1}, format='json')
         assert r.status_code == 400
         r = auth_client.patch(f'/api/conversations/{convo.id}/', {'temperature': 'hot'}, format='json')
+        assert r.status_code == 400
+        r = auth_client.patch(f'/api/conversations/{convo.id}/', {'temperature': True}, format='json')
         assert r.status_code == 400
 
     def test_max_tokens_out_of_range_400(self, auth_client, convo):
         assert auth_client.patch(f'/api/conversations/{convo.id}/', {'max_tokens': 10}, format='json').status_code == 400
         assert auth_client.patch(f'/api/conversations/{convo.id}/', {'max_tokens': 999999}, format='json').status_code == 400
+        assert auth_client.patch(f'/api/conversations/{convo.id}/', {'max_tokens': 128.5}, format='json').status_code == 400
+        assert auth_client.patch(f'/api/conversations/{convo.id}/', {'max_tokens': True}, format='json').status_code == 400
+
+    def test_model_specific_token_limit_is_enforced(self, auth_client, convo):
+        model_id = 'nvidia/riva-translate-4b-instruct-v2'
+
+        rejected = auth_client.patch(f'/api/conversations/{convo.id}/', {
+            'model_id': model_id, 'max_tokens': 4097,
+        }, format='json')
+        accepted = auth_client.patch(f'/api/conversations/{convo.id}/', {
+            'model_id': model_id, 'max_tokens': 4096,
+        }, format='json')
+
+        assert rejected.status_code == 400
+        assert accepted.status_code == 200
+        assert accepted.json()['max_tokens'] == 4096
+
+    def test_model_switch_clamps_an_incompatible_saved_limit(self, auth_client, convo):
+        convo.max_tokens = 8192
+        convo.save(update_fields=['max_tokens'])
+
+        response = auth_client.patch(f'/api/conversations/{convo.id}/', {
+            'model_id': 'nvidia/riva-translate-4b-instruct-v2',
+        }, format='json')
+
+        assert response.status_code == 200
+        assert response.json()['max_tokens'] == 4096
+        convo.refresh_from_db()
+        assert convo.max_tokens == 4096
+
+    def test_database_rejects_generation_values_outside_global_contract(self, convo):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            Conversation.objects.filter(pk=convo.pk).update(temperature=1.1)
+        with pytest.raises(IntegrityError), transaction.atomic():
+            Conversation.objects.filter(pk=convo.pk).update(max_tokens=8193)
+
+        Conversation.objects.filter(pk=convo.pk).update(
+            model_id='nvidia/riva-translate-4b-instruct-v2', max_tokens=4096,
+        )
+        with pytest.raises(IntegrityError), transaction.atomic():
+            Conversation.objects.filter(pk=convo.pk).update(max_tokens=4097)
 
     def test_system_prompt_too_long_400(self, auth_client, convo):
         r = auth_client.patch(f'/api/conversations/{convo.id}/', {'system_prompt': 'x' * 4001}, format='json')
@@ -768,3 +823,39 @@ class TestConversationGenSettings:
             r = auth_client.post(f'/api/messages/{u.id}/regenerate/')
             _consume_sse(r)
         assert captured['messages'][0]['role'] == 'system'
+
+    @patch('chat.views._stream_nvidia')
+    def test_regenerate_rejects_a_model_removed_from_the_catalog(
+        self, mock_stream, auth_client, convo,
+    ):
+        convo.model_id = 'retired/model'
+        convo.save(update_fields=['model_id'])
+        user_message = Message.objects.create(
+            conversation=convo, role='user', content='hi',
+        )
+
+        response = auth_client.post(f'/api/messages/{user_message.id}/regenerate/')
+
+        assert response.status_code == 409
+        mock_stream.assert_not_called()
+
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_message_model_override_clamps_saved_generation_limit(
+        self, mock_stream, auth_client, convo,
+    ):
+        convo.max_tokens = 8192
+        convo.save(update_fields=['max_tokens'])
+
+        response = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/',
+            {
+                'content': 'translate hello',
+                'model_id': 'nvidia/riva-translate-4b-instruct-v2',
+            },
+            format='json',
+        )
+        _consume_sse(response)
+
+        assert mock_stream.call_args.kwargs['max_tokens'] == 4096
+        convo.refresh_from_db()
+        assert convo.max_tokens == 4096

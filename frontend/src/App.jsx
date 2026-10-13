@@ -8,6 +8,10 @@ const MarkdownBody = lazy(() => import('./MarkdownBody'))
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const DOCUMENT_EXTENSIONS = ['pdf', 'txt', 'md', 'docx']
 const FALLBACK_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
+const FALLBACK_GENERATION = {
+  temperature: { min: 0, max: 1, step: 0.1, default: 0.7 },
+  max_tokens: { min: 64, max: 8192, step: 64, default: 1024 },
+}
 const PURPOSE_GROUPS = [
   ['assistant', 'Assistants'],
   ['coding', 'Coding'],
@@ -71,6 +75,10 @@ function capabilitiesFor(model) {
     max_images: model?.vision ? 1 : 0,
     max_image_bytes: null,
   }
+}
+
+function generationFor(model) {
+  return model?.generation || FALLBACK_GENERATION
 }
 
 function attachmentIsCompatible(attachment, capabilities) {
@@ -686,10 +694,15 @@ function UploadJobTile({ job, onCancel, onRetry, onDismiss }) {
   )
 }
 
-function ConvoSettingsPanel({ convo, onSaved, onClose }) {
+function ConvoSettingsPanel({ convo, model, onSaved, onClose }) {
+  const generation = generationFor(model)
+  const temperatureSpec = generation.temperature
+  const maxTokensSpec = generation.max_tokens
   const [systemPrompt, setSystemPrompt] = useState(convo.system_prompt || '')
-  const [temperature, setTemperature] = useState(convo.temperature ?? 0.7)
-  const [maxTokens, setMaxTokens] = useState(convo.max_tokens ?? 1024)
+  const [temperature, setTemperature] = useState(
+    convo.temperature ?? temperatureSpec.default,
+  )
+  const [maxTokens, setMaxTokens] = useState(convo.max_tokens ?? maxTokensSpec.default)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
@@ -722,7 +735,10 @@ function ConvoSettingsPanel({ convo, onSaved, onClose }) {
         <label>
           <span>Temperature: {Number(temperature).toFixed(1)}</span>
           <input
-            type="range" min={0} max={2} step={0.1}
+            type="range"
+            min={temperatureSpec.min}
+            max={temperatureSpec.max}
+            step={temperatureSpec.step}
             value={temperature}
             onChange={(e) => setTemperature(e.target.value)}
           />
@@ -730,7 +746,10 @@ function ConvoSettingsPanel({ convo, onSaved, onClose }) {
         <label>
           <span>Max tokens</span>
           <input
-            type="number" min={64} max={8192} step={64}
+            type="number"
+            min={maxTokensSpec.min}
+            max={maxTokensSpec.max}
+            step={maxTokensSpec.step}
             value={maxTokens}
             onChange={(e) => setMaxTokens(e.target.value)}
           />
@@ -741,6 +760,10 @@ function ConvoSettingsPanel({ convo, onSaved, onClose }) {
           </button>
           <button type="button" className="link" onClick={onClose}>Close</button>
         </div>
+      </div>
+      <div className="cs-hint">
+        Limits for {model?.name || 'this model'}: temperature {temperatureSpec.min}–{temperatureSpec.max},
+        {' '}up to {maxTokensSpec.max.toLocaleString()} output tokens.
       </div>
       {error && <div className="login-error">{error}</div>}
     </div>
@@ -1744,7 +1767,12 @@ export default function App() {
     }
     try {
       const updated = await api.switchModel(active.id, modelId)
-      setActive((c) => ({ ...c, model_id: updated.model_id }))
+      setActive((c) => ({
+        ...c,
+        model_id: updated.model_id,
+        temperature: updated.temperature,
+        max_tokens: updated.max_tokens,
+      }))
       setConversations((prev) => prev.map((c) => (c.id === updated.id ? { ...c, model_id: updated.model_id } : c)))
       setError(null)
       return true
@@ -2079,6 +2107,9 @@ export default function App() {
               {supportsVision ? `Images · max ${currentCapabilities.max_images}` : 'No image input'}
             </span>
             <span className="model-badge positive">PDF · DOCX · TXT · MD</span>
+            <span className="model-badge">
+              Up to {generationFor(currentModel).max_tokens.max.toLocaleString()} output tokens
+            </span>
             {currentModel.performance && (
               <span
                 className={`model-badge speed-${currentModel.performance.latency_band}`}
@@ -2092,8 +2123,9 @@ export default function App() {
         )}
         {active && showConvoSettings && (
           <ConvoSettingsPanel
-            key={active.id}
+            key={`${active.id}:${currentModelId}`}
             convo={active}
+            model={currentModel}
             onClose={() => setShowConvoSettings(false)}
             onSaved={(updated) => {
               setActive((c) => (c ? {

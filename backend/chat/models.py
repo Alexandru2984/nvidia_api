@@ -2,9 +2,17 @@ import secrets
 
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
+
+from .generation import (
+    MAX_TOKENS_MAX,
+    MAX_TOKENS_MIN,
+    TEMPERATURE_MAX,
+    TEMPERATURE_MIN,
+)
 
 
 class EmailVerification(models.Model):
@@ -88,8 +96,14 @@ class Conversation(models.Model):
     model_id = models.CharField(max_length=120)
     # Per-conversation generation settings, editable from the UI.
     system_prompt = models.TextField(blank=True, default='')
-    temperature = models.FloatField(default=0.7)
-    max_tokens = models.PositiveIntegerField(default=1024)
+    temperature = models.FloatField(
+        default=0.7,
+        validators=[MinValueValidator(TEMPERATURE_MIN), MaxValueValidator(TEMPERATURE_MAX)],
+    )
+    max_tokens = models.PositiveIntegerField(
+        default=1024,
+        validators=[MinValueValidator(MAX_TOKENS_MIN), MaxValueValidator(MAX_TOKENS_MAX)],
+    )
     is_pinned = models.BooleanField(default=False)
     archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -106,6 +120,23 @@ class Conversation(models.Model):
                 fields=['title'],
                 name='chat_convo_title_trgm',
                 opclasses=['gin_trgm_ops'],
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(temperature__gte=TEMPERATURE_MIN)
+                & models.Q(temperature__lte=TEMPERATURE_MAX),
+                name='chat_convo_temperature_range',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(max_tokens__gte=MAX_TOKENS_MIN)
+                & models.Q(max_tokens__lte=MAX_TOKENS_MAX),
+                name='chat_convo_max_tokens_range',
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(model_id='nvidia/riva-translate-4b-instruct-v2')
+                | models.Q(max_tokens__lte=4096),
+                name='chat_convo_riva_token_limit',
             ),
         ]
 

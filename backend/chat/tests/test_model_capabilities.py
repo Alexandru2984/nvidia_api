@@ -10,6 +10,7 @@ from chat.models_catalog import (
     MODEL_IDS,
     VISION_MODEL_IDS,
     model_capabilities,
+    model_generation_limits,
 )
 
 pytestmark = pytest.mark.django_db
@@ -68,6 +69,15 @@ def test_catalog_exposes_conservative_capabilities():
     assert glm_flash['max_images'] == 8
     assert glm_flash['image_mime_types'] == ['image/jpeg', 'image/png', 'image/webp']
 
+    default_generation = model_generation_limits(DEFAULT_MODEL_ID)
+    assert default_generation['temperature']['max'] == 1.0
+    assert default_generation['max_tokens']['max'] == 8192
+    riva_generation = model_generation_limits('nvidia/riva-translate-4b-instruct-v2')
+    assert riva_generation['temperature']['default'] == 0.0
+    assert riva_generation['max_tokens'] == {
+        'min': 64, 'max': 4096, 'step': 64, 'default': 512,
+    }
+
 
 @patch('chat.views.unavailable_model_ids')
 def test_models_endpoint_prefers_assistant_over_specialized_model(mock_down, auth_client):
@@ -84,6 +94,7 @@ def test_models_endpoint_prefers_assistant_over_specialized_model(mock_down, aut
     assert returned[SAFETY_MODEL]['recommended'] is False
     assert returned[ASSISTANT_MODEL]['purpose'] == 'assistant'
     assert 'capabilities' in returned[ASSISTANT_MODEL]
+    assert returned[ASSISTANT_MODEL]['generation']['temperature']['max'] == 1.0
 
 
 def test_upload_rejects_image_for_text_only_model(auth_client):

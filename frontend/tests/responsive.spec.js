@@ -81,6 +81,10 @@ async function mockAPI(
               image_mime_types: ['image/jpeg', 'image/png'], max_images: 1,
               max_image_bytes: null,
             },
+            generation: {
+              temperature: { min: 0, max: 1, step: 0.1, default: 0.7 },
+              max_tokens: { min: 64, max: 4096, step: 64, default: 1024 },
+            },
           },
           {
             id: 'text/model', name: 'Text Only', vendor: 'Test', vision: false,
@@ -95,6 +99,10 @@ async function mockAPI(
               attachment_extensions: ['pdf', 'txt', 'md', 'docx'],
               document_extensions: ['pdf', 'txt', 'md', 'docx'], documents_as_text: true,
               image_mime_types: [], max_images: 0, max_image_bytes: null,
+            },
+            generation: {
+              temperature: { min: 0, max: 1, step: 0.1, default: 0.7 },
+              max_tokens: { min: 64, max: 8192, step: 64, default: 1024 },
             },
           },
         ],
@@ -132,6 +140,21 @@ test('application shell contains no cross-origin scripts', async ({ page }) => {
   await mockAPI(page)
   await page.goto('/')
   await expect(page.locator('script[src^="http://"], script[src^="https://"]')).toHaveCount(0)
+})
+
+test('conversation settings enforce the selected model generation contract', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByTitle(/Conversation settings/).click()
+
+  const panel = page.locator('.convo-settings')
+  await expect(panel.locator('input[type="range"]')).toHaveAttribute('max', '1')
+  await expect(panel.locator('input[type="number"]')).toHaveAttribute('max', '4096')
+  await expect(panel).toContainText('up to 4,096 output tokens')
+  await expectNoPageOverflow(page)
 })
 
 test('2FA enrollment sends and then clears the current password', async ({ page }) => {

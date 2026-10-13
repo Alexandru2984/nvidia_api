@@ -135,6 +135,7 @@ textarea { resize: none; line-height: 1.5; }
 .cs-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
 .cs-row label { min-width: 160px; }
 .cs-actions { display: flex; gap: 8px; align-items: center; }
+.cs-hint { color: var(--text-dim); font-size: 11px; line-height: 1.4; }
 
 .convo-search {
   margin: 0 12px 8px;

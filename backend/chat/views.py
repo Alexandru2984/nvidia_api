@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -65,6 +66,7 @@ from .models_catalog import (
     NVIDIA_MODELS,
     attachment_capability_issue,
     model_capabilities,
+    model_generation_limits,
 )
 from .registration import hash_invite_code
 from .security_events import actor_for_request, security_log
@@ -902,7 +904,14 @@ def conversations(request):
         return Response({'error': f'Unknown model_id: {model_id}'}, status=status.HTTP_400_BAD_REQUEST)
     if requested_model and model_id in unavailable_model_ids():
         return _unavailable_model_response()
-    convo = Conversation.objects.create(user=request.user, title=title, model_id=model_id)
+    generation = model_generation_limits(model_id)
+    convo = Conversation.objects.create(
+        user=request.user,
+        title=title,
+        model_id=model_id,
+        temperature=generation['temperature']['default'],
+        max_tokens=generation['max_tokens']['default'],
+    )
     return Response(_conversation_data(convo), status=status.HTTP_201_CREATED)
 
 
@@ -913,6 +922,27 @@ LEGACY_MESSAGE_LIMIT = 200
 ATTACHMENT_PAGE_DEFAULT = 30
 ATTACHMENT_PAGE_MAX = 50
 LEGACY_ATTACHMENT_LIMIT = 100
+
+
+def _clamp_conversation_generation(convo, model_id=None):
+    """Return fields changed to keep persisted settings inside a model contract."""
+    generation = model_generation_limits(model_id or convo.model_id)
+    temperature = generation['temperature']
+    max_tokens = generation['max_tokens']
+    bounded_temperature = min(
+        max(convo.temperature, temperature['min']), temperature['max'],
+    )
+    bounded_max_tokens = min(
+        max(convo.max_tokens, max_tokens['min']), max_tokens['max'],
+    )
+    changed = []
+    if convo.temperature != bounded_temperature:
+        convo.temperature = bounded_temperature
+        changed.append('temperature')
+    if convo.max_tokens != bounded_max_tokens:
+        convo.max_tokens = bounded_max_tokens
+        changed.append('max_tokens')
+    return changed
 
 
 def _page_limit(request, *, default, maximum):
@@ -1042,27 +1072,49 @@ def conversation_detail(request, pk):
         if model_id in unavailable_model_ids():
             return _unavailable_model_response()
         convo.model_id = model_id
+    generation = model_generation_limits(convo.model_id)
     if 'system_prompt' in request.data:
         sp = (request.data.get('system_prompt') or '').strip()
         if len(sp) > MAX_SYSTEM_PROMPT_CHARS:
             return Response({'error': f'System prompt too long (max {MAX_SYSTEM_PROMPT_CHARS} chars).'}, status=400)
         convo.system_prompt = sp
     if 'temperature' in request.data:
+        raw_temperature = request.data.get('temperature')
         try:
-            temp = float(request.data.get('temperature'))
+            if isinstance(raw_temperature, bool):
+                raise ValueError
+            temp = float(raw_temperature)
         except (TypeError, ValueError):
             return Response({'error': 'temperature must be a number'}, status=400)
-        if not (0.0 <= temp <= 2.0):
-            return Response({'error': 'temperature must be between 0 and 2'}, status=400)
+        temp_limits = generation['temperature']
+        if not math.isfinite(temp) or not (temp_limits['min'] <= temp <= temp_limits['max']):
+            return Response({
+                'error': (
+                    f"temperature must be between {temp_limits['min']:g} "
+                    f"and {temp_limits['max']:g} for this model"
+                ),
+            }, status=400)
         convo.temperature = temp
     if 'max_tokens' in request.data:
+        raw_max_tokens = request.data.get('max_tokens')
         try:
-            mt = int(request.data.get('max_tokens'))
+            if isinstance(raw_max_tokens, bool):
+                raise ValueError
+            mt = int(raw_max_tokens)
         except (TypeError, ValueError):
             return Response({'error': 'max_tokens must be an integer'}, status=400)
-        if not (64 <= mt <= 8192):
-            return Response({'error': 'max_tokens must be between 64 and 8192'}, status=400)
+        if isinstance(raw_max_tokens, float) and not raw_max_tokens.is_integer():
+            return Response({'error': 'max_tokens must be an integer'}, status=400)
+        token_limits = generation['max_tokens']
+        if not (token_limits['min'] <= mt <= token_limits['max']):
+            return Response({
+                'error': (
+                    f"max_tokens must be between {token_limits['min']} "
+                    f"and {token_limits['max']} for this model"
+                ),
+            }, status=400)
         convo.max_tokens = mt
+    _clamp_conversation_generation(convo)
     if has_archive:
         convo.archived_at = timezone.now() if requested_archive else None
         if requested_archive:
@@ -1739,9 +1791,13 @@ def send_message(request, pk):
             ),
         )
 
+    generation_fields = []
     if override_model and override_model != convo.model_id:
         convo.model_id = override_model
-        convo.save(update_fields=['model_id'])
+        generation_fields.append('model_id')
+    generation_fields.extend(_clamp_conversation_generation(convo))
+    if generation_fields:
+        convo.save(update_fields=list(dict.fromkeys(generation_fields)))
 
     prompt_characters = len(user_text) + sum(
         len(a.extracted_text or '') for a in attachments if a.kind == Attachment.KIND_DOCUMENT
@@ -1906,8 +1962,12 @@ def regenerate_message(request, pk):
     else:  # user
         anchor = target
 
-    if convo.model_id in unavailable_model_ids():
+    if convo.model_id not in MODEL_IDS or convo.model_id in unavailable_model_ids():
         return _unavailable_model_response()
+
+    generation_fields = _clamp_conversation_generation(convo)
+    if generation_fields:
+        convo.save(update_fields=generation_fields)
 
     # Check the durable provider budget before destructive truncation.
     usage_day = timezone.localdate()

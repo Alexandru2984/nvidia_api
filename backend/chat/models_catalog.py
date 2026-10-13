@@ -1,5 +1,7 @@
 """Documented NVIDIA-hosted chat models, conservatively gated by live probes."""
 
+from .generation import MODEL_GENERATION_OVERRIDES, model_generation_limits
+
 NVIDIA_MODELS = [
     {
         'id': 'nvidia/nemotron-3.5-lightning-30b-a3b',
@@ -255,7 +257,10 @@ _CLASSIFIED_MODEL_IDS = (
 )
 if len(MODEL_IDS) != len(NVIDIA_MODELS):
     raise RuntimeError('Duplicate NVIDIA model ID in catalog.')
-if DEFAULT_MODEL_ID not in MODEL_IDS or not _CLASSIFIED_MODEL_IDS <= MODEL_IDS:
+if (
+    DEFAULT_MODEL_ID not in MODEL_IDS
+    or not (_CLASSIFIED_MODEL_IDS | set(MODEL_GENERATION_OVERRIDES)) <= MODEL_IDS
+):
     raise RuntimeError('Model capability metadata references an unknown catalog ID.')
 
 MODEL_BY_ID = {model['id']: model for model in NVIDIA_MODELS}
@@ -267,6 +272,15 @@ for _model in NVIDIA_MODELS:
     _model['recommended'] = _model['purpose'] in {'assistant', 'coding'}
     _model['best_for'] = _best_for(_model['id'])
     _model['capabilities'] = _capabilities_for(_model['id'])
+    _model['generation'] = model_generation_limits(_model['id'])
+
+    _temperature = _model['generation']['temperature']
+    _max_tokens = _model['generation']['max_tokens']
+    if not (
+        _temperature['min'] <= _temperature['default'] <= _temperature['max']
+        and _max_tokens['min'] <= _max_tokens['default'] <= _max_tokens['max']
+    ):
+        raise RuntimeError(f"Invalid generation limits for {_model['id']}.")
 
 
 def model_capabilities(model_id):
