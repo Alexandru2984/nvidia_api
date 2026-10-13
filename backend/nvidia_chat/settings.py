@@ -199,6 +199,14 @@ MODEL_STATUS_MAX_AGE_SECONDS = _nonnegative_int_env(
 if MODEL_STATUS_MAX_AGE_SECONDS < 60 * 60:
     raise ImproperlyConfigured('MODEL_STATUS_MAX_AGE_SECONDS must be at least 3600.')
 
+CHAT_GENERATION_LEASE_SECONDS = _nonnegative_int_env(
+    'CHAT_GENERATION_LEASE_SECONDS', 15 * 60,
+)
+if not 300 <= CHAT_GENERATION_LEASE_SECONDS <= 60 * 60:
+    raise ImproperlyConfigured(
+        'CHAT_GENERATION_LEASE_SECONDS must be between 300 and 3600.',
+    )
+
 
 # Durable daily provider budgets. Set AI_GENERATION_ENABLED=False and restart
 # the service for an immediate global cost/abuse circuit breaker.

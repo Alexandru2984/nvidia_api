@@ -1,4 +1,4 @@
-"""Daily cleanup: orphan attachments, expired OTPs, and invitation audit rows.
+"""Daily cleanup for expired uploads, auth metadata, audits, and generation leases.
 
 Scheduled in production by `aichat-maintenance.timer`.
 """
@@ -15,6 +15,7 @@ from chat.models import (
     AdminAuditEvent,
     Attachment,
     AttachmentUploadAttempt,
+    ConversationGenerationLease,
     EmailVerification,
     PasswordReset,
     RegistrationInvite,
@@ -22,7 +23,7 @@ from chat.models import (
 
 
 class Command(BaseCommand):
-    help = 'Delete expired temporary uploads, authentication codes, and invitation audit rows.'
+    help = 'Delete expired uploads, auth metadata, audit rows, and generation leases.'
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true', help='Show what would be deleted, but do not delete.')
@@ -56,12 +57,16 @@ class Command(BaseCommand):
         upload_attempt_qs = AttachmentUploadAttempt.objects.filter(
             updated_at__lt=upload_attempt_cutoff,
         )
+        generation_lease_qs = ConversationGenerationLease.objects.filter(
+            expires_at__lte=now,
+        )
         ev_count = ev_qs.count()
         pr_count = pr_qs.count()
         invite_count = invite_qs.count()
         admin_audit_count = admin_audit_qs.count()
         admin_log_count = admin_log_qs.count()
         upload_attempt_count = upload_attempt_qs.count()
+        generation_lease_count = generation_lease_qs.count()
 
         invalid_audits = sum(
             not audit_event_is_valid(event)
@@ -88,6 +93,7 @@ class Command(BaseCommand):
                 f'{admin_log_count} admin log entries'
             )
             self.stdout.write(f'  - {upload_attempt_count} expired upload attempts')
+            self.stdout.write(f'  - {generation_lease_count} expired generation leases')
             self.stdout.write(
                 f'  - audit integrity: {invalid_audits} invalid, {missing_audits} missing'
             )
@@ -101,11 +107,13 @@ class Command(BaseCommand):
         admin_audit_qs.delete()
         admin_log_qs.delete()
         upload_attempt_qs.delete()
+        generation_lease_qs.delete()
 
         self.stdout.write(self.style.SUCCESS(
             f'Deleted {att_count} orphan attachments ({att_bytes / 1024 / 1024:.1f} MB), '
             f'{ev_count} expired email verifications, {pr_count} expired password resets, '
             f'{invite_count} expired invitation audit rows, {admin_audit_count} expired admin '
             f'audit events, {admin_log_count} expired admin log entries, '
-            f'{upload_attempt_count} expired upload attempts.'
+            f'{upload_attempt_count} expired upload attempts, '
+            f'{generation_lease_count} expired generation leases.'
         ))

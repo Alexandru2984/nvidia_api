@@ -144,6 +144,23 @@ class Conversation(models.Model):
         return f'{self.title} ({self.model_id})'
 
 
+class ConversationGenerationLease(models.Model):
+    """Cross-worker exclusion for one streamed generation per conversation."""
+
+    conversation = models.OneToOneField(
+        Conversation,
+        related_name='generation_lease',
+        on_delete=models.CASCADE,
+        primary_key=True,
+    )
+    token = models.UUIDField(editable=False)
+    acquired_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    def __str__(self):
+        return f'ConversationGenerationLease(conversation={self.conversation_id})'
+
+
 class DailyAIUsage(models.Model):
     """Durable per-user provider budget for one UTC day."""
     user = models.ForeignKey(

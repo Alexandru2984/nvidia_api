@@ -13,6 +13,7 @@ from chat.models import (
     Attachment,
     AttachmentUploadAttempt,
     Conversation,
+    ConversationGenerationLease,
     EmailVerification,
     Message,
     PasswordReset,
@@ -114,6 +115,35 @@ class TestCleanupAttachments:
 
         assert not AttachmentUploadAttempt.objects.filter(pk=old.pk).exists()
         assert AttachmentUploadAttempt.objects.filter(pk=recent.pk).exists()
+
+    def test_removes_only_expired_generation_leases(self, user):
+        now = timezone.now()
+        expired_convo = Conversation.objects.create(
+            user=user,
+            title='expired',
+            model_id=DEFAULT_MODEL_ID,
+        )
+        active_convo = Conversation.objects.create(
+            user=user,
+            title='active',
+            model_id=DEFAULT_MODEL_ID,
+        )
+        ConversationGenerationLease.objects.create(
+            conversation=expired_convo,
+            token='00000000-0000-4000-8000-000000000001',
+            expires_at=now - timedelta(seconds=1),
+        )
+        active = ConversationGenerationLease.objects.create(
+            conversation=active_convo,
+            token='00000000-0000-4000-8000-000000000002',
+            expires_at=now + timedelta(minutes=5),
+        )
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        assert list(
+            ConversationGenerationLease.objects.values_list('pk', flat=True)
+        ) == [active.pk]
 
     def test_removes_expired_and_old_used_invitation_audit_rows(self, user, settings):
         settings.REGISTRATION_INVITE_AUDIT_DAYS = 90
