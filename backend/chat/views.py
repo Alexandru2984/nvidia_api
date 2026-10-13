@@ -1548,6 +1548,12 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                 yield ('usage', {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0})
                 yield ('error', f'NVIDIA API error ({resp.status_code}). Try again later.')
                 return
+            content_type = resp.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+            if content_type != 'text/event-stream':
+                log.warning('NVIDIA chat API returned an invalid streaming content type')
+                yield ('error', 'NVIDIA API returned an invalid stream. Try again later.')
+                return
+            saw_done = False
             for line in resp.iter_lines(decode_unicode=True):
                 if not line:
                     continue
@@ -1557,11 +1563,18 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                     continue
                 data = line[5:].strip()
                 if data == '[DONE]':
-                    return
+                    saw_done = True
+                    break
                 try:
                     obj = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(obj, dict):
+                    continue
+                if 'error' in obj:
+                    log.warning('NVIDIA chat API returned a streaming error event')
+                    yield ('error', 'NVIDIA API stream failed. Try again later.')
+                    return
                 choices = obj.get('choices') or []
                 if choices:
                     delta = choices[0].get('delta') or {}
@@ -1570,6 +1583,9 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                         yield ('chunk', chunk)
                 if obj.get('usage'):
                     yield ('usage', obj['usage'])
+            if not saw_done:
+                log.warning('NVIDIA chat API stream ended without a completion marker')
+                yield ('error', 'NVIDIA API stream ended unexpectedly. Try again later.')
     except requests.RequestException:
         log.warning('NVIDIA chat API request failed', exc_info=True)
         yield ('error', 'NVIDIA API request failed. Try again later.')

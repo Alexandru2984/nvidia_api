@@ -271,6 +271,7 @@ class TestProbeCommand:
     @pytest.mark.parametrize(('content_type', 'lines'), [
         ('application/json', [b'{"choices":[]}']),
         ('text/event-stream', [b'data: {"choices":[]}']),
+        ('text/event-stream', [b'data: {"choices":[]}', b'data: [DONE]']),
         ('text/event-stream', [b'data: {"error":{"message":"unavailable"}}', b'data: [DONE]']),
         ('text/event-stream', [b'data: not-json', b'data: [DONE]']),
     ])

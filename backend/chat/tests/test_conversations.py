@@ -435,6 +435,7 @@ class TestNvidiaStreamParser:
     @patch('chat.views.requests.post')
     def test_decodes_byte_sse_and_requests_terminal_usage(self, mock_post):
         response = MagicMock(status_code=200)
+        response.headers = {'Content-Type': 'text/event-stream; charset=utf-8'}
         response.iter_lines.return_value = [
             b'data: {"choices":[{"delta":{"content":"hello"}}]}',
             b'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}',
@@ -450,6 +451,33 @@ class TestNvidiaStreamParser:
         ]
         payload = mock_post.call_args.kwargs['json']
         assert payload['stream_options'] == {'include_usage': True}
+
+    @pytest.mark.parametrize(('content_type', 'lines', 'expected_error'), [
+        ('application/json', [], 'NVIDIA API returned an invalid stream. Try again later.'),
+        (
+            'text/event-stream',
+            [b'data: {"error":{"message":"provider detail"}}', b'data: [DONE]'],
+            'NVIDIA API stream failed. Try again later.',
+        ),
+        (
+            'text/event-stream',
+            [b'data: {"choices":[{"delta":{"content":"partial"}}]}'],
+            'NVIDIA API stream ended unexpectedly. Try again later.',
+        ),
+    ])
+    @patch('chat.views.requests.post')
+    def test_rejects_invalid_error_or_incomplete_streams(
+        self, mock_post, content_type, lines, expected_error,
+    ):
+        response = MagicMock(status_code=200)
+        response.headers = {'Content-Type': content_type}
+        response.iter_lines.return_value = lines
+        mock_post.return_value.__enter__.return_value = response
+
+        events = list(_stream_nvidia('test/model', [{'role': 'user', 'content': 'hi'}]))
+
+        assert events[-1] == ('error', expected_error)
+        assert 'provider detail' not in repr(events)
 
     @patch('chat.views.requests.post')
     def test_rejected_request_emits_zero_usage_to_release_reservation(self, mock_post):

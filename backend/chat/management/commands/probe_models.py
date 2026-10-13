@@ -104,6 +104,7 @@ class Command(BaseCommand):
             return 'protocol_error'
 
         saw_event = False
+        saw_usage = False
         saw_done = False
         for line in response.iter_lines(decode_unicode=True):
             if isinstance(line, bytes):
@@ -120,9 +121,11 @@ class Command(BaseCommand):
                 continue
             if not isinstance(event, dict) or 'error' in event:
                 return 'protocol_error'
-            if 'choices' in event or event.get('usage'):
+            if 'choices' in event:
                 saw_event = True
-        return 'available' if saw_event and saw_done else 'protocol_error'
+            if isinstance(event.get('usage'), dict):
+                saw_usage = True
+        return 'available' if saw_event and saw_usage and saw_done else 'protocol_error'
 
     def handle(self, *args, **opts):
         timeout = max(1, min(opts['timeout'], 120))
