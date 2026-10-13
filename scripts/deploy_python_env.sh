@@ -187,6 +187,18 @@ trap 'handle_error "$?"' ERR
 trap 'handle_error 130' INT TERM
 
 "$PYTHON" -m venv --copies "$release"
+"$PYTHON" - "$release/bin" <<'PY'
+from pathlib import Path
+import sys
+
+for path in Path(sys.argv[1]).iterdir():
+    try:
+        path.name.encode('ascii')
+    except UnicodeEncodeError:
+        if not (path.is_file() or path.is_symlink()):
+            raise SystemExit(f'unsafe non-ASCII venv entry: {path.name!r}')
+        path.unlink()
+PY
 git_read show "$commit:backend/requirements.txt" > "$release/.release-requirements.txt"
 printf '%s\n' "$commit" > "$release/.release-commit"
 chown -R nobody:nogroup -- "$release"
