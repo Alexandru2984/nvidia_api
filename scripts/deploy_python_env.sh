@@ -8,6 +8,7 @@ DOMAIN='aichat.micutu.com'
 REPO_DIR='/home/micu/nvidia'
 RUNTIME_DIR='/home/micu/nvidia/backend'
 APP_LIVE='/opt/aichat-backend-current'
+APP_RELEASE_ROOT='/opt/aichat-backend-releases'
 RELEASE_ROOT='/opt/aichat-python-envs'
 LIVE_PATH='/opt/aichat-python-current'
 SERVICE='aichat-backend.service'
@@ -123,8 +124,13 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
 fi
-if [[ ! -d "$APP_LIVE" || -L "$APP_LIVE" ]]; then
+if [[ ! -L "$APP_LIVE" ]]; then
   echo 'ERROR: active backend application release is missing or unsafe' >&2
+  exit 1
+fi
+app_release="$(readlink -f -- "$APP_LIVE")"
+if [[ "$app_release" != "$APP_RELEASE_ROOT"/* || ! -d "$app_release" || -L "$app_release" ]]; then
+  echo 'ERROR: active backend application symlink leaves the trusted release root' >&2
   exit 1
 fi
 if ! git_read diff --quiet -- || ! git_read diff --cached --quiet --; then
