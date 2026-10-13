@@ -88,6 +88,14 @@ timed evidence.
   claimed under row lock; failed or unstarted regeneration preserves the old
   branch. Add client idempotency keys and explicit durable generation jobs before
   automatic network retries or horizontal queue processing.
+- **Bounded chat storage and egress are shipped:** owner-row serialization makes
+  conversation limits and cross-conversation message reservations durable across
+  workers; regeneration reserves only projected growth. Assistant output and
+  streamed Markdown exports have hard bounds, attachment/export/session routes
+  are throttled, expired sessions are removed by daily maintenance, quota blocks
+  alert, and the responsive Storage panel shows the limits. Add global chat-byte
+  budgets, configurable linked-history retention, and an indexed owner/session
+  registry before materially raising account or session volume.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page

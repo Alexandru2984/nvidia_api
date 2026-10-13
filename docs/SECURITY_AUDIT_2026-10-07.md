@@ -378,6 +378,18 @@ Remediation: add durable per-user/global object and byte quotas, scheduled sessi
 cleanup, bounded export/download rates, streaming export, retention settings and
 alerts on growth.
 
+Status: substantially mitigated. Production now atomically enforces 500 saved
+conversations/user, 10,000 messages/user and 2,000 messages/conversation across
+workers, including projected send/regeneration rows. Assistant persistence is
+bounded to 64,000 characters. Owner-scoped Markdown export streams only below a
+conservative 25 MiB estimate and is limited to 10/hour; attachment downloads are
+limited to 120/hour; session list/revocation routes have per-user limits. Daily
+maintenance removes expired database sessions and the security monitor alerts on
+quota blocks. The responsive account panel exposes object consumption. Residual
+work is a global/chat-byte budget, linked-history retention/deletion policy,
+absolute session lifetime and an indexed owner/session registry that avoids
+decoding the global active-session table.
+
 ### S-13 — Medium — highest-risk changes are not independently detectable
 
 Evidence: the five-minute monitor is healthy and intentionally privacy-minimized,
@@ -441,6 +453,10 @@ production-entitlement decisions, and provide export/deletion status.
 - PostgreSQL generation leases serialize conversation work across workers,
   heartbeat active streams, fence conflicting mutation, row-lock attachment
   claims, and preserve the prior regeneration branch until replacement exists.
+- User-row serialized chat quotas account for persisted and in-flight messages;
+  assistant output and streamed exports are bounded, private egress/session
+  routes are throttled, expired sessions are scheduled for deletion, and quota
+  blocks feed the security monitor.
 - Password reset/verification codes are keyed hashes with expiry, attempt limits,
   transactional consumption and anti-enumeration response bodies. Password resets
   revoke sessions and do not bypass enabled 2FA.
@@ -505,8 +521,10 @@ production-entitlement decisions, and provide export/deletion status.
 2. Replace loopback TCP/backend trust with permissioned/authenticated origin
    paths.
 3. Add recent-auth and absolute-session policy, request idempotency/durable job
-   state, durable storage/object/egress quotas, and session cleanup. The
-   per-conversation generation lease and attachment claim lock are deployed.
+   state, global/chat-byte quotas, linked-history retention and an indexed
+   owner/session registry. Per-user object quotas, bounded/throttled egress,
+   expired-session cleanup, the per-conversation generation lease and attachment
+   claim lock are deployed.
 4. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
 5. Pin CI Actions and lock Python artifacts by hash.

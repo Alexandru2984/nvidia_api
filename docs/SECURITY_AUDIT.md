@@ -72,7 +72,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, chat-object quota blocks, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
@@ -667,6 +667,44 @@ is required before describing those controls as complete.
   entries appeared; the only warning was the intentional anonymous private-route
   probe. Rollback is the retained dump plus code rollback and reverse migration
   to `0020`; no rollback was required.
+
+### Chat storage and egress quota rollout — 2026-10-13
+
+- Deployed repository state `0337508` with migration
+  `0022_conversationgenerationlease_reserved_messages_and_more`. Owner-row locks
+  serialize conversation creation and cross-conversation message accounting;
+  active generation leases reserve up to two projected rows so concurrent workers
+  cannot collectively exceed 500 conversations/user, 10,000 messages/user or
+  2,000 messages/conversation. Regenerating a trailing user message reserves its
+  one possible new row, while replacing an existing branch remains possible at
+  the quota.
+- Assistant output is capped at 64,000 characters. Owner-scoped Markdown export
+  is streamed only below a conservative 25 MiB estimate and limited to 10/hour;
+  private attachment downloads are limited to 120/hour. Session list/revocation
+  endpoints are throttled, daily maintenance deletes expired database sessions,
+  quota blocks feed the five-minute monitor, and the responsive Storage panel
+  exposes saved-object limits at 320, 390, 768 and 1440 px.
+- All 427 backend, 33 Playwright and 10 monitor tests passed with lint, production
+  build, compile, Django/migration checks, `pip check`, zero npm advisories and
+  clean diffs. The deploy check reported only the deliberate HSTS-preload warning.
+  The pre-migration rollback dump is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261013_190012_583858358.sql.gz`
+  (`SHA-256 019e71b1753630d7b282c357d2d347e38e03478a3921668f861c9029f7b0f558`,
+  mode `0600`).
+- Production had 6 conversations and 16 messages, with observed per-owner/per-
+  conversation maxima of 4/13/4, below the new 500/10,000/2,000 limits. PostgreSQL
+  column nullability and both `0..2` reservation constraints were inspected. A
+  rollback-only live smoke proved `2→1→released`, stable `409 messages_limit` and
+  no residual data. Maintenance removed 10 already-expired sessions and the next
+  dry-run was empty.
+- Root-owned frontend release
+  `/var/www/aichat-releases/release-20261013T160109_983111340` is active;
+  `/var/www/aichat-releases/release-20261013T104046_858573441` is retained for
+  atomic rollback. Its manifest, origin/public 200/403/404 boundaries, security
+  headers, nginx syntax, three timers and manual security monitor all passed. The
+  backend has three workers, zero automatic restarts and no warning/error rollout
+  journal entries after readiness. Rollback is the retained dump and frontend
+  release plus code rollback and reverse migration to `0021`; none was required.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

@@ -78,6 +78,11 @@ AI_USER_DAILY_CHAT_LIMIT=100
 AI_USER_DAILY_IMAGE_LIMIT=10
 AI_GLOBAL_DAILY_CHAT_LIMIT=500
 AI_GLOBAL_DAILY_IMAGE_LIMIT=50
+CHAT_MAX_CONVERSATIONS_PER_USER=500
+CHAT_MAX_MESSAGES_PER_USER=10000
+CHAT_MAX_MESSAGES_PER_CONVERSATION=2000
+CHAT_MAX_ASSISTANT_CHARS=64000
+CHAT_MAX_EXPORT_BYTES=26214400
 
 # Email (used for OTP verification) — self-hosted mailcow
 SMTP_HOST=mail.micutu.com
@@ -132,17 +137,18 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Cascades all user data. |
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists opaque session handles and revokes selected/other sessions. |
-| GET | `/account/usage/` | — | session | Storage totals plus today's durable chat/image budgets and UTC reset. |
+| GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
-| POST | `/conversations/` | `{model_id?, title?}` | session | |
+| POST | `/conversations/` | `{model_id?, title?}` | session | Enforces the durable per-user conversation limit atomically. |
 | GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–1, tokens 64 through the selected model's advertised ceiling, prompt ≤4000 chars. |
-| POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA and persists both messages. The effective model is validated before any override is saved; incompatible type, MIME, byte size, or image count fails closed. |
+| POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Atomically reserves both saved-message slots before proxying to NVIDIA. The effective model is validated before any override is saved; incompatible type, MIME, byte size, image count, storage quota, or output bound fails closed. |
+| GET | `/conversations/<id>/export/` | — | session | Owner-scoped Markdown stream; limited to 10/hour and rejected before streaming when its conservative estimate exceeds `CHAT_MAX_EXPORT_BYTES`. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
 | POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Empty or image-only documents are rejected after bounded extraction. An identical pending upload for the same owner is reused with `deduplicated: true`. |
 | DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
 | GET | `/attachments/<id>/preview/` | — | session | Ownership-checked, 4,000-character extracted-text preview for documents; returned with private/no-store cache policy. |
-| GET | `/attachments/<id>/download/` | — | session | Ownership-checked private download; never expose `MEDIA_ROOT` directly. |
+| GET | `/attachments/<id>/download/` | — | session | Ownership-checked private download, limited to 120/hour; never expose `MEDIA_ROOT` directly. |
 | GET | `/images/models/` | — | session | List image-generation catalog (FLUX schnell/dev; each entry includes `allowed_dims`). |
 | POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Saves the generated image to local media storage. |
 
@@ -177,6 +183,16 @@ before provider dispatch removes its pending user message and releases its token
 reservation. Pending attachment rows are revalidated under row lock before they
 are linked, and regeneration keeps the previous branch until replacement text
 exists. Expired leases are removed by the normal maintenance command.
+
+Saved chat growth is also bounded across workers. Conversation creation locks the
+owner row before enforcing `CHAT_MAX_CONVERSATIONS_PER_USER`; send and trailing-
+user regeneration reserve their projected message rows under the same lock before
+provider work. Defaults are 500 conversations/user, 10,000 messages/user and
+2,000 messages/conversation. Assistant output is capped at 64,000 characters,
+Markdown exports are streamed under a conservative 25 MiB ceiling, and quota
+blocks are security-monitored. The responsive Storage panel exposes current
+counts and limits. Daily maintenance deletes expired database sessions; session
+inventory/revocation and attachment/export egress have explicit rate limits.
 
 The token limit is a consumption/capacity control, not a fabricated currency
 estimate. NVIDIA documents production NIM pricing around licensing/GPU capacity,
