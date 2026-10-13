@@ -250,13 +250,18 @@ if find "$release" -xdev \( -type l -o ! -type d -a ! -type f \) -print -quit | 
   echo 'ERROR: Python environment contains a symlink or special file' >&2
   false
 fi
-while IFS= read -r -d '' path; do
-  relative="${path#"$release"/}"
-  if [[ ! "$relative" =~ ^([A-Za-z0-9._\[\]-]+/)*[A-Za-z0-9._\[\]-]+$ ]]; then
-    echo "ERROR: unsafe Python environment path: $relative" >&2
-    false
-  fi
-done < <(find "$release" -xdev -mindepth 1 -print0)
+"$PYTHON" - "$release" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root = Path(sys.argv[1])
+safe_path = re.compile(r'^(?:[A-Za-z0-9._\[\]-]+/)*[A-Za-z0-9._\[\]-]+$')
+for path in root.rglob('*'):
+    relative = path.relative_to(root).as_posix()
+    if not safe_path.fullmatch(relative):
+        raise SystemExit(f'unsafe Python environment path: {relative}')
+PY
 
 file_count="$(find "$release" -xdev -type f -printf . | wc -c)"
 byte_count="$(du -sb -- "$release" | cut -f1)"
