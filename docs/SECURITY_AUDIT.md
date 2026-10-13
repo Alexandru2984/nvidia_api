@@ -574,6 +574,45 @@ is required before describing those controls as complete.
   all application timers are active, both probe and monitor completed with exit
   status zero, and the backend has zero automatic restarts or post-boot warnings.
 
+### Streaming and generation-contract rollout — 2026-10-13
+
+- Deployed repository states `7e3d276`, `dfc30b9`, and `c390e8f`. Migration
+  `0020` first normalizes legacy generation values, then enforces temperature
+  `0..1`, global output-token `64..8192`, and Riva Translate v2's documented
+  `4096` ceiling with PostgreSQL constraints. All six production conversations
+  satisfied the new constraints without normalization loss.
+- The availability probe and live chat now build one shared NVIDIA request:
+  streaming enabled, terminal usage requested, temperature present, and SSE
+  accepted. Availability requires a valid event, usage object, and `[DONE]`;
+  200 responses with the wrong content type, error events, malformed/truncated
+  streams, and missing metering are inconclusive rather than healthy.
+- Live chat rejects non-SSE 200 responses, privacy-sanitizes provider error
+  events, and rejects streams that end without `[DONE]`. Missing usage remains
+  cost-fail-closed through the existing durable token reservation. Regeneration
+  now also rejects historical model IDs removed from the catalog before a
+  provider reservation or call.
+- The authenticated model contract publishes per-model temperature and output
+  bounds. Conversation creation uses model defaults; switching or request-time
+  override clamps older saved settings atomically. The responsive UI derives its
+  controls and output-limit badge from the same contract. A live edge probe
+  confirmed the common `8192` ceiling on 11 models and isolated Riva's official
+  `4096` limit and `0/512` defaults.
+- Pre-migration PostgreSQL backup
+  `nvidia_db_20261013_134018_942072312.sql.gz` passed gzip validation. Private
+  root-owned status snapshots are retained as
+  `model_status.pre-7e3d276.json` and `model_status.pre-c390e8f.json`. Frontend
+  release `/var/www/aichat-releases/release-20261013T104046_858573441` is active;
+  `/var/www/aichat-releases/release-20261012T230158_666603612` remains the
+  validated atomic rollback target.
+- All 373 backend and 33 responsive Playwright tests passed with lint, production
+  build, Django deploy/migration checks, and PostgreSQL constraint inspection.
+  The strengthened production probe completed successfully with 13/20 fully
+  metered streams, seven transient failures, zero protocol errors and no
+  unverified IDs. Public/origin health returned 200, `/media/` returned 404,
+  anonymous private/configuration routes returned 403, the security monitor and
+  all timers are healthy, and the backend has zero restarts or warning-level
+  rollout entries.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
@@ -596,3 +635,4 @@ remain open.
 - [NVIDIA GLM 5.3 Flash model card](https://build.nvidia.com/z-ai/glm-5.3-flash/modelcard)
 - [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
 - [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)
+- [NVIDIA Riva Translate v2 API contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-riva-translate-4b-instruct-v2-infer)

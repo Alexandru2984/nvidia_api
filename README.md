@@ -131,7 +131,7 @@ All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CS
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | |
-| GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–2, tokens 64–8192, prompt ≤4000 chars. |
+| GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–1, tokens 64 through the selected model's advertised ceiling, prompt ≤4000 chars. |
 | POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Proxies to NVIDIA and persists both messages. The effective model is validated before any override is saved; incompatible type, MIME, byte size, or image count fails closed. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
 | POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Empty or image-only documents are rejected after bounded extraction. An identical pending upload for the same owner is reused with `deduplicated: true`. |
@@ -184,8 +184,11 @@ endpoints. It was built by:
 
 NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both directions, so availability is re-checked automatically:
 
-- `python manage.py probe_models` probes every catalog model with a 1-token completion
-  (with one retry for cold starts) and writes the private `0600` runtime file
+- `python manage.py probe_models` probes every catalog model with the production
+  streaming envelope and a 1-token completion (with one retry for cold starts).
+  A model passes only after a valid SSE event, terminal usage accounting and
+  `[DONE]`; a 200 JSON response, provider error event, truncated stream or missing
+  usage is an inconclusive protocol failure. The command writes the private `0600` runtime file
   `backend/.cache/model_status.json` atomically. Its schema, size, model IDs,
   outcome vocabulary, latency range, attempt count, timezone and freshness are
   validated when read. Production requires this file and accepts it for eight
@@ -193,15 +196,18 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   the security monitor.
 - Definitive endpoint failures (`404/410`) and payload-contract rejection
   (`400/422`) mark a model unavailable. Authentication/entitlement failures,
-  throttling, timeouts, network errors, ambiguous 4xx and provider 5xx responses
+  throttling, timeouts, network/protocol errors, ambiguous 4xx and provider 5xx responses
   are inconclusive: an already verified model keeps its last decision, while a
   never-verified model remains blocked. Degraded and authorization failures are
   alerted and explicit in the authenticated UI without exposing provider bodies.
 - `/api/models/` subtracts the resolved unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
-- Each catalog row exposes `purpose`, `recommended`, conservative `best_for`, and a
-  `capabilities` contract. The UI groups assistant/coding/translation/safety/
+- Each catalog row exposes `purpose`, `recommended`, conservative `best_for`,
+  input `capabilities`, and a model-specific `generation` contract. The UI groups assistant/coding/translation/safety/
   specialized models and derives its image/document picker from that contract;
-  the backend independently enforces the same MIME, byte, and image-count rules.
+  it also derives temperature/output-token controls from the selected model.
+  The backend and database independently enforce the same attachment and
+  generation rules. Riva Translate v2 is capped at its documented 4096 output
+  tokens and uses the provider's documented 0/512 defaults for new conversations.
 - The model explorer searches name/vendor/ID/capabilities/guidance, sorts by
   recommendation, last probe, context, or name, compares up to three available
   models, and shows the runtime availability timestamp. Successful latency is
@@ -224,6 +230,8 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
 Adding a brand-new model means editing `chat/models_catalog.py` and verifying its
 ID, description, context window, purpose, recommendation status, input modalities,
 accepted image MIME types, maximum image count/bytes, and live probe result.
+Also declare any generation-limit/default override in `chat/generation.py` and
+verify the maximum request shape against the official hosted endpoint.
 
 ## Production deploy
 

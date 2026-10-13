@@ -66,7 +66,10 @@ timed evidence.
   failures, blocks newly added IDs until their first successful probe, and alerts
   degraded or authorization-failed probes without leaking provider error details.
   The October 2026 catalog tracks 20 current documented endpoints; its deployed
-  probe currently exposes 12, including five verified image-capable models.
+  full-stream probe currently exposes 13, including six verified image-capable
+  models. Model-specific temperature/output-token contracts are enforced by API,
+  responsive controls and database constraints; incomplete or unmetered streams
+  fail closed without exposing provider details.
   Expose reasoning, tool use, structured output, and output modality controls only
   when verified and declared by the selected model.
 - **Resilient attachment intake is shipped:** picker, drag/drop, clipboard image
