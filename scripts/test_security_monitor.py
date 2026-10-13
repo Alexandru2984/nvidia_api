@@ -206,6 +206,73 @@ class SecurityMonitorTests(unittest.TestCase):
         )
         self.assertIn('backend_integrity', issues)
 
+    def create_python_environment_release(self):
+        release_root = self.root / 'python-envs'
+        release = release_root / 'release-20261013T020304_123456789'
+        bin_dir = release / 'bin'
+        template_dir = release / 'lib' / 'package' / 'templates'
+        bin_dir.mkdir(parents=True, mode=0o755)
+        template_dir.mkdir(parents=True, mode=0o755)
+        release_root.chmod(0o755)
+        release.chmod(0o755)
+        for directory in (path for path in release.rglob('*') if path.is_dir()):
+            directory.chmod(0o755)
+        python = bin_dir / 'python'
+        package = release / 'lib' / 'package' / '__init__.py'
+        template = template_dir / '[Content_Types].xml'
+        commit = release / '.release-commit'
+        requirements = release / '.release-requirements.txt'
+        python.write_bytes(b'python fixture\n')
+        package.write_text('VERSION = 1\n', encoding='utf-8')
+        template.write_text('<types />\n', encoding='utf-8')
+        commit.write_text('b' * 40 + '\n', encoding='ascii')
+        requirements.write_text('package==1\n', encoding='ascii')
+        python.chmod(0o755)
+        for path in (package, template, commit, requirements):
+            path.chmod(0o644)
+        manifest = release / monitor.RELEASE_MANIFEST
+        files = (commit, requirements, python, package, template)
+        manifest.write_text(
+            ''.join(
+                f'{hashlib.sha256(path.read_bytes()).hexdigest()}  ./{path.relative_to(release)}\n'
+                for path in files
+            ),
+            encoding='ascii',
+        )
+        manifest.chmod(0o644)
+        live = self.root / 'python-current'
+        live.symlink_to(release)
+        return live, release_root, python
+
+    def python_environment_issues(self, live, release_root):
+        return monitor.evaluate_python_environment_release(
+            live,
+            release_root,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+
+    def test_python_environment_manifest_accepts_executable_and_bracketed_path(self):
+        live, release_root, _ = self.create_python_environment_release()
+        self.assertEqual(self.python_environment_issues(live, release_root), {})
+
+    def test_python_environment_manifest_rejects_non_executable_interpreter(self):
+        live, release_root, python = self.create_python_environment_release()
+        python.chmod(0o644)
+        self.assertIn(
+            'python_environment_integrity',
+            self.python_environment_issues(live, release_root),
+        )
+
+    def test_evaluate_rejects_partial_python_environment_configuration(self):
+        issues = monitor.evaluate(
+            self.backups,
+            self.restore_log,
+            '',
+            python_environment_live=self.root / 'missing',
+        )
+        self.assertIn('python_environment_integrity', issues)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -7,7 +7,7 @@ umask 022
 DOMAIN='aichat.micutu.com'
 REPO_DIR='/home/micu/nvidia'
 RUNTIME_DIR='/home/micu/nvidia/backend'
-VENV_DIR="$RUNTIME_DIR/venv"
+VENV_DIR='/opt/aichat-python-current'
 RELEASE_ROOT='/opt/aichat-backend-releases'
 LIVE_PATH='/opt/aichat-backend-current'
 SERVICE='aichat-backend.service'
@@ -189,8 +189,8 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
 fi
-if [[ ! -x "$VENV_DIR/bin/python" || ! -x "$VENV_DIR/bin/gunicorn" ]]; then
-  echo 'ERROR: production virtual environment is incomplete' >&2
+if [[ ! -x "$VENV_DIR/bin/python" || ! -f "$VENV_DIR/.release-manifest.sha256" ]]; then
+  echo 'ERROR: immutable production Python environment is incomplete' >&2
   exit 1
 fi
 if ! git_read diff --quiet -- || ! git_read diff --cached --quiet --; then

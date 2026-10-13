@@ -32,8 +32,13 @@ FRONTEND_MAX_FILES = 5_000
 FRONTEND_MAX_BYTES = 256 * 1024 * 1024
 BACKEND_MAX_FILES = 5_000
 BACKEND_MAX_BYTES = 128 * 1024 * 1024
+PYTHON_ENV_MAX_FILES = 20_000
+PYTHON_ENV_MAX_BYTES = 512 * 1024 * 1024
 SAFE_RELEASE_NAME_RE = re.compile(r'^release-\d{8}T\d{6}_\d+$')
 SAFE_RELEASE_PATH_RE = re.compile(r'^(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$')
+PYTHON_ENV_SAFE_PATH_RE = re.compile(
+    r'^(?:[A-Za-z0-9._\[\]-]+/)*[A-Za-z0-9._\[\]-]+$',
+)
 
 
 def _hash_file(path):
@@ -52,6 +57,9 @@ def _evaluate_release(
     issue_message,
     max_files,
     max_bytes,
+    manifest_max_bytes=1024 * 1024,
+    safe_path_re=SAFE_RELEASE_PATH_RE,
+    executable_files=frozenset(),
     expected_uid=0,
     expected_gid=0,
 ):
@@ -96,7 +104,7 @@ def _evaluate_release(
             for name in dirnames + filenames:
                 path = directory_path / name
                 relative = path.relative_to(target).as_posix()
-                if not SAFE_RELEASE_PATH_RE.fullmatch(relative):
+                if not safe_path_re.fullmatch(relative):
                     return issue
                 info = path.lstat()
                 if stat.S_ISLNK(info.st_mode):
@@ -107,7 +115,8 @@ def _evaluate_release(
                     if stat.S_IMODE(info.st_mode) != 0o755:
                         return issue
                     continue
-                if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o644:
+                expected_mode = 0o755 if relative in executable_files else 0o644
+                if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != expected_mode:
                     return issue
                 if relative == RELEASE_MANIFEST:
                     continue
@@ -117,7 +126,7 @@ def _evaluate_release(
                 actual_files[f'./{relative}'] = path
 
         manifest_info = manifest_path.lstat()
-        if not stat.S_ISREG(manifest_info.st_mode) or manifest_info.st_size > 1024 * 1024:
+        if not stat.S_ISREG(manifest_info.st_mode) or manifest_info.st_size > manifest_max_bytes:
             return issue
         expected_hashes = {}
         for line in manifest_path.read_text(encoding='ascii').splitlines():
@@ -126,7 +135,7 @@ def _evaluate_release(
                 separator != '  '
                 or not re.fullmatch(r'[0-9a-f]{64}', digest)
                 or not relative.startswith('./')
-                or not SAFE_RELEASE_PATH_RE.fullmatch(relative[2:])
+                or not safe_path_re.fullmatch(relative[2:])
                 or relative in expected_hashes
             ):
                 return issue
@@ -182,6 +191,30 @@ def evaluate_backend_release(
     )
 
 
+def evaluate_python_environment_release(
+    live_path,
+    release_root,
+    *,
+    expected_uid=0,
+    expected_gid=0,
+):
+    return _evaluate_release(
+        live_path,
+        release_root,
+        issue_key='python_environment_integrity',
+        issue_message=(
+            'The active Python environment, ownership, permissions or manifest failed validation.'
+        ),
+        max_files=PYTHON_ENV_MAX_FILES,
+        max_bytes=PYTHON_ENV_MAX_BYTES,
+        manifest_max_bytes=4 * 1024 * 1024,
+        safe_path_re=PYTHON_ENV_SAFE_PATH_RE,
+        executable_files=frozenset({'bin/python'}),
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+
+
 def read_journal():
     result = subprocess.run(
         ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
@@ -209,6 +242,10 @@ def evaluate(
     backend_release_root=None,
     backend_expected_uid=0,
     backend_expected_gid=0,
+    python_environment_live=None,
+    python_environment_release_root=None,
+    python_environment_expected_uid=0,
+    python_environment_expected_gid=0,
 ):
     now = now or time.time()
     issues = {}
@@ -235,6 +272,19 @@ def evaluate(
                 backend_release_root,
                 expected_uid=backend_expected_uid,
                 expected_gid=backend_expected_gid,
+            ))
+
+    if python_environment_live is not None or python_environment_release_root is not None:
+        if python_environment_live is None or python_environment_release_root is None:
+            issues['python_environment_integrity'] = (
+                'The Python environment integrity monitor is misconfigured.'
+            )
+        else:
+            issues.update(evaluate_python_environment_release(
+                python_environment_live,
+                python_environment_release_root,
+                expected_uid=python_environment_expected_uid,
+                expected_gid=python_environment_expected_gid,
             ))
 
     if not backup_dir.is_dir() or backup_dir.is_symlink():
@@ -442,6 +492,8 @@ def main():
     parser.add_argument('--frontend-release-root', default='/var/www/aichat-releases')
     parser.add_argument('--backend-live', default='/opt/aichat-backend-current')
     parser.add_argument('--backend-release-root', default='/opt/aichat-backend-releases')
+    parser.add_argument('--python-environment-live', default='/opt/aichat-python-current')
+    parser.add_argument('--python-environment-release-root', default='/opt/aichat-python-envs')
     args = parser.parse_args()
 
     try:
@@ -463,6 +515,8 @@ def main():
             frontend_release_root=args.frontend_release_root,
             backend_live=args.backend_live,
             backend_release_root=args.backend_release_root,
+            python_environment_live=args.python_environment_live,
+            python_environment_release_root=args.python_environment_release_root,
         )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))
