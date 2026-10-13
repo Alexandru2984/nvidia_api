@@ -244,7 +244,9 @@ function SessionsPanel() {
   return (
     <section className="settings-section">
       <h2>Active sessions</h2>
-      <p className="muted">Each browser you sign in from gets its own session. Revoke any you don't recognize.</p>
+      <p className="muted">
+        Each browser gets a bounded session with a fixed maximum lifetime. Older sessions are removed automatically; revoke any you don't recognize.
+      </p>
       {error && <div className="login-error">{error}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {sessions.map((s) => (

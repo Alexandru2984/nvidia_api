@@ -1,7 +1,15 @@
 """Tests for session listing + revocation."""
+from datetime import timedelta
+from importlib import import_module
+from unittest.mock import patch
+
 import pytest
+from django.apps import apps
 from django.contrib.sessions.models import Session
+from django.utils import timezone
 from rest_framework.test import APIClient
+
+from chat.models import AuthenticatedSession
 
 
 def _login(user, password='Hunter2pass', ua='pytest-ua', ip='1.2.3.4'):
@@ -35,6 +43,80 @@ class TestListSessions:
         assert s['ip'] == '198.51.100.7'
         assert s['ua'] == 'UA1'
         assert s['login_at'] is not None
+        assert s['absolute_expires_at'] is not None
+
+    def test_inventory_never_decodes_the_global_session_table(self, user):
+        c = _login(user)
+
+        with patch.object(Session, 'get_decoded', side_effect=AssertionError('global scan')):
+            response = c.get('/api/auth/sessions/')
+
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    def test_legacy_current_session_is_indexed_on_first_use(self, user):
+        c = APIClient()
+        c.force_login(user)
+        session_key = c.session.session_key
+        assert not AuthenticatedSession.objects.filter(session_id=session_key).exists()
+
+        response = c.get('/api/auth/me/')
+
+        assert response.json()['username'] == user.username
+        record = AuthenticatedSession.objects.get(session_id=session_key)
+        assert record.user_id == user.pk
+        assert record.absolute_expires_at > record.login_at
+
+    def test_malformed_signed_deadline_is_repaired_from_registry(self, user):
+        c = _login(user)
+        session = c.session
+        session['absolute_expires_at'] = 'not-a-date'
+        session.save()
+
+        response = c.get('/api/auth/me/')
+
+        assert response.json()['username'] == user.username
+        assert c.session['absolute_expires_at'] != 'not-a-date'
+
+    def test_data_migration_indexes_existing_authenticated_session(self, user):
+        c = APIClient()
+        c.force_login(user)
+        session_key = c.session.session_key
+
+        migration = import_module('chat.migrations.0023_authenticatedsession')
+        migration.backfill_authenticated_sessions(apps, None)
+
+        record = AuthenticatedSession.objects.get(session_id=session_key)
+        assert record.user_id == user.pk
+        assert record.handle != session_key
+        assert len(record.handle) == 64
+
+    def test_absolute_deadline_logs_out_and_removes_the_session(self, user):
+        c = _login(user)
+        session_key = c.session.session_key
+        AuthenticatedSession.objects.filter(session_id=session_key).update(
+            login_at=timezone.now() - timedelta(days=31),
+            absolute_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        response = c.get('/api/auth/me/')
+
+        assert response.status_code == 200
+        assert response.json()['username'] is None
+        assert not Session.objects.filter(session_key=session_key).exists()
+        assert not AuthenticatedSession.objects.filter(session_id=session_key).exists()
+
+    def test_login_cap_evicts_the_oldest_session(self, user, settings):
+        settings.SESSION_MAX_ACTIVE_PER_USER = 2
+        oldest = _login(user, ua='oldest')
+        oldest_key = oldest.session.session_key
+        _login(user, ua='middle')
+        newest = _login(user, ua='newest')
+
+        assert not Session.objects.filter(session_key=oldest_key).exists()
+        assert AuthenticatedSession.objects.filter(user=user).count() == 2
+        assert oldest.get('/api/auth/me/').json()['username'] is None
+        assert len(newest.get('/api/auth/sessions/').json()) == 2
 
     def test_unauthenticated_blocked(self, client):
         r = client.get('/api/auth/sessions/')
@@ -71,8 +153,9 @@ class TestRevokeSession:
         # Other user has a session; current user must not be able to revoke it.
         c_other = _login(other_user, ua='theirs')
         their_key = c_other.session.session_key
+        their_handle = c_other.get('/api/auth/sessions/').json()[0]['id']
         c_self = _login(user, ua='mine')
-        r = c_self.delete(f'/api/auth/sessions/{their_key}/')
+        r = c_self.delete(f'/api/auth/sessions/{their_handle}/')
         assert r.status_code == 404
         # Their session still alive
         assert Session.objects.filter(session_key=their_key).exists()

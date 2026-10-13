@@ -7,6 +7,15 @@ from chat.models import Attachment, Conversation, Message, TwoFactor
 from chat.twofactor import _hash_recovery
 
 
+def _login(client, user):
+    response = client.post(
+        '/api/auth/login/',
+        {'username': user.username, 'password': 'Hunter2pass'},
+        format='json',
+    )
+    assert response.status_code == 200
+
+
 @pytest.mark.django_db
 class TestChangePassword:
     URL = '/api/auth/password/'
@@ -21,7 +30,7 @@ class TestChangePassword:
 
     def test_success_changes_password_and_keeps_session(self, user):
         client = APIClient()
-        assert client.login(username='alice', password='Hunter2pass')
+        _login(client, user)
         r = client.post(self.URL, {'current_password': 'Hunter2pass', 'new_password': 'Brand-New-Pass-42'}, format='json')
         assert r.status_code == 200, r.content
         # session survives the change
@@ -32,8 +41,8 @@ class TestChangePassword:
 
     def test_other_sessions_revoked(self, user):
         c1, c2 = APIClient(), APIClient()
-        assert c1.login(username='alice', password='Hunter2pass')
-        assert c2.login(username='alice', password='Hunter2pass')
+        _login(c1, user)
+        _login(c2, user)
         r = c1.post(self.URL, {'current_password': 'Hunter2pass', 'new_password': 'Brand-New-Pass-42'}, format='json')
         assert r.status_code == 200
         assert r.json()['sessions_revoked'] == 1

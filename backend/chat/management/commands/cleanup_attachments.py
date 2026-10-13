@@ -61,7 +61,10 @@ class Command(BaseCommand):
         generation_lease_qs = ConversationGenerationLease.objects.filter(
             expires_at__lte=now,
         )
-        session_qs = Session.objects.filter(expire_date__lte=now)
+        session_qs = Session.objects.filter(
+            models.Q(expire_date__lte=now)
+            | models.Q(chat_authentication__absolute_expires_at__lte=now)
+        ).distinct()
         ev_count = ev_qs.count()
         pr_count = pr_qs.count()
         invite_count = invite_qs.count()

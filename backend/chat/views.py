@@ -78,7 +78,7 @@ from .serializers import (
     ConversationMetadataSerializer,
     MessageSerializer,
 )
-from .sessions import stamp_session
+from .sessions import stamp_session, sync_session_record
 from .twofactor import (
     _revoke_user_sessions,
     login_requires_2fa,
@@ -664,6 +664,7 @@ def auth_change_password(request):
     # Re-stamp this session's auth hash so the user isn't logged out here,
     # then revoke everything else (anything on the old password is suspect).
     update_session_auth_hash(request, request.user)
+    sync_session_record(request)
     revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
     security_log.warning('event=password_changed user_id=%s sessions_revoked=%s',
                          request.user.pk, revoked)

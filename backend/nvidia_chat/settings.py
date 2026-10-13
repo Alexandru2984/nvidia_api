@@ -43,6 +43,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'chat.middleware.AbsoluteSessionMiddleware',
     'chat.middleware.StaffAdminTwoFactorMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -183,6 +184,20 @@ def _nonnegative_int_env(name, default):
     if value < 0:
         raise ValueError(f'{name} must be non-negative')
     return value
+
+
+SESSION_ABSOLUTE_MAX_AGE_SECONDS = _nonnegative_int_env(
+    'SESSION_ABSOLUTE_MAX_AGE_SECONDS', 30 * 24 * 60 * 60,
+)
+SESSION_MAX_ACTIVE_PER_USER = _nonnegative_int_env(
+    'SESSION_MAX_ACTIVE_PER_USER', 20,
+)
+if not 60 * 60 <= SESSION_ABSOLUTE_MAX_AGE_SECONDS <= 365 * 24 * 60 * 60:
+    raise ImproperlyConfigured(
+        'SESSION_ABSOLUTE_MAX_AGE_SECONDS must be between 3600 and 31536000.',
+    )
+if not 1 <= SESSION_MAX_ACTIVE_PER_USER <= 100:
+    raise ImproperlyConfigured('SESSION_MAX_ACTIVE_PER_USER must be between 1 and 100.')
 
 
 REGISTRATION_INVITE_AUDIT_DAYS = _nonnegative_int_env('REGISTRATION_INVITE_AUDIT_DAYS', 90)

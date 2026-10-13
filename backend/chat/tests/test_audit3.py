@@ -237,6 +237,8 @@ class TestSessionInvalidation:
         # invalidation boundary independently.
         assert c2.get('/api/auth/me/').json()['username'] is None
         c2.force_login(user)
+        # A legacy/externally-created current session is indexed on first use.
+        assert c2.get('/api/auth/me/').json()['username'] == user.username
         # Disable from c1 — c2 should die
         TwoFactor.objects.filter(user=user).update(last_totp_step=0)
         r = c1.post('/api/auth/2fa/disable/', {

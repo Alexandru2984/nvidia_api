@@ -45,6 +45,19 @@ class PrivateAPIResponseMiddleware:
         return response
 
 
+class AbsoluteSessionMiddleware:
+    """Apply the fixed authenticated-session deadline after auth resolution."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from .sessions import enforce_absolute_session
+
+        enforce_absolute_session(request)
+        return self.get_response(request)
+
+
 class StaffAdminTwoFactorMiddleware:
     """Deny Django admin unless this staff session completed application 2FA.
 

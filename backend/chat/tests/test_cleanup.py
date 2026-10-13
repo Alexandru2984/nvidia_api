@@ -13,6 +13,7 @@ from chat.models import (
     AdminAuditEvent,
     Attachment,
     AttachmentUploadAttempt,
+    AuthenticatedSession,
     Conversation,
     ConversationGenerationLease,
     EmailVerification,
@@ -146,7 +147,7 @@ class TestCleanupAttachments:
             ConversationGenerationLease.objects.values_list('pk', flat=True)
         ) == [active.pk]
 
-    def test_removes_only_expired_database_sessions(self):
+    def test_removes_only_expired_database_sessions(self, user):
         now = timezone.now()
         Session.objects.create(
             session_key='a' * 40,
@@ -158,12 +159,25 @@ class TestCleanupAttachments:
             session_data='',
             expire_date=now + timedelta(minutes=5),
         )
+        absolute_expired = Session.objects.create(
+            session_key='c' * 40,
+            session_data='',
+            expire_date=now + timedelta(days=5),
+        )
+        AuthenticatedSession.objects.create(
+            session=absolute_expired,
+            user=user,
+            handle='d' * 64,
+            login_at=now - timedelta(days=31),
+            absolute_expires_at=now - timedelta(days=1),
+        )
 
         output = StringIO()
         call_command('cleanup_attachments', stdout=output)
 
         assert list(Session.objects.values_list('pk', flat=True)) == [active.pk]
-        assert '1 expired sessions' in output.getvalue()
+        assert not AuthenticatedSession.objects.exists()
+        assert '2 expired sessions' in output.getvalue()
 
     def test_removes_expired_and_old_used_invitation_audit_rows(self, user, settings):
         settings.REGISTRATION_INVITE_AUDIT_DAYS = 90

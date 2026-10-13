@@ -115,9 +115,12 @@ def _has_recent_enrollment_auth(request, encrypted_secret: str) -> bool:
 
 def _rotate_and_revoke_other_sessions(request, *, mark_staff=False):
     """Replace the bearer session after a factor change and kill all others."""
+    from .sessions import sync_session_record
+
     request.session.cycle_key()
     if mark_staff:
         mark_staff_2fa_verified(request, request.user)
+    sync_session_record(request)
     return _revoke_user_sessions(request.user, except_key=request.session.session_key)
 
 
@@ -223,14 +226,9 @@ def staff_2fa_verified(request):
 def _revoke_user_sessions(user, except_key=None):
     """Sign the user out everywhere (optionally keeping one session). Used on
     sensitive auth changes — disable 2FA, regen recovery codes, password reset."""
-    from .sessions import _user_sessions
-    deleted = 0
-    for s, _ in _user_sessions(user):
-        if except_key and s.session_key == except_key:
-            continue
-        s.delete()
-        deleted += 1
-    return deleted
+    from .sessions import revoke_user_sessions
+
+    return revoke_user_sessions(user, except_key=except_key)
 
 
 @api_view(['GET'])

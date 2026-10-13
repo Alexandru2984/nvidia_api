@@ -86,6 +86,45 @@ class TwoFactor(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class AuthenticatedSession(models.Model):
+    """Indexed, non-secret metadata for one authenticated Django session."""
+
+    session = models.OneToOneField(
+        'sessions.Session',
+        related_name='chat_authentication',
+        on_delete=models.CASCADE,
+        primary_key=True,
+        db_column='session_key',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='authenticated_sessions',
+        on_delete=models.CASCADE,
+    )
+    handle = models.CharField(max_length=64, unique=True, editable=False)
+    user_agent = models.CharField(max_length=300, blank=True, default='')
+    ip_address = models.CharField(max_length=45, blank=True, default='')
+    login_at = models.DateTimeField()
+    absolute_expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=['user', '-login_at'],
+                name='chat_session_owner_login_idx',
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(absolute_expires_at__gte=models.F('login_at')),
+                name='chat_session_absolute_after_login',
+            ),
+        ]
+
+    def __str__(self):
+        return f'AuthenticatedSession(user={self.user_id}, login={self.login_at:%Y-%m-%d %H:%M})'
+
+
 class Conversation(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

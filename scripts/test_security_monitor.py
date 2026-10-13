@@ -42,6 +42,8 @@ class SecurityMonitorTests(unittest.TestCase):
                'event=ai_budget_blocked scope=global',
                'event=ai_token_reservation_exceeded',
                'event=chat_object_quota_blocked code=messages_limit',
+               'event=session_registry_mismatch user_id=4',
+               *(['event=session_limit_enforced user_id=4 revoked=1'] * 3),
                'event=registration_invite_consumed',
                'event=registration_verified']
             + ['event=ai_usage_unmetered'] * 3
@@ -58,7 +60,8 @@ class SecurityMonitorTests(unittest.TestCase):
             {'auth_burst', 'rate_limit_burst', 'admin_probe_burst', 'admin_access',
              'admin_change', 'admin_audit_integrity',
              'two_factor_disabled', 'global_budget', 'unmetered_ai_usage',
-             'token_reservation_overrun', 'chat_object_quota', 'invite_rejection_burst',
+             'token_reservation_overrun', 'chat_object_quota',
+             'session_registry_mismatch', 'session_limit_burst', 'invite_rejection_burst',
              'attachment_capability_burst',
              'model_status_invalid',
              'model_probe_degraded',

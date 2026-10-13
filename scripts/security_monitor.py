@@ -219,6 +219,8 @@ def evaluate(
     unmetered_usage = journal.count('event=ai_usage_unmetered')
     token_overruns = journal.count('event=ai_token_reservation_exceeded')
     object_quota_blocks = journal.count('event=chat_object_quota_blocked')
+    session_registry_mismatches = journal.count('event=session_registry_mismatch')
+    session_limit_enforcements = journal.count('event=session_limit_enforced')
     invite_rejections = journal.count('event=registration_invite_rejected')
     attachment_rejections = journal.count('event=attachment_capability_rejected')
     model_status_invalid = journal.count('event=model_status_invalid')
@@ -254,6 +256,14 @@ def evaluate(
     if object_quota_blocks >= int(os.environ.get('OBJECT_QUOTA_ALERT_THRESHOLD', '1')):
         issues['chat_object_quota'] = (
             f'{object_quota_blocks} chat object quota blocks were detected in six minutes.'
+        )
+    if session_registry_mismatches:
+        issues['session_registry_mismatch'] = (
+            f'{session_registry_mismatches} authenticated session registry mismatches were detected.'
+        )
+    if session_limit_enforcements >= int(os.environ.get('SESSION_LIMIT_ALERT_THRESHOLD', '3')):
+        issues['session_limit_burst'] = (
+            f'{session_limit_enforcements} per-account session limits were enforced in six minutes.'
         )
     if invite_rejections >= int(os.environ.get('INVITE_REJECTION_ALERT_THRESHOLD', '5')):
         issues['invite_rejection_burst'] = (
