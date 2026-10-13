@@ -420,6 +420,25 @@ function StoragePanel() {
         <span>{usage.messages} messages</span>
         <span>{usage.attachments} files</span>
       </div>
+      {usage.conversation_limit && usage.message_limit
+        && usage.message_limit_per_conversation && <div className="object-usage-card">
+        <h3>Saved chat data</h3>
+        <label>
+          <span>Conversations</span>
+          <strong>{usage.conversations.toLocaleString()} / {usage.conversation_limit.toLocaleString()}</strong>
+          <progress aria-label="Conversation storage used" value={usage.conversations}
+            max={Math.max(1, usage.conversation_limit)} />
+        </label>
+        <label>
+          <span>Messages</span>
+          <strong>{usage.messages.toLocaleString()} / {usage.message_limit.toLocaleString()}</strong>
+          <progress aria-label="Message storage used" value={usage.messages}
+            max={Math.max(1, usage.message_limit)} />
+          <small className="muted">
+            Up to {usage.message_limit_per_conversation.toLocaleString()} messages per conversation.
+          </small>
+        </label>
+      </div>}
       {usage.ai_today && <div className="ai-usage-card">
         <h3>Today's AI usage</h3>
         {!usage.ai_today.enabled && <p className="login-error">AI generation is temporarily disabled.</p>}

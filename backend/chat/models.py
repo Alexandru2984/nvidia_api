@@ -154,8 +154,17 @@ class ConversationGenerationLease(models.Model):
         primary_key=True,
     )
     token = models.UUIDField(editable=False)
+    reserved_messages = models.PositiveSmallIntegerField(default=0)
     acquired_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(reserved_messages__lte=2),
+                name='chat_generation_reserved_messages_range',
+            ),
+        ]
 
     def __str__(self):
         return f'ConversationGenerationLease(conversation={self.conversation_id})'

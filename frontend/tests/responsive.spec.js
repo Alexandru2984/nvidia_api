@@ -123,7 +123,9 @@ async function mockAPI(
         truncated: false,
       },
       '/api/account/usage/': {
-        storage_bytes: 5242880, storage_limit_bytes: 104857600, attachments: 0, conversations: 1, messages: 2,
+        storage_bytes: 5242880, storage_limit_bytes: 104857600, attachments: 0,
+        conversations: 1, conversation_limit: 500, messages: 2, message_limit: 10000,
+        message_limit_per_conversation: 2000,
         ai_today: {
           date: '2026-10-05', chat_requests: 4, chat_limit: 100, image_requests: 1, image_limit: 10,
           prompt_characters: 420, resets_at: '2026-10-06T00:00:00Z', enabled: true,
@@ -213,6 +215,9 @@ for (const width of [320, 390, 768, 1440]) {
     await page.getByTitle('Settings', { exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Storage & files' })).toBeVisible()
     await expect(page.getByText('5.0 MB of 100 MB used')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Saved chat data' })).toBeVisible()
+    await expect(page.getByLabel('Conversation storage used')).toHaveAttribute('value', '1')
+    await expect(page.getByLabel('Message storage used')).toHaveAttribute('value', '2')
     await expect(page.getByRole('heading', { name: "Today's AI usage" })).toBeVisible()
     await expect(page.getByLabel('Daily chat requests used')).toHaveAttribute('value', '4')
     await expect(page.getByLabel('Daily generated images used')).toHaveAttribute('value', '1')

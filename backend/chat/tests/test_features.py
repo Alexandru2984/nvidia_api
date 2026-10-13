@@ -28,7 +28,7 @@ class TestExportConversation:
         r = auth_client.get(f'/api/conversations/{populated_convo.id}/export/')
         assert r.status_code == 200
         assert r['Content-Type'].startswith('text/markdown')
-        body = r.content.decode()
+        body = _consume_sse(r)
         assert '# Hello world' in body
         assert 'hi there' in body
         assert 'hello back' in body
@@ -45,7 +45,7 @@ class TestExportConversation:
             message=first_user_msg,
         )
         r = auth_client.get(f'/api/conversations/{populated_convo.id}/export/')
-        body = r.content.decode()
+        body = _consume_sse(r)
         assert 'chart.png' in body
 
     def test_export_filename_in_header(self, auth_client, populated_convo):
@@ -58,6 +58,27 @@ class TestExportConversation:
         c = Conversation.objects.create(user=other_user, title='theirs', model_id=DEFAULT_MODEL_ID)
         r = auth_client.get(f'/api/conversations/{c.id}/export/')
         assert r.status_code == 404
+
+    def test_export_is_streamed_private_and_size_bounded(
+        self,
+        auth_client,
+        populated_convo,
+        settings,
+    ):
+        response = auth_client.get(
+            f'/api/conversations/{populated_convo.id}/export/',
+        )
+        assert response.streaming is True
+        assert 'private' in response['Cache-Control']
+        assert 'no-store' in response['Cache-Control']
+        response.close()
+
+        settings.CHAT_MAX_EXPORT_BYTES = 1
+        rejected = auth_client.get(
+            f'/api/conversations/{populated_convo.id}/export/',
+        )
+        assert rejected.status_code == 413
+        assert rejected.json()['code'] == 'export_too_large'
 
 
 @pytest.mark.django_db

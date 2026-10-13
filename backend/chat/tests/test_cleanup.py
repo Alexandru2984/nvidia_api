@@ -4,6 +4,7 @@ from io import StringIO
 
 import pytest
 from django.conf import settings
+from django.contrib.sessions.models import Session
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.utils import timezone
@@ -144,6 +145,25 @@ class TestCleanupAttachments:
         assert list(
             ConversationGenerationLease.objects.values_list('pk', flat=True)
         ) == [active.pk]
+
+    def test_removes_only_expired_database_sessions(self):
+        now = timezone.now()
+        Session.objects.create(
+            session_key='a' * 40,
+            session_data='',
+            expire_date=now - timedelta(seconds=1),
+        )
+        active = Session.objects.create(
+            session_key='b' * 40,
+            session_data='',
+            expire_date=now + timedelta(minutes=5),
+        )
+
+        output = StringIO()
+        call_command('cleanup_attachments', stdout=output)
+
+        assert list(Session.objects.values_list('pk', flat=True)) == [active.pk]
+        assert '1 expired sessions' in output.getvalue()
 
     def test_removes_expired_and_old_used_invitation_audit_rows(self, user, settings):
         settings.REGISTRATION_INVITE_AUDIT_DAYS = 90

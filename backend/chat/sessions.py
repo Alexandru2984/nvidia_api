@@ -7,12 +7,24 @@ import logging
 from django.contrib.sessions.models import Session
 from django.utils import timezone
 from django.utils.crypto import salted_hmac, constant_time_compare
+from django_ratelimit.decorators import ratelimit
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 log = logging.getLogger(__name__)
 security_log = logging.getLogger('security')
+
+
+def _rate_limited(request):
+    if not getattr(request, 'limited', False):
+        return None
+    security_log.warning(
+        'event=rate_limit path=%s user_id=%s',
+        request.path[:160],
+        request.user.pk,
+    )
+    return Response({'error': 'Too many requests. Slow down and try again.'}, status=429)
 
 
 def session_handle(session_key):
@@ -48,7 +60,10 @@ def _user_sessions(user):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='20/m', block=False)
 def list_sessions(request):
+    if (response := _rate_limited(request)) is not None:
+        return response
     current_key = request.session.session_key
     items = []
     for s, data in _user_sessions(request.user):
@@ -66,8 +81,11 @@ def list_sessions(request):
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='20/m', block=False)
 def revoke_session(request, key):
     """Revoke one session by key. Must belong to the current user."""
+    if (response := _rate_limited(request)) is not None:
+        return response
     if constant_time_compare(key, session_handle(request.session.session_key)):
         return Response(
             {'error': 'Use /auth/logout/ to end your current session.'},
@@ -83,9 +101,12 @@ def revoke_session(request, key):
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='10/m', block=False)
 def revoke_other_sessions(request):
     """Revoke all of the user's sessions except the current one. Useful as a
     'sign out everywhere else' panic button."""
+    if (response := _rate_limited(request)) is not None:
+        return response
     current_key = request.session.session_key
     deleted = 0
     for s, _ in _user_sessions(request.user):

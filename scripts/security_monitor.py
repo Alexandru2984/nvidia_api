@@ -218,6 +218,7 @@ def evaluate(
     admin_changes = journal.count('event=admin_change')
     unmetered_usage = journal.count('event=ai_usage_unmetered')
     token_overruns = journal.count('event=ai_token_reservation_exceeded')
+    object_quota_blocks = journal.count('event=chat_object_quota_blocked')
     invite_rejections = journal.count('event=registration_invite_rejected')
     attachment_rejections = journal.count('event=attachment_capability_rejected')
     model_status_invalid = journal.count('event=model_status_invalid')
@@ -249,6 +250,10 @@ def evaluate(
     if token_overruns:
         issues['token_reservation_overrun'] = (
             f'{token_overruns} AI calls exceeded their token reservation in six minutes.'
+        )
+    if object_quota_blocks >= int(os.environ.get('OBJECT_QUOTA_ALERT_THRESHOLD', '1')):
+        issues['chat_object_quota'] = (
+            f'{object_quota_blocks} chat object quota blocks were detected in six minutes.'
         )
     if invite_rejections >= int(os.environ.get('INVITE_REJECTION_ALERT_THRESHOLD', '5')):
         issues['invite_rejection_burst'] = (

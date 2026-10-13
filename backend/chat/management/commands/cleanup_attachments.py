@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.admin.models import LogEntry
+from django.contrib.sessions.models import Session
 from django.core.management.base import BaseCommand
 from django.db import models
 from django.utils import timezone
@@ -60,6 +61,7 @@ class Command(BaseCommand):
         generation_lease_qs = ConversationGenerationLease.objects.filter(
             expires_at__lte=now,
         )
+        session_qs = Session.objects.filter(expire_date__lte=now)
         ev_count = ev_qs.count()
         pr_count = pr_qs.count()
         invite_count = invite_qs.count()
@@ -67,6 +69,7 @@ class Command(BaseCommand):
         admin_log_count = admin_log_qs.count()
         upload_attempt_count = upload_attempt_qs.count()
         generation_lease_count = generation_lease_qs.count()
+        session_count = session_qs.count()
 
         invalid_audits = sum(
             not audit_event_is_valid(event)
@@ -94,6 +97,7 @@ class Command(BaseCommand):
             )
             self.stdout.write(f'  - {upload_attempt_count} expired upload attempts')
             self.stdout.write(f'  - {generation_lease_count} expired generation leases')
+            self.stdout.write(f'  - {session_count} expired sessions')
             self.stdout.write(
                 f'  - audit integrity: {invalid_audits} invalid, {missing_audits} missing'
             )
@@ -108,6 +112,7 @@ class Command(BaseCommand):
         admin_log_qs.delete()
         upload_attempt_qs.delete()
         generation_lease_qs.delete()
+        session_qs.delete()
 
         self.stdout.write(self.style.SUCCESS(
             f'Deleted {att_count} orphan attachments ({att_bytes / 1024 / 1024:.1f} MB), '
@@ -115,5 +120,6 @@ class Command(BaseCommand):
             f'{invite_count} expired invitation audit rows, {admin_audit_count} expired admin '
             f'audit events, {admin_log_count} expired admin log entries, '
             f'{upload_attempt_count} expired upload attempts, '
-            f'{generation_lease_count} expired generation leases.'
+            f'{generation_lease_count} expired generation leases, '
+            f'{session_count} expired sessions.'
         ))

@@ -207,6 +207,36 @@ if not 300 <= CHAT_GENERATION_LEASE_SECONDS <= 60 * 60:
         'CHAT_GENERATION_LEASE_SECONDS must be between 300 and 3600.',
     )
 
+CHAT_MAX_CONVERSATIONS_PER_USER = _nonnegative_int_env(
+    'CHAT_MAX_CONVERSATIONS_PER_USER', 500,
+)
+CHAT_MAX_MESSAGES_PER_USER = _nonnegative_int_env(
+    'CHAT_MAX_MESSAGES_PER_USER', 10_000,
+)
+CHAT_MAX_MESSAGES_PER_CONVERSATION = _nonnegative_int_env(
+    'CHAT_MAX_MESSAGES_PER_CONVERSATION', 2_000,
+)
+CHAT_MAX_ASSISTANT_CHARS = _nonnegative_int_env(
+    'CHAT_MAX_ASSISTANT_CHARS', 64_000,
+)
+CHAT_MAX_EXPORT_BYTES = _nonnegative_int_env(
+    'CHAT_MAX_EXPORT_BYTES', 25 * 1024 * 1024,
+)
+if CHAT_MAX_CONVERSATIONS_PER_USER < 1:
+    raise ImproperlyConfigured('CHAT_MAX_CONVERSATIONS_PER_USER must be positive.')
+if CHAT_MAX_MESSAGES_PER_USER < 2:
+    raise ImproperlyConfigured('CHAT_MAX_MESSAGES_PER_USER must be at least 2.')
+if not 2 <= CHAT_MAX_MESSAGES_PER_CONVERSATION <= CHAT_MAX_MESSAGES_PER_USER:
+    raise ImproperlyConfigured(
+        'CHAT_MAX_MESSAGES_PER_CONVERSATION must be between 2 and the per-user limit.',
+    )
+if CHAT_MAX_ASSISTANT_CHARS < CHAT_MAX_MESSAGE_CHARS:
+    raise ImproperlyConfigured(
+        'CHAT_MAX_ASSISTANT_CHARS must be at least CHAT_MAX_MESSAGE_CHARS.',
+    )
+if CHAT_MAX_EXPORT_BYTES < 1024 * 1024:
+    raise ImproperlyConfigured('CHAT_MAX_EXPORT_BYTES must be at least 1 MiB.')
+
 
 # Durable daily provider budgets. Set AI_GENERATION_ENABLED=False and restart
 # the service for an immediate global cost/abuse circuit breaker.

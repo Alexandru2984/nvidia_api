@@ -32,6 +32,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Exists, OuterRef, Q, Sum
+from django.db.models.functions import Length
 from django.http import FileResponse, Http404, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -906,13 +907,27 @@ def conversations(request):
     if requested_model and model_id in unavailable_model_ids():
         return _unavailable_model_response()
     generation = model_generation_limits(model_id)
-    convo = Conversation.objects.create(
-        user=request.user,
-        title=title,
-        model_id=model_id,
-        temperature=generation['temperature']['default'],
-        max_tokens=generation['max_tokens']['default'],
-    )
+    User = get_user_model()
+    with transaction.atomic():
+        User.objects.select_for_update().only('pk').get(pk=request.user.pk)
+        conversation_count = Conversation.objects.filter(user=request.user).count()
+        if conversation_count >= settings.CHAT_MAX_CONVERSATIONS_PER_USER:
+            security_log.warning(
+                'event=chat_object_quota_blocked code=conversations_limit user_id=%s',
+                request.user.pk,
+            )
+            return _chat_object_quota_response(
+                'conversations',
+                conversation_count,
+                settings.CHAT_MAX_CONVERSATIONS_PER_USER,
+            )
+        convo = Conversation.objects.create(
+            user=request.user,
+            title=title,
+            model_id=model_id,
+            temperature=generation['temperature']['default'],
+            max_tokens=generation['max_tokens']['default'],
+        )
     return Response(_conversation_data(convo), status=status.HTTP_201_CREATED)
 
 
@@ -1232,12 +1247,17 @@ def list_attachments(request):
 @api_view(['GET'])
 def account_usage(request):
     files = Attachment.objects.filter(user=request.user).aggregate(bytes=Sum('size'), count=Count('id'))
+    conversation_count = Conversation.objects.filter(user=request.user).count()
+    message_count = Message.objects.filter(conversation__user=request.user).count()
     return Response({
         'storage_bytes': files['bytes'] or 0,
         'storage_limit_bytes': settings.MAX_USER_STORAGE,
         'attachments': files['count'],
-        'conversations': Conversation.objects.filter(user=request.user).count(),
-        'messages': Message.objects.filter(conversation__user=request.user).count(),
+        'conversations': conversation_count,
+        'conversation_limit': settings.CHAT_MAX_CONVERSATIONS_PER_USER,
+        'messages': message_count,
+        'message_limit': settings.CHAT_MAX_MESSAGES_PER_USER,
+        'message_limit_per_conversation': settings.CHAT_MAX_MESSAGES_PER_CONVERSATION,
         'ai_today': user_usage_snapshot(request.user),
     })
 
@@ -1543,7 +1563,9 @@ def delete_attachment(request, pk):
 
 
 @api_view(['GET'])
+@ratelimit(key='user', rate='120/h', block=False)
 def download_attachment(request, pk):
+    if (r := _rate_limited(request)): return r
     att = get_object_or_404(Attachment, pk=pk, user=request.user)
     try:
         file = att.file.open('rb')
@@ -1749,19 +1771,41 @@ def _generation_conflict_response(retry_after):
     return response
 
 
+def _chat_object_quota_response(resource, used, limit):
+    return Response({
+        'error': f'Your {resource} limit has been reached. Delete older chat data and retry.',
+        'code': f'{resource}_limit',
+        'used': used,
+        'limit': limit,
+    }, status=status.HTTP_409_CONFLICT)
+
+
 def _lease_retry_after(lease, now=None):
     now = now or timezone.now()
     return max(1, math.ceil((lease.expires_at - now).total_seconds()))
 
 
-def _acquire_generation_lease(conversation_id):
-    """Atomically claim one conversation across every Gunicorn worker."""
+def _acquire_generation_lease(conversation_id, *, message_reservation=0):
+    """Claim one conversation and reserve any rows the operation may add."""
+    if message_reservation not in {0, 1, 2}:
+        raise ValueError('message_reservation must be between 0 and 2')
     now = timezone.now()
     expires_at = now + timedelta(seconds=settings.CHAT_GENERATION_LEASE_SECONDS)
     token = uuid.uuid4()
+    owner_id = Conversation.objects.filter(pk=conversation_id).values_list(
+        'user_id',
+        flat=True,
+    ).first()
+    if owner_id is None:
+        raise Http404
+    User = get_user_model()
     with transaction.atomic():
+        # Every user's generation reservation uses the same lock, so sends to
+        # different conversations cannot collectively overrun the user quota.
+        User.objects.select_for_update().only('pk').get(pk=owner_id)
         locked_conversation = Conversation.objects.select_for_update().only('pk').filter(
             pk=conversation_id,
+            user_id=owner_id,
         ).first()
         if locked_conversation is None:
             raise Http404
@@ -1770,16 +1814,52 @@ def _acquire_generation_lease(conversation_id):
         ).first()
         if lease is not None and lease.expires_at > now:
             return None, _generation_conflict_response(_lease_retry_after(lease, now))
+        if message_reservation:
+            user_messages = Message.objects.filter(
+                conversation__user_id=owner_id,
+            ).count()
+            reserved_messages = ConversationGenerationLease.objects.filter(
+                conversation__user_id=owner_id,
+                expires_at__gt=now,
+            ).aggregate(total=Sum('reserved_messages'))['total'] or 0
+            projected_user_messages = (
+                user_messages + reserved_messages + message_reservation
+            )
+            if projected_user_messages > settings.CHAT_MAX_MESSAGES_PER_USER:
+                return None, _chat_object_quota_response(
+                    'messages',
+                    user_messages + reserved_messages,
+                    settings.CHAT_MAX_MESSAGES_PER_USER,
+                )
+            conversation_messages = Message.objects.filter(
+                conversation_id=conversation_id,
+            ).count()
+            if (
+                conversation_messages + message_reservation
+                > settings.CHAT_MAX_MESSAGES_PER_CONVERSATION
+            ):
+                return None, _chat_object_quota_response(
+                    'conversation_messages',
+                    conversation_messages,
+                    settings.CHAT_MAX_MESSAGES_PER_CONVERSATION,
+                )
         if lease is None:
             ConversationGenerationLease.objects.create(
                 conversation_id=conversation_id,
                 token=token,
+                reserved_messages=message_reservation,
                 expires_at=expires_at,
             )
         else:
             lease.token = token
+            lease.reserved_messages = message_reservation
             lease.expires_at = expires_at
-            lease.save(update_fields=['token', 'acquired_at', 'expires_at'])
+            lease.save(update_fields=[
+                'token',
+                'reserved_messages',
+                'acquired_at',
+                'expires_at',
+            ])
     return token, None
 
 
@@ -1798,6 +1878,18 @@ def _renew_generation_lease(conversation_id, token):
         conversation_id=conversation_id,
         token=token,
     ).update(expires_at=expires_at)
+
+
+def _consume_generation_message_reservation(conversation_id, token):
+    lease = ConversationGenerationLease.objects.select_for_update().filter(
+        conversation_id=conversation_id,
+        token=token,
+        reserved_messages__gt=0,
+    ).first()
+    if lease is None:
+        raise RuntimeError('Generation message reservation was lost.')
+    lease.reserved_messages -= 1
+    lease.save(update_fields=['reserved_messages'])
 
 
 def _active_generation_conflict_locked(conversation_id):
@@ -1927,21 +2019,53 @@ def _remove_pending_user_message(user_message_id):
         Message.objects.filter(id=user_message_id).delete()
 
 
-def _save_assistant_reply(convo_id, reply_text, title_snippet=None):
+def _save_assistant_reply(
+    convo_id,
+    reply_text,
+    title_snippet=None,
+    *,
+    user_id,
+    lease_token,
+):
     """Persist an assistant message and touch the conversation (setting the
     title from `title_snippet` if it's still the placeholder)."""
-    assistant_msg = Message.objects.create(conversation_id=convo_id, role='assistant', content=reply_text)
-    convo_obj = Conversation.objects.get(id=convo_id)
-    if title_snippet and convo_obj.title == 'New Chat':
-        convo_obj.title = title_snippet[:60] + ('…' if len(title_snippet) > 60 else '')
-    convo_obj.save()
+    User = get_user_model()
+    with transaction.atomic():
+        User.objects.select_for_update().only('pk').get(pk=user_id)
+        convo_obj = Conversation.objects.select_for_update().get(
+            id=convo_id,
+            user_id=user_id,
+        )
+        assistant_msg = Message.objects.create(
+            conversation_id=convo_id,
+            role='assistant',
+            content=reply_text,
+        )
+        _consume_generation_message_reservation(convo_id, lease_token)
+        if title_snippet and convo_obj.title == 'New Chat':
+            convo_obj.title = title_snippet[:60] + ('…' if len(title_snippet) > 60 else '')
+        convo_obj.save()
     return assistant_msg, convo_obj
 
 
-def _replace_regenerated_reply(convo_id, target_id, target_role, anchor_id, reply_text):
+def _replace_regenerated_reply(
+    convo_id,
+    target_id,
+    target_role,
+    anchor_id,
+    reply_text,
+    *,
+    user_id,
+    lease_token,
+    consumes_reservation,
+):
     """Commit a regenerated branch only after replacement text exists."""
     with transaction.atomic():
-        convo_obj = Conversation.objects.select_for_update().get(pk=convo_id)
+        get_user_model().objects.select_for_update().only('pk').get(pk=user_id)
+        convo_obj = Conversation.objects.select_for_update().get(
+            pk=convo_id,
+            user_id=user_id,
+        )
         if not Message.objects.filter(
             pk=anchor_id,
             conversation_id=convo_id,
@@ -1955,6 +2079,8 @@ def _replace_regenerated_reply(convo_id, target_id, target_role, anchor_id, repl
             role='assistant',
             content=reply_text,
         )
+        if consumes_reservation:
+            _consume_generation_message_reservation(convo_id, lease_token)
         convo_obj.save()
     return assistant_msg, convo_obj
 
@@ -2056,13 +2182,24 @@ def send_message(request, pk):
             ),
         )
 
-    lease_token, conflict = _acquire_generation_lease(convo.id)
+    lease_token, conflict = _acquire_generation_lease(
+        convo.id,
+        message_reservation=2,
+    )
     if conflict is not None:
-        security_log.warning(
-            'event=generation_conflict operation=send user_id=%s conversation_id=%s',
-            request.user.pk,
-            convo.id,
-        )
+        conflict_code = conflict.data.get('code')
+        if conflict_code == 'generation_in_progress':
+            security_log.warning(
+                'event=generation_conflict operation=send user_id=%s conversation_id=%s',
+                request.user.pk,
+                convo.id,
+            )
+        else:
+            security_log.warning(
+                'event=chat_object_quota_blocked code=%s user_id=%s',
+                conflict_code,
+                request.user.pk,
+            )
         return conflict
 
     # Apply the selected model and its generation contract while no competing
@@ -2131,6 +2268,9 @@ def send_message(request, pk):
         # the security boundary against the same upload being claimed by two
         # requests for different conversations.
         with transaction.atomic():
+            get_user_model().objects.select_for_update().only('pk').get(
+                pk=request.user.pk,
+            )
             Conversation.objects.select_for_update().only('pk').get(pk=convo.pk)
             attachments = _resolve_attachments(
                 request.user,
@@ -2151,6 +2291,7 @@ def send_message(request, pk):
                 Attachment.objects.filter(
                     pk__in=[attachment.pk for attachment in attachments],
                 ).update(message=user_msg)
+                _consume_generation_message_reservation(convo.pk, lease_token)
         if attachment_conflict:
             lifecycle.close()
             return Response({
@@ -2178,6 +2319,7 @@ def send_message(request, pk):
 
     def event_stream():
         full_text = []
+        reply_chars = 0
         errored = None
         try:
             yield _sse({'user_message': MessageSerializer(user_msg).data})
@@ -2185,7 +2327,11 @@ def send_message(request, pk):
             for kind, value in _stream_nvidia(model_id, history, **gen_kwargs):
                 lifecycle.heartbeat()
                 if kind == 'chunk':
+                    if reply_chars + len(value) > settings.CHAT_MAX_ASSISTANT_CHARS:
+                        errored = 'NVIDIA response exceeded the configured output limit.'
+                        break
                     full_text.append(value)
+                    reply_chars += len(value)
                     yield _sse({'chunk': value})
                 elif kind == 'usage':
                     lifecycle.record_usage(value)
@@ -2197,7 +2343,13 @@ def send_message(request, pk):
             # model already produced so a refetch shows the partial reply.
             partial = ''.join(full_text)
             if partial:
-                _save_assistant_reply(convo_id, partial, title_snippet)
+                _save_assistant_reply(
+                    convo_id,
+                    partial,
+                    title_snippet,
+                    user_id=request.user.pk,
+                    lease_token=lease_token,
+                )
             else:
                 _remove_pending_user_message(user_msg_id)
             log.info(
@@ -2228,6 +2380,8 @@ def send_message(request, pk):
             convo_id,
             reply_text,
             title_snippet,
+            user_id=request.user.pk,
+            lease_token=lease_token,
         )
         user_msg_fresh = Message.objects.prefetch_related('attachments').get(
             id=user_msg_id,
@@ -2313,13 +2467,33 @@ def regenerate_message(request, pk):
     if convo.model_id not in MODEL_IDS or convo.model_id in unavailable_model_ids():
         return _unavailable_model_response()
 
-    lease_token, conflict = _acquire_generation_lease(convo.id)
+    # Regenerating a trailing user message adds one row. Replacing an existing
+    # branch does not grow storage, so it must remain possible at the quota.
+    regeneration_reservation = int(
+        target.role == 'user'
+        and not Message.objects.filter(
+            conversation_id=convo.id,
+            id__gt=target.id,
+        ).exists()
+    )
+    lease_token, conflict = _acquire_generation_lease(
+        convo.id,
+        message_reservation=regeneration_reservation,
+    )
     if conflict is not None:
-        security_log.warning(
-            'event=generation_conflict operation=regenerate user_id=%s conversation_id=%s',
-            request.user.pk,
-            convo.id,
-        )
+        conflict_code = conflict.data.get('code')
+        if conflict_code == 'generation_in_progress':
+            security_log.warning(
+                'event=generation_conflict operation=regenerate user_id=%s conversation_id=%s',
+                request.user.pk,
+                convo.id,
+            )
+        else:
+            security_log.warning(
+                'event=chat_object_quota_blocked code=%s user_id=%s',
+                conflict_code,
+                request.user.pk,
+            )
         return conflict
 
     try:
@@ -2399,17 +2573,25 @@ def regenerate_message(request, pk):
             target_role,
             anchor_id,
             text,
+            user_id=request.user.pk,
+            lease_token=lease_token,
+            consumes_reservation=bool(regeneration_reservation),
         )
 
     def event_stream():
         full_text = []
+        reply_chars = 0
         errored = None
         try:
             lifecycle.start_provider()
             for kind, value in _stream_nvidia(model_id, history, **gen_kwargs):
                 lifecycle.heartbeat()
                 if kind == 'chunk':
+                    if reply_chars + len(value) > settings.CHAT_MAX_ASSISTANT_CHARS:
+                        errored = 'NVIDIA response exceeded the configured output limit.'
+                        break
                     full_text.append(value)
+                    reply_chars += len(value)
                     yield _sse({'chunk': value})
                 elif kind == 'usage':
                     lifecycle.record_usage(value)
@@ -2462,40 +2644,74 @@ def _slugify(text):
 
 
 @api_view(['GET'])
+@ratelimit(key='user', rate='10/h', block=False)
 def export_conversation(request, pk):
-    """Return the conversation as Markdown for download."""
-    from django.http import HttpResponse
+    """Stream one bounded, owner-scoped conversation as Markdown."""
+    if (r := _rate_limited(request)): return r
     convo = get_object_or_404(Conversation, pk=pk, user=request.user)
     msgs = convo.messages.order_by('created_at').prefetch_related('attachments')
+    message_stats = msgs.aggregate(
+        count=Count('id'),
+        characters=Sum(Length('content')),
+    )
+    attachment_stats = Attachment.objects.filter(
+        message__conversation=convo,
+    ).aggregate(
+        count=Count('id'),
+        name_characters=Sum(Length('original_name')),
+    )
+    estimated_bytes = (
+        (message_stats['characters'] or 0) * 4
+        + (attachment_stats['name_characters'] or 0) * 4
+        + message_stats['count'] * 256
+        + attachment_stats['count'] * 128
+        + 1024
+    )
+    if estimated_bytes > settings.CHAT_MAX_EXPORT_BYTES:
+        return Response({
+            'error': 'This conversation is too large to export safely.',
+            'code': 'export_too_large',
+            'limit': settings.CHAT_MAX_EXPORT_BYTES,
+        }, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
 
-    lines = [
-        f'# {convo.title}',
-        '',
-        f'- Model: `{convo.model_id}`',
-        f'- Created: {convo.created_at:%Y-%m-%d %H:%M UTC}',
-        f'- Exported by: {request.user.username}',
-        '',
-        '---',
-        '',
-    ]
-    for m in msgs:
-        label = 'User' if m.role == 'user' else 'Assistant'
-        lines.append(f'## {label} — {m.created_at:%Y-%m-%d %H:%M:%S}')
-        lines.append('')
-        if m.content:
-            lines.append(m.content)
-            lines.append('')
-        atts = list(m.attachments.all())
-        if atts:
-            lines.append('**Attachments:**')
-            for a in atts:
-                lines.append(f'- `{a.original_name}` ({a.kind}, {a.size} bytes)')
-            lines.append('')
-        lines.append('')
+    def markdown_stream():
+        yield '\n'.join([
+            f'# {convo.title}',
+            '',
+            f'- Model: `{convo.model_id}`',
+            f'- Created: {convo.created_at:%Y-%m-%d %H:%M UTC}',
+            f'- Exported by: {request.user.username}',
+            '',
+            '---',
+            '',
+        ])
+        for message in msgs.iterator(chunk_size=100):
+            label = 'User' if message.role == 'user' else 'Assistant'
+            lines = [
+                f'## {label} — {message.created_at:%Y-%m-%d %H:%M:%S}',
+                '',
+            ]
+            if message.content:
+                lines.extend([message.content, ''])
+            attachments = list(message.attachments.all())
+            if attachments:
+                lines.append('**Attachments:**')
+                lines.extend(
+                    f'- `{attachment.original_name}` ({attachment.kind}, '
+                    f'{attachment.size} bytes)'
+                    for attachment in attachments
+                )
+                lines.append('')
+            lines.extend(['', ''])
+            yield '\n'.join(lines)
 
-    body = '\n'.join(lines)
-    resp = HttpResponse(body, content_type='text/markdown; charset=utf-8')
+    resp = StreamingHttpResponse(
+        markdown_stream(),
+        content_type='text/markdown; charset=utf-8',
+    )
     resp['Content-Disposition'] = f'attachment; filename="{_slugify(convo.title)}.md"'
+    resp['Cache-Control'] = 'private, no-store'
+    resp['X-Accel-Buffering'] = 'no'
     return resp
 
 
