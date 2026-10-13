@@ -152,6 +152,60 @@ class SecurityMonitorTests(unittest.TestCase):
         unsafe.symlink_to('/etc/passwd')
         self.assertIn('frontend_integrity', self.frontend_issues(live, release_root))
 
+    def create_backend_release(self):
+        release_root = self.root / 'backend-releases'
+        release = release_root / 'release-20261013T010203_123456789'
+        package = release / 'chat'
+        package.mkdir(parents=True, mode=0o755)
+        release_root.chmod(0o755)
+        release.chmod(0o755)
+        manage = release / 'manage.py'
+        module = package / 'models.py'
+        commit = release / '.release-commit'
+        manage.write_text('raise SystemExit(0)\n', encoding='utf-8')
+        module.write_text('DEPLOYED = True\n', encoding='utf-8')
+        commit.write_text('a' * 40 + '\n', encoding='ascii')
+        for path in (manage, module, commit):
+            path.chmod(0o644)
+        manifest = release / monitor.RELEASE_MANIFEST
+        manifest.write_text(
+            ''.join(
+                f'{hashlib.sha256(path.read_bytes()).hexdigest()}  ./{path.relative_to(release)}\n'
+                for path in (commit, module, manage)
+            ),
+            encoding='ascii',
+        )
+        manifest.chmod(0o644)
+        live = self.root / 'backend-current'
+        live.symlink_to(release)
+        return live, release_root, manage
+
+    def backend_issues(self, live, release_root):
+        return monitor.evaluate_backend_release(
+            live,
+            release_root,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+
+    def test_backend_release_manifest_accepts_unchanged_root_owned_shape(self):
+        live, release_root, _ = self.create_backend_release()
+        self.assertEqual(self.backend_issues(live, release_root), {})
+
+    def test_backend_release_manifest_detects_content_tampering(self):
+        live, release_root, manage = self.create_backend_release()
+        manage.write_text('tampered = True\n', encoding='utf-8')
+        self.assertIn('backend_integrity', self.backend_issues(live, release_root))
+
+    def test_evaluate_rejects_partial_backend_monitor_configuration(self):
+        issues = monitor.evaluate(
+            self.backups,
+            self.restore_log,
+            '',
+            backend_live=self.root / 'missing',
+        )
+        self.assertIn('backend_integrity', issues)
+
 
 if __name__ == '__main__':
     unittest.main()

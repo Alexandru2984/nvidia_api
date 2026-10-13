@@ -9,7 +9,20 @@ from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / '.env')
+
+_runtime_dir_value = os.environ.get('AICHAT_RUNTIME_DIR')
+if _runtime_dir_value:
+    RUNTIME_DIR = Path(_runtime_dir_value)
+    if not RUNTIME_DIR.is_absolute():
+        raise ImproperlyConfigured('AICHAT_RUNTIME_DIR must be an absolute path.')
+    RUNTIME_DIR = RUNTIME_DIR.resolve()
+else:
+    RUNTIME_DIR = BASE_DIR
+
+# Production code is deployed below /opt while secrets and mutable state remain
+# in the private application runtime directory. Local development keeps the
+# historical single-directory layout.
+load_dotenv(RUNTIME_DIR / '.env')
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true'
 
@@ -92,10 +105,10 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = RUNTIME_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = RUNTIME_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -149,12 +162,12 @@ RATELIMIT_ENABLE = not DEBUG
 
 # Shared cache so ratelimit buckets are global across the 3 gunicorn workers
 # (default LocMemCache is per-process, which silently triples the effective rate).
-# Lives under BASE_DIR, not /tmp: survives reboots and isn't subject to
+# Lives under RUNTIME_DIR, not /tmp: survives reboots and isn't subject to
 # systemd PrivateTmp giving cron and gunicorn different /tmp namespaces.
 CACHES = {
     'default': {
         'BACKEND': 'chat.cache.AtomicFileCache',
-        'LOCATION': str(BASE_DIR / '.cache'),
+        'LOCATION': str(RUNTIME_DIR / '.cache'),
         'TIMEOUT': 60 * 60,
         'OPTIONS': {'MAX_ENTRIES': 10000},
     },
@@ -162,7 +175,7 @@ CACHES = {
 
 # Mutable provider availability belongs with the private runtime cache rather
 # than alongside deployable source. The dedicated service identity owns it.
-MODEL_STATUS_FILE = BASE_DIR / '.cache' / 'model_status.json'
+MODEL_STATUS_FILE = RUNTIME_DIR / '.cache' / 'model_status.json'
 
 CHAT_MAX_MESSAGE_CHARS = 8000
 CHAT_HISTORY_MAX_MESSAGES = 30

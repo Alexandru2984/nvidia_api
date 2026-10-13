@@ -7,8 +7,9 @@ After=network-online.target postgresql.service
 Type=simple
 User=aichat
 Group=aichat
-WorkingDirectory=/home/micu/nvidia/backend
+WorkingDirectory=/opt/aichat-backend-current
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend
 ExecStart=/home/micu/nvidia/backend/venv/bin/gunicorn nvidia_chat.wsgi:application --bind 127.0.0.1:8501 --worker-class gthread --workers 3 --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5

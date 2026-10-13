@@ -7,16 +7,18 @@ After=network-online.target postgresql.service
 Type=oneshot
 User=aichat
 Group=aichat
-WorkingDirectory=/home/micu/nvidia/backend
+WorkingDirectory=/opt/aichat-backend-current
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/home/micu/nvidia/backend/venv/bin/python manage.py cleanup_attachments
+Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend
+ExecStart=/home/micu/nvidia/backend/venv/bin/python /opt/aichat-backend-current/manage.py cleanup_attachments
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindReadOnlyPaths=/home/micu/nvidia/backend
+BindReadOnlyPaths=/home/micu/nvidia/backend/venv /home/micu/nvidia/backend/.env
+BindPaths=/home/micu/nvidia/backend/media /home/micu/nvidia/backend/.cache
 ReadWritePaths=/home/micu/nvidia/backend/media /home/micu/nvidia/backend/.cache
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

@@ -26,9 +26,12 @@ DUMP_RE = re.compile(r'^nvidia_db_\d{8}_\d{6}(?:_\d+)?\.sql\.gz$')
 BACKUP_MAX_AGE_SECONDS = 30 * 60 * 60
 RESTORE_MAX_AGE_SECONDS = 8 * 24 * 60 * 60
 JOURNAL_WINDOW = '6 minutes ago'
-FRONTEND_MANIFEST = '.release-manifest.sha256'
+RELEASE_MANIFEST = '.release-manifest.sha256'
+FRONTEND_MANIFEST = RELEASE_MANIFEST
 FRONTEND_MAX_FILES = 5_000
 FRONTEND_MAX_BYTES = 256 * 1024 * 1024
+BACKEND_MAX_FILES = 5_000
+BACKEND_MAX_BYTES = 128 * 1024 * 1024
 SAFE_RELEASE_NAME_RE = re.compile(r'^release-\d{8}T\d{6}_\d+$')
 SAFE_RELEASE_PATH_RE = re.compile(r'^(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$')
 
@@ -41,19 +44,19 @@ def _hash_file(path):
     return digest.hexdigest()
 
 
-def evaluate_frontend_release(
+def _evaluate_release(
     live_path,
     release_root,
     *,
+    issue_key,
+    issue_message,
+    max_files,
+    max_bytes,
     expected_uid=0,
     expected_gid=0,
 ):
-    """Fail closed if the live frontend differs from its root-created manifest."""
-    issue = {
-        'frontend_integrity': (
-            'The active frontend release, ownership, permissions or manifest failed validation.'
-        ),
-    }
+    """Fail closed if an active release differs from its root-created manifest."""
+    issue = {issue_key: issue_message}
     live_path = Path(live_path)
     release_root = Path(release_root)
     try:
@@ -76,7 +79,7 @@ def evaluate_frontend_release(
         if target.parent != trusted_root or not SAFE_RELEASE_NAME_RE.fullmatch(target.name):
             return issue
 
-        manifest_path = target / FRONTEND_MANIFEST
+        manifest_path = target / RELEASE_MANIFEST
         actual_files = {}
         total_bytes = 0
         for directory, dirnames, filenames in os.walk(target, followlinks=False):
@@ -106,10 +109,10 @@ def evaluate_frontend_release(
                     continue
                 if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o644:
                     return issue
-                if relative == FRONTEND_MANIFEST:
+                if relative == RELEASE_MANIFEST:
                     continue
                 total_bytes += info.st_size
-                if len(actual_files) >= FRONTEND_MAX_FILES or total_bytes > FRONTEND_MAX_BYTES:
+                if len(actual_files) >= max_files or total_bytes > max_bytes:
                     return issue
                 actual_files[f'./{relative}'] = path
 
@@ -137,6 +140,48 @@ def evaluate_frontend_release(
         return issue
 
 
+def evaluate_frontend_release(
+    live_path,
+    release_root,
+    *,
+    expected_uid=0,
+    expected_gid=0,
+):
+    return _evaluate_release(
+        live_path,
+        release_root,
+        issue_key='frontend_integrity',
+        issue_message=(
+            'The active frontend release, ownership, permissions or manifest failed validation.'
+        ),
+        max_files=FRONTEND_MAX_FILES,
+        max_bytes=FRONTEND_MAX_BYTES,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+
+
+def evaluate_backend_release(
+    live_path,
+    release_root,
+    *,
+    expected_uid=0,
+    expected_gid=0,
+):
+    return _evaluate_release(
+        live_path,
+        release_root,
+        issue_key='backend_integrity',
+        issue_message=(
+            'The active backend release, ownership, permissions or manifest failed validation.'
+        ),
+        max_files=BACKEND_MAX_FILES,
+        max_bytes=BACKEND_MAX_BYTES,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+
+
 def read_journal():
     result = subprocess.run(
         ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
@@ -160,6 +205,10 @@ def evaluate(
     frontend_release_root=None,
     frontend_expected_uid=0,
     frontend_expected_gid=0,
+    backend_live=None,
+    backend_release_root=None,
+    backend_expected_uid=0,
+    backend_expected_gid=0,
 ):
     now = now or time.time()
     issues = {}
@@ -175,6 +224,17 @@ def evaluate(
                 frontend_release_root,
                 expected_uid=frontend_expected_uid,
                 expected_gid=frontend_expected_gid,
+            ))
+
+    if backend_live is not None or backend_release_root is not None:
+        if backend_live is None or backend_release_root is None:
+            issues['backend_integrity'] = 'The backend integrity monitor is misconfigured.'
+        else:
+            issues.update(evaluate_backend_release(
+                backend_live,
+                backend_release_root,
+                expected_uid=backend_expected_uid,
+                expected_gid=backend_expected_gid,
             ))
 
     if not backup_dir.is_dir() or backup_dir.is_symlink():
@@ -380,6 +440,8 @@ def main():
     parser.add_argument('--credentials', default='/home/micu/scripts/.env')
     parser.add_argument('--frontend-live', default='/var/www/aichat.micutu.com')
     parser.add_argument('--frontend-release-root', default='/var/www/aichat-releases')
+    parser.add_argument('--backend-live', default='/opt/aichat-backend-current')
+    parser.add_argument('--backend-release-root', default='/opt/aichat-backend-releases')
     args = parser.parse_args()
 
     try:
@@ -399,6 +461,8 @@ def main():
             journal,
             frontend_live=args.frontend_live,
             frontend_release_root=args.frontend_release_root,
+            backend_live=args.backend_live,
+            backend_release_root=args.backend_release_root,
         )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))

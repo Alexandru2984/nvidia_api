@@ -7,16 +7,18 @@ After=network-online.target
 Type=oneshot
 User=aichat
 Group=aichat
-WorkingDirectory=/home/micu/nvidia/backend
+WorkingDirectory=/opt/aichat-backend-current
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/home/micu/nvidia/backend/venv/bin/python manage.py probe_models
+Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend
+ExecStart=/home/micu/nvidia/backend/venv/bin/python /opt/aichat-backend-current/manage.py probe_models
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindReadOnlyPaths=/home/micu/nvidia/backend
+BindReadOnlyPaths=/home/micu/nvidia/backend/venv /home/micu/nvidia/backend/.env
+BindPaths=/home/micu/nvidia/backend/.cache
 ReadWritePaths=/home/micu/nvidia/backend/.cache
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
