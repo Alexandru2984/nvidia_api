@@ -586,6 +586,21 @@ class TestSendMessage:
         )
         assert r.status_code == 400
 
+    @pytest.mark.parametrize('attachment_ids', [
+        [True], [0], [1 << 63], {'id': 1}, '1',
+    ])
+    def test_attachment_ids_require_bounded_integer_list(
+        self, auth_client, convo, attachment_ids,
+    ):
+        response = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/',
+            {'content': 'hi', 'attachment_ids': attachment_ids},
+            format='json',
+        )
+
+        assert response.status_code == 400
+        assert not convo.messages.exists()
+
     def test_cannot_use_other_users_attachment(self, auth_client, other_client, convo):
         # other user uploads
         r = other_client.post(

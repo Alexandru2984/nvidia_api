@@ -1,6 +1,10 @@
-from django.urls import path
+from django.urls import path, register_converter
 
 from . import sessions as sessions_views, twofactor, views
+from .converters import PositiveBigIntConverter, SessionHandleConverter
+
+register_converter(PositiveBigIntConverter, 'positive_bigint')
+register_converter(SessionHandleConverter, 'session_handle')
 
 urlpatterns = [
     path('health/', views.health),
@@ -22,23 +26,23 @@ urlpatterns = [
     path('auth/2fa/recovery-codes/', twofactor.regenerate_recovery_codes),
     path('auth/sessions/', sessions_views.list_sessions),
     path('auth/sessions/revoke-others/', sessions_views.revoke_other_sessions),
-    path('auth/sessions/<str:key>/', sessions_views.revoke_session),
+    path('auth/sessions/<session_handle:key>/', sessions_views.revoke_session),
     path('models/', views.list_models),
     path('conversations/', views.conversations),
-    path('conversations/<int:pk>/', views.conversation_detail),
-    path('conversations/<int:pk>/export/', views.export_conversation),
-    path('conversations/<int:pk>/messages/', views.send_message),
-    path('messages/<int:pk>/', views.message_detail),
-    path('messages/<int:pk>/regenerate/', views.regenerate_message),
+    path('conversations/<positive_bigint:pk>/', views.conversation_detail),
+    path('conversations/<positive_bigint:pk>/export/', views.export_conversation),
+    path('conversations/<positive_bigint:pk>/messages/', views.send_message),
+    path('messages/<positive_bigint:pk>/', views.message_detail),
+    path('messages/<positive_bigint:pk>/regenerate/', views.regenerate_message),
     path('attachments/', views.list_attachments),
     path('attachments/upload/', views.upload_attachment),
     path(
         'attachments/upload/<uuid:attempt_id>/',
         views.cancel_attachment_upload,
     ),
-    path('attachments/<int:pk>/', views.delete_attachment),
-    path('attachments/<int:pk>/preview/', views.attachment_preview),
-    path('attachments/<int:pk>/download/', views.download_attachment, name='attachment-download'),
+    path('attachments/<positive_bigint:pk>/', views.delete_attachment),
+    path('attachments/<positive_bigint:pk>/preview/', views.attachment_preview),
+    path('attachments/<positive_bigint:pk>/download/', views.download_attachment, name='attachment-download'),
     path('images/generate/', views.generate_image),
     path('images/models/', views.list_image_models),
 ]

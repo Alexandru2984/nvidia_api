@@ -1,12 +1,17 @@
 """Regression coverage for anonymous CSRF, input types and session disclosure."""
+import json
 from datetime import timedelta
+from io import BytesIO
 
 import pytest
 from django.utils import timezone
 from django.test import RequestFactory
 from rest_framework.test import APIClient
+from rest_framework.exceptions import ParseError
 
+from chat.converters import PositiveBigIntConverter, SessionHandleConverter
 from chat.models import PasswordReset
+from chat.security import ObjectJSONParser
 from chat.views import _hash_code
 from chat.middleware import RealClientIPMiddleware
 
@@ -42,6 +47,71 @@ def test_cross_origin_login_rejected_even_with_csrf(user):
 @pytest.mark.parametrize('data', [[], ['username'], 'bad', 12, {'username': 42}, {'password': ['x']}])
 def test_invalid_auth_json_returns_400(client, data):
     assert client.post('/api/auth/login/', data, format='json').status_code == 400
+
+
+@pytest.mark.parametrize('data', [
+    {'invite_code': []},
+    {'max_tokens': '128'},
+    {'width': 1024.0},
+    {'steps': True},
+    {'temperature': True},
+    {'temperature': float('inf')},
+    {'archived': 1},
+    {'attachment_ids': [True]},
+    {'attachment_ids': [0]},
+    {'attachment_ids': [1 << 63]},
+])
+def test_structured_json_fields_reject_ambiguous_types(data):
+    stream = BytesIO(json.dumps(data).encode())
+
+    with pytest.raises(ParseError):
+        ObjectJSONParser().parse(stream)
+
+
+def test_structured_json_fields_accept_exact_types():
+    data = {
+        'invite_code': 'ABCD-EFGH-JKLM-NPQR-STUV',
+        'max_tokens': 128,
+        'temperature': 0.5,
+        'archived': False,
+        'attachment_ids': [1, (1 << 63) - 1],
+    }
+
+    assert ObjectJSONParser().parse(BytesIO(json.dumps(data).encode())) == data
+
+
+@pytest.mark.parametrize('path', [
+    '/api/conversations/9223372036854775808/',
+    '/api/conversations/9999999999999999999/export/',
+    '/api/conversations/9999999999999999999/messages/',
+    '/api/messages/9999999999999999999/',
+    '/api/messages/9999999999999999999/regenerate/',
+    '/api/attachments/9999999999999999999/',
+    '/api/attachments/9999999999999999999/preview/',
+    '/api/attachments/9999999999999999999/download/',
+])
+def test_oversized_persistence_ids_are_rejected_by_the_router(auth_client, path):
+    assert auth_client.get(path).status_code == 404
+
+
+def test_identifier_converters_enforce_exact_domains():
+    bigint = PositiveBigIntConverter()
+    assert bigint.to_python('9223372036854775807') == (1 << 63) - 1
+    for value in ('0', '9223372036854775808'):
+        with pytest.raises(ValueError):
+            bigint.to_python(value)
+
+    handle = SessionHandleConverter()
+    valid = 'a' * 64
+    assert handle.to_python(valid) == valid
+    assert handle.to_url(valid) == valid
+    for value in ('a' * 63, 'g' * 64):
+        with pytest.raises(ValueError):
+            handle.to_url(value)
+
+
+def test_malformed_session_handle_does_not_scan_sessions(auth_client):
+    assert auth_client.delete('/api/auth/sessions/not-a-handle/').status_code == 404
 
 
 def test_registration_uses_password_validators(client):

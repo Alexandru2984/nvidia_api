@@ -45,6 +45,23 @@ class TestGenerateImage:
         r = auth_client.post(self.URL, {'prompt': 'a cat', 'seed': -1}, format='json')
         assert r.status_code == 400
 
+    @pytest.mark.parametrize(('field', 'value'), [
+        ('width', '1024'),
+        ('height', 1024.0),
+        ('steps', True),
+        ('seed', 1.5),
+    ])
+    @mock.patch('chat.views.requests.post')
+    def test_numeric_parameters_require_exact_json_integers(
+        self, m_post, auth_client, field, value,
+    ):
+        response = auth_client.post(
+            self.URL, {'prompt': 'a cat', field: value}, format='json',
+        )
+
+        assert response.status_code == 400
+        m_post.assert_not_called()
+
     @mock.patch('chat.views.requests.post')
     def test_success_saves_attachment(self, m_post, auth_client, user):
         b64 = base64.b64encode(PNG_1PX).decode()
