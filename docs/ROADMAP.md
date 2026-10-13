@@ -98,11 +98,14 @@ timed evidence.
   per-account cap, deadline-preserving rotations and atomic oldest-session
   eviction. Add global chat-byte budgets and configurable linked-history
   retention before materially raising account volume.
-- **Immutable backend delivery is the immediate deployment priority:** production
-  still imports Python from the mutable checkout. A pre-migration health probe on
-  2026-10-13 caught one old-worker/new-module hybrid import and returned 500 until
-  the coherent restart completed. Stage root-owned releases, switch one validated
-  symlink atomically, keep a tested rollback target, and monitor a code manifest.
+- **Immutable backend application delivery is shipped:** production imports only
+  a committed, root-owned, manifest-verified release selected through one atomic
+  symlink. Staging excludes secrets, media, cache and dependencies; preflight runs
+  as `aichat`; backend, maintenance and model-probe units share the same release;
+  health/private-route failures restore both code and systemd configuration. The
+  five-minute monitor verifies the active manifest. Next make the Python
+  dependency environment root-owned and versioned, add safe release retention,
+  and exercise the automatic rollback path in a planned maintenance test.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page

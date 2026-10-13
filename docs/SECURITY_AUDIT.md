@@ -63,7 +63,7 @@ upstream responses are now logged server-side while clients receive generic text
 |---|---|---|---|---|
 | A-01 | Critical | `/media/` could bypass object ownership | Authenticated download endpoint and deployed nginx denial | Keep the external `/media/*` 404 regression probe in every rollout |
 | A-02 | High | PDF/DOCX handled in the request process | Magic-byte checks, ZIP limits, subprocess timeout and OS resource limits | Move parsing to a dedicated worker/container before higher-volume use |
-| A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, app-owned runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials during a controlled rotation |
+| A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, root-owned application releases, narrowly bound runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials and version the dependency environment during controlled rotations |
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
 | A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry and account caps | Rotate sessions after any suspected historic disclosure |
@@ -72,13 +72,14 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, both active release manifests, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
 | A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability, while transient outcomes retain the last trusted decision and emit a degraded-probe alert. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
+| A-19 | High | Production workers imported application code from a mutable checkout, allowing old/new module mixtures during edits | Deploys archive committed tracked backend files into root-owned manifest-verified releases, atomically switch one symlink, make checkout source invisible to the service, and restore code plus unit files on failed health/private probes | Version and root-own the shared virtualenv, bound retained releases, and execute a planned rollback exercise |
 
 ## Quantitative risk view
 
@@ -745,6 +746,35 @@ is required before describing those controls as complete.
   before deployed Python files change. Rollback is the retained dump, previous
   frontend release, code rollback and reverse migration to `0022`; it was not
   required.
+
+### Immutable backend application rollout — 2026-10-13
+
+- Deployed repository state `ea8812a` without a schema migration. The deployment
+  script archives only tracked backend files from the clean commit, rejects
+  symlinks, special files, secrets and mutable runtime directories, enforces
+  root ownership and exact `0755`/`0644` modes, writes and verifies a SHA-256
+  manifest, and preflights Django, migrations and the import origin as `aichat`.
+- `/opt/aichat-backend-current` atomically selects root-owned release
+  `/opt/aichat-backend-releases/release-20261013T205103_973321227`, whose embedded
+  full commit is `ea8812aa40c059fafcd724ade5e9695cb2dca0fa`. Gunicorn's master and
+  all three workers resolve that directory as their working directory. The
+  service mount namespace cannot see checkout application source; it receives
+  only read-only `.env`/venv binds and writable media/cache binds.
+- Backend, maintenance and model-probe units now share the same release target.
+  Their committed and installed service files match. The backend retained its
+  `2.9 OK` systemd exposure score and zero automatic restarts. Running maintenance
+  through the new sandbox succeeded and deleted zero objects; the 13-test monitor
+  suite passed, the updated root-owned monitor returned no findings, and all four
+  application timers are active.
+- Origin/public root, health and `security.txt` returned 200; anonymous session
+  inventory and direct config/git probes returned 403; direct media returned 404.
+  The release manifest passed strict verification and the backend journal had no
+  error-level entries after readiness. Future failed deploy probes restore both
+  the prior release symlink and the previous installed unit files. The initial
+  bootstrap required no rollback. Residual hardening is a root-owned, versioned
+  dependency environment plus bounded release retention and a scheduled rollback
+  exercise; the existing validated 23:40 database backup remains the data rollback
+  point for this no-migration stage.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

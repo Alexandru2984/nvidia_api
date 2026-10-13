@@ -277,7 +277,7 @@ verify the maximum request shape against the official hosted endpoint.
 
 The VPS pattern matches every other `*.micutu.com` app on this host:
 
-- **systemd unit** `/etc/systemd/system/aichat-backend.service` runs `gunicorn` as the dedicated, non-login `aichat` identity (gthread workers, `--timeout 600` for SSE streams), binds `127.0.0.1:8501`, and reads `/home/micu/nvidia/backend/.env` through group-only access. The reviewed unit and sandbox are under `ops/systemd/`.
+- **systemd unit** `/etc/systemd/system/aichat-backend.service` runs `gunicorn` as the dedicated, non-login `aichat` identity (gthread workers, `--timeout 600` for SSE streams), binds `127.0.0.1:8501`, and imports application code only from the active root-owned release at `/opt/aichat-backend-current`. Secrets, media and cache remain below the private runtime directory `/home/micu/nvidia/backend`; the source checkout is hidden from the service namespace. The reviewed unit and sandbox are under `ops/systemd/`.
 - **nginx** vhost `/etc/nginx/sites-available/aichat.micutu.com` serves the built SPA from `/var/www/aichat.micutu.com/`, proxies authenticated API/admin traffic, and must return `404` for `/media/`. Private files are served only through `/api/attachments/<id>/download/`. The reviewed template is `ops/nginx/aichat.micutu.com.conf`.
 - **SSL** via certbot: `sudo certbot --nginx -d aichat.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
 - **PostgreSQL** runs on `127.0.0.1:5432`. Per-app DB and user as documented in the VPS pattern.
@@ -293,20 +293,19 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
-  integrity, the active root-owned frontend release manifest, and backup/restore
-  freshness every five minutes. It uses the host's existing Telegram channel,
-  keeps cooldown state under `/var/lib/aichat-security-monitor`, and never
-  forwards raw log lines.
+  integrity, both active root-owned release manifests, and backup/restore freshness
+  every five minutes. It uses the host's existing Telegram channel, keeps cooldown
+  state under `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 
 Deploy steps after a code change:
 
 ```bash
-# Backend
-cd /home/micu/nvidia/backend
-. venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate
-sudo systemctl restart aichat-backend.service
+# Backend application code (deploys committed HEAD only)
+cd /home/micu/nvidia
+git status --short
+sudo -u aichat env AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend \
+  backend/venv/bin/python backend/manage.py migrate
+sudo scripts/deploy_backend.sh
 
 # Frontend
 cd /home/micu/nvidia/frontend
@@ -314,10 +313,8 @@ npm run build
 cd /home/micu/nvidia
 sudo scripts/deploy_frontend.sh
 
-# Validate before/reload after installing reviewed ops templates
+# Validate the shared edge after deployment
 sudo nginx -t
-sudo systemctl daemon-reload
-sudo systemctl restart aichat-backend.service
 sudo systemctl reload nginx
 curl -fsS https://aichat.micutu.com/api/health/
 curl -o /dev/null -sS -w '%{http_code}\n' https://aichat.micutu.com/media/not-public
@@ -339,13 +336,18 @@ conversion from the legacy directory requires
 Every later deploy omits `--bootstrap`. Failed health/private-route probes switch
 back to the prior target automatically while retaining both releases for review.
 
-The backend still executes application code from the mutable repository checkout.
-Do not edit that checkout while production workers are running: a worker can keep
-an old imported module and later load a newly written dependent module, producing
-an inconsistent process. Until the backend is moved to an atomic immutable
-release path, stop the service before changing deployed Python files and restart
-it only after dependencies, checks and migrations complete. The immutable
-backend release conversion is the next deployment-control priority.
+The backend deploy script archives only tracked files from committed `HEAD`,
+rejects dirty tracked changes, symlinks, special files, secrets and mutable-state
+directories, and stages a root-owned `0755`/`0644` release below
+`/opt/aichat-backend-releases`. It verifies the manifest, runs Django and migration
+preflights as `aichat`, atomically switches `/opt/aichat-backend-current`, installs
+the committed systemd templates, restarts, checks the process working directory
+and public/private boundaries, and restores both code and unit files on failure.
+Use `sudo scripts/deploy_backend.sh --bootstrap` only for the first conversion.
+Later deploys omit the flag and retain the previous release. Database migrations
+must be backed up, reviewed for backward compatibility and applied before the
+switch. The shared virtualenv remains outside the release and requires a separate
+controlled maintenance window when dependencies change.
 
 Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
 once as the database administrator before migration `0017`; do not grant the
@@ -359,20 +361,18 @@ sudo -u postgres psql --dbname=<app-database> --set=ON_ERROR_STOP=1 \
 The migration creates the title/content GIN indexes concurrently so normal chat
 writes are not held behind an index build.
 
-One-time service-identity bootstrap (take configuration and database backups
-first):
+One-time immutable-release conversion for an existing healthy checkout-based
+service (take configuration and database backups first):
 
 ```bash
-sudo useradd --system --user-group --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin aichat
+# Prerequisite: the checkout-backed aichat service is already active and healthy.
 sudo chgrp aichat backend/.env && sudo chmod 0640 backend/.env
 sudo chown -R aichat:aichat backend/media backend/.cache
 sudo chmod 0700 backend/media backend/.cache
-sudo install -o root -g root -m 0644 ops/systemd/aichat-backend.service /etc/systemd/system/
-sudo install -o root -g root -m 0644 ops/systemd/hardening.conf /etc/systemd/system/aichat-backend.service.d/
-sudo install -o root -g root -m 0644 ops/systemd/aichat-{maintenance,model-probe}.{service,timer} /etc/systemd/system/
+sudo scripts/deploy_backend.sh --bootstrap
+sudo install -o root -g root -m 0644 ops/systemd/aichat-{maintenance,model-probe}.{timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now aichat-maintenance.timer aichat-model-probe.timer
-sudo systemctl restart aichat-backend.service
 ```
 
 Run production management commands that touch runtime files as `aichat`. Source

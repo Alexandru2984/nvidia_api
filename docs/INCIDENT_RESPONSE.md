@@ -27,7 +27,8 @@ invitations/6 minutes, any invitation consumption or verified new account,
 5 incompatible attachment/model rejections/6 minutes, 3 backend errors/6 minutes,
 any invalid runtime model-status file, any degraded scheduled model probe, any
 provider authorization/entitlement probe failure, a database backup older than
-30 hours, or a restore drill older than eight days.
+30 hours, a restore drill older than eight days, or any frontend/backend release
+manifest, ownership or permission failure.
 
 ## 2. Contain
 
@@ -90,6 +91,9 @@ for evidence validation.
 2. Apply migrations/configuration, start the backend, validate nginx/systemd, and
    probe health, authentication, private downloads, CSRF, rate limits, and denial
    of `/media/` before reopening traffic.
+   Restore application code through the retained `/opt/aichat-backend-releases`
+   target or rerun the committed deploy script; never copy repaired Python files
+   into the active release.
 3. Watch authentication, request/token reservations, unmetered provider calls,
    contractual/GPU spend, error rates, and database changes at elevated
    sensitivity for at least 24 hours.
