@@ -329,8 +329,8 @@ cloudflared-to-nginx path; and accept client-IP headers only on that path.
 
 ### S-10 — Medium — sensitive actions lack absolute-session/recent-auth policy
 
-Evidence: sessions have a 14-day sliding expiry and no absolute lifetime.
-Sensitive actions other than password/account deletion rely on possession of
+Pre-fix evidence: sessions had a 14-day sliding expiry and no absolute lifetime.
+Sensitive actions other than password/account deletion relied on possession of
 the session and, in some flows, a TOTP code, without a uniform recent-password
 boundary.
 
@@ -340,6 +340,14 @@ high-impact actions until manually noticed and revoked.
 Remediation: add an absolute lifetime, rotate sessions after privilege changes,
 record `auth_time`, and require recent password/2FA confirmation for 2FA setup,
 recovery-code regeneration, email changes, staff elevation and exports.
+
+Status: partially mitigated. Every authenticated session is now represented in
+an indexed owner registry, expires at a fixed 30-day deadline that survives key
+rotation, and is subject to an atomically enforced 20-session account cap.
+Missing/mismatched registry state fails closed, legacy sessions are lazily
+indexed, and cleanup removes both cookie-expired and absolute-expired rows. The
+remaining issue is a uniform recent-authentication boundary for sensitive flows,
+including exports and future email/staff changes.
 
 ### S-11 — Medium — concurrent generation/attachment integrity
 
@@ -386,9 +394,9 @@ conservative 25 MiB estimate and is limited to 10/hour; attachment downloads are
 limited to 120/hour; session list/revocation routes have per-user limits. Daily
 maintenance removes expired database sessions and the security monitor alerts on
 quota blocks. The responsive account panel exposes object consumption. Residual
-work is a global/chat-byte budget, linked-history retention/deletion policy,
-absolute session lifetime and an indexed owner/session registry that avoids
-decoding the global active-session table.
+work is a global/chat-byte budget and linked-history retention/deletion policy.
+The deployed owner-indexed session registry avoids decoding the global session
+table and enforces both a fixed 30-day lifetime and a 20-session account cap.
 
 ### S-13 — Medium — highest-risk changes are not independently detectable
 
@@ -457,6 +465,9 @@ production-entitlement decisions, and provide export/deletion status.
   assistant output and streamed exports are bounded, private egress/session
   routes are throttled, expired sessions are scheduled for deletion, and quota
   blocks feed the security monitor.
+- Authenticated sessions have owner-indexed non-bearer handles, a fixed 30-day
+  deadline preserved across rotations, a 20-session cap with atomic eviction,
+  fail-closed registry validation and monitored mismatch/cap events.
 - Password reset/verification codes are keyed hashes with expiry, attempt limits,
   transactional consumption and anti-enumeration response bodies. Password resets
   revoke sessions and do not bypass enabled 2FA.
@@ -487,7 +498,7 @@ production-entitlement decisions, and provide export/deletion status.
   reachable commit snapshots, all reviewed test/config placeholders or
   non-secret entropy; zero candidates in four unreachable Git objects. `.env`
   files were never tracked.
-- Backend: 415 tests passed; migration drift check and `pip check` passed.
+- Backend: 433 tests passed; migration drift check and `pip check` passed.
 - Frontend: ESLint, production build and 33 Playwright checks at mobile/desktop
   widths passed.
 - Django `check --deploy`: only `SECURE_HSTS_PRELOAD=False`; one-year HSTS with
@@ -520,14 +531,16 @@ production-entitlement decisions, and provide export/deletion status.
    limits.
 2. Replace loopback TCP/backend trust with permissioned/authenticated origin
    paths.
-3. Add recent-auth and absolute-session policy, request idempotency/durable job
-   state, global/chat-byte quotas, linked-history retention and an indexed
-   owner/session registry. Per-user object quotas, bounded/throttled egress,
+3. Add recent-auth policy, request idempotency/durable job state, global/chat-byte
+   quotas and linked-history retention. Absolute session deadlines, the indexed
+   owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
    claim lock are deployed.
-4. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
+4. Replace mutable-checkout backend execution with root-owned, manifest-verified,
+   atomic releases and retain an automatically tested rollback target.
+5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
-5. Pin CI Actions and lock Python artifacts by hash.
+6. Pin CI Actions and lock Python artifacts by hash.
 
 ### P2 — after the verdict returns to yellow/green
 

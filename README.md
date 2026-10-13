@@ -83,6 +83,8 @@ CHAT_MAX_MESSAGES_PER_USER=10000
 CHAT_MAX_MESSAGES_PER_CONVERSATION=2000
 CHAT_MAX_ASSISTANT_CHARS=64000
 CHAT_MAX_EXPORT_BYTES=26214400
+SESSION_ABSOLUTE_MAX_AGE_SECONDS=2592000
+SESSION_MAX_ACTIVE_PER_USER=20
 
 # Email (used for OTP verification) — self-hosted mailcow
 SMTP_HOST=mail.micutu.com
@@ -136,7 +138,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/auth/password/` | `{current_password, new_password}` | session | Keeps this session, revokes all others. |
 | POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Cascades all user data. |
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
-| GET/DELETE | `/auth/sessions/*` | — | session | Lists opaque session handles and revokes selected/other sessions. |
+| GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles and revokes selected/other sessions without decoding the global session table. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
@@ -193,6 +195,14 @@ Markdown exports are streamed under a conservative 25 MiB ceiling, and quota
 blocks are security-monitored. The responsive Storage panel exposes current
 counts and limits. Daily maintenance deletes expired database sessions; session
 inventory/revocation and attachment/export egress have explicit rate limits.
+
+Authenticated sessions keep Django's 14-day sliding cookie but are also bounded
+by a fixed 30-day lifetime from login. Rotations preserve that original deadline,
+each account is limited to 20 active sessions, and the oldest non-current session
+is removed atomically when the cap is reached. The owner-indexed session registry
+stores only a secret-keyed non-bearer handle; registry mismatches fail closed and
+feed the security monitor. Tune `SESSION_ABSOLUTE_MAX_AGE_SECONDS` and
+`SESSION_MAX_ACTIVE_PER_USER` only within their validated ranges.
 
 The token limit is a consumption/capacity control, not a fabricated currency
 estimate. NVIDIA documents production NIM pricing around licensing/GPU capacity,
@@ -328,6 +338,14 @@ conversion from the legacy directory requires
 `sudo scripts/deploy_frontend.sh --bootstrap`.
 Every later deploy omits `--bootstrap`. Failed health/private-route probes switch
 back to the prior target automatically while retaining both releases for review.
+
+The backend still executes application code from the mutable repository checkout.
+Do not edit that checkout while production workers are running: a worker can keep
+an old imported module and later load a newly written dependent module, producing
+an inconsistent process. Until the backend is moved to an atomic immutable
+release path, stop the service before changing deployed Python files and restart
+it only after dependencies, checks and migrations complete. The immutable
+backend release conversion is the next deployment-control priority.
 
 Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
 once as the database administrator before migration `0017`; do not grant the

@@ -93,9 +93,16 @@ timed evidence.
   workers; regeneration reserves only projected growth. Assistant output and
   streamed Markdown exports have hard bounds, attachment/export/session routes
   are throttled, expired sessions are removed by daily maintenance, quota blocks
-  alert, and the responsive Storage panel shows the limits. Add global chat-byte
-  budgets, configurable linked-history retention, and an indexed owner/session
-  registry before materially raising account or session volume.
+  alert, and the responsive Storage panel shows the limits. Authenticated sessions
+  now have an indexed owner registry, fixed 30-day maximum lifetime, a 20-session
+  per-account cap, deadline-preserving rotations and atomic oldest-session
+  eviction. Add global chat-byte budgets and configurable linked-history
+  retention before materially raising account volume.
+- **Immutable backend delivery is the immediate deployment priority:** production
+  still imports Python from the mutable checkout. A pre-migration health probe on
+  2026-10-13 caught one old-worker/new-module hybrid import and returned 500 until
+  the coherent restart completed. Stage root-owned releases, switch one validated
+  symlink atomically, keep a tested rollback target, and monitor a code manifest.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page

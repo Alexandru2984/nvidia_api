@@ -66,13 +66,13 @@ upstream responses are now logged server-side while clients receive generic text
 | A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, app-owned runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials during a controlled rotation |
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
-| A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque session handles | Rotate sessions after any suspected historic disclosure |
+| A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry and account caps | Rotate sessions after any suspected historic disclosure |
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, chat-object quota blocks, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
@@ -705,6 +705,46 @@ is required before describing those controls as complete.
   backend has three workers, zero automatic restarts and no warning/error rollout
   journal entries after readiness. Rollback is the retained dump and frontend
   release plus code rollback and reverse migration to `0021`; none was required.
+
+### Indexed and bounded session rollout — 2026-10-13
+
+- Deployed repository state `ae55cb5` with migration
+  `0023_authenticatedsession`. Each Django session now has an owner-indexed
+  registry row and a secret-keyed 64-character non-bearer handle. A fixed 30-day
+  deadline survives session-key rotation, registry mismatches fail closed, and a
+  user-row lock enforces a 20-session cap while preserving the current session
+  and evicting the oldest alternatives.
+- Session inventory, selected revocation and revoke-others use owner-scoped
+  indexed queries instead of decoding the global active-session table. Legacy
+  sessions are indexed lazily, malformed deadlines are repaired conservatively,
+  and daily maintenance removes cookie-expired or absolute-expired session rows.
+  All 433 backend, 33 Playwright and 10 monitor tests passed with lint, build,
+  compile, Django/migration checks, `pip check` and zero npm advisories.
+- The gzip-validated pre-migration rollback dump is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261013_234013_377863644.sql.gz`
+  (`SHA-256 8faef5b53feef3ea80fa84f79061813c11e0449b4b91867f9fb494a878d324fc`,
+  mode `0600`). Production had no active database sessions, so the migration
+  backfilled zero rows. Foreign keys, the handle uniqueness constraint, the
+  absolute-deadline check and owner/expiry indexes were inspected in PostgreSQL.
+  A rollback-only live smoke proved indexed inventory, absolute-expiry logout and
+  registry/session cascade with no residual rows.
+- Root-owned frontend release
+  `/var/www/aichat-releases/release-20261013T204054_055053842` is active;
+  `/var/www/aichat-releases/release-20261013T160109_983111340` is retained for
+  atomic rollback. Its manifest, origin/public 200/403/404 boundaries, security
+  headers, nginx syntax, three timers, maintenance dry-run and manual security
+  monitor passed. The backend has three workers, zero automatic restarts and no
+  error-level journal entries after rollout readiness.
+- A pre-migration origin health probe briefly returned 500 because already
+  running workers retained the old `chat.models` module and later imported the
+  newly written session module from the mutable checkout. This was a coherent-
+  release failure, not database corruption or a migration failure; migration and
+  a full service restart restored readiness in roughly 24 seconds. The event is
+  now an explicit finding: production Python must move to root-owned,
+  manifest-verified atomic releases. Until then, the backend must be stopped
+  before deployed Python files change. Rollback is the retained dump, previous
+  frontend release, code rollback and reverse migration to `0022`; it was not
+  required.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
