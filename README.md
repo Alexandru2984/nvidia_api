@@ -112,6 +112,11 @@ Changing `DJANGO_SECRET_KEY` invalidates every outstanding invite.
 ## API
 
 All endpoints are under `/api/`. Auth uses session cookies; mutations need `X-CSRFToken` from the `csrftoken` cookie.
+JSON bodies must be objects and use exact field types: text stays text,
+generation dimensions/counts/IDs are JSON integers (never booleans or coerced
+strings/fractions), flags are booleans, and attachment IDs are positive signed
+64-bit integers. Persistence IDs in URLs are bounded to the same database domain;
+session-revocation handles are exactly 64 lowercase hexadecimal characters.
 
 | Method | Path | Body | Auth | Notes |
 |---|---|---|---|---|

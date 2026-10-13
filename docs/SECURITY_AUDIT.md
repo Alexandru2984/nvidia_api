@@ -613,6 +613,27 @@ is required before describing those controls as complete.
   all timers are healthy, and the backend has zero restarts or warning-level
   rollout entries.
 
+### Request-type and identifier boundary rollout — 2026-10-13
+
+- Deployed repository state `0ef3faa` without a migration or user-data write.
+  The shared JSON parser now rejects coercion-prone structured values: booleans
+  cannot become integer IDs/counts, fractional numbers cannot be truncated,
+  non-finite temperatures are invalid, flags require booleans, and attachment
+  lists contain only positive signed-64-bit IDs. Invitation codes also cross the
+  same text-type boundary as other credentials.
+- Persistence URL parameters use a positive PostgreSQL `BIGINT` converter.
+  Values outside `1..9223372036854775807` fail at URL resolution before any ORM
+  query. Session revocation routes accept only the 64-character lowercase-hex
+  opaque handle, so malformed attacker input cannot trigger a global active-
+  session decode/scan.
+- All 403 backend tests passed with Django and diff checks. Production probes
+  returned 404 for oversized conversation/message/attachment IDs and malformed
+  session handles. Authenticated no-write probes returned parser-specific 400s
+  for boolean token and attachment IDs and persisted no message. The backend
+  restarted cleanly at the second readiness attempt, has zero automatic restarts
+  or warning-level journal entries, and the security monitor completed with
+  exit status zero.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
