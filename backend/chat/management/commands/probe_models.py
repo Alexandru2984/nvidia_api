@@ -3,11 +3,12 @@ are currently unavailable, so /api/models/ can hide them.
 
 NVIDIA's /v1/models listing is unreliable in both directions (it lists models
 that 404 on invocation and omits ones that work), so the only trustworthy
-check is a real chat/completions call with max_tokens=1 per model.
+check is a real streamed chat/completions call with max_tokens=1 per model.
 
 Scheduled in production by `aichat-model-probe.timer`.
 """
 import concurrent.futures
+import json
 import logging
 import time
 
@@ -18,6 +19,7 @@ from django.utils import timezone
 
 from chat.model_status import TRANSIENT_OUTCOMES, get_status, write_status
 from chat.models_catalog import MODEL_IDS
+from chat.nvidia_client import chat_completion_headers, chat_completion_payload
 
 
 DEFINITIVE_UNAVAILABLE_OUTCOMES = frozenset({'retired', 'rejected'})
@@ -50,26 +52,36 @@ class Command(BaseCommand):
         parser.add_argument('--dry-run', action='store_true', help='Probe and report, but do not write the status file.')
 
     def _probe(self, model_id, timeout):
-        headers = {
-            'Authorization': f'Bearer {settings.NVIDIA_API_KEY}',
-            'Content-Type': 'application/json',
-        }
-        payload = {'model': model_id, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 1}
+        headers = chat_completion_headers(settings.NVIDIA_API_KEY)
+        payload = chat_completion_payload(
+            model_id,
+            [{'role': 'user', 'content': 'Reply OK.'}],
+            max_tokens=1,
+            temperature=0.7,
+        )
         started = time.monotonic()
+        response = None
         try:
-            r = requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=timeout)
+            response = requests.post(
+                settings.NVIDIA_API_URL,
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+                stream=True,
+            )
             latency_ms = min(round((time.monotonic() - started) * 1000), 120_000)
-            if r.status_code == 200:
-                outcome = 'available'
-            elif r.status_code in (404, 410):
+            if response.status_code == 200:
+                outcome = self._stream_outcome(response)
+                latency_ms = min(round((time.monotonic() - started) * 1000), 120_000)
+            elif response.status_code in (404, 410):
                 outcome = 'retired'
-            elif r.status_code in (400, 422):
+            elif response.status_code in (400, 422):
                 outcome = 'rejected'
-            elif r.status_code == 429:
+            elif response.status_code == 429:
                 outcome = 'throttled'
-            elif r.status_code in (401, 403):
+            elif response.status_code in (401, 403):
                 outcome = 'authorization_error'
-            elif r.status_code == 402:
+            elif response.status_code == 402:
                 outcome = 'entitlement_error'
             else:
                 outcome = 'provider_error'
@@ -79,7 +91,38 @@ class Command(BaseCommand):
         except requests.RequestException:
             latency_ms = min(round((time.monotonic() - started) * 1000), 120_000)
             outcome = 'network_error'
+        finally:
+            if response is not None:
+                response.close()
         return model_id, {'outcome': outcome, 'latency_ms': latency_ms, 'attempts': 1}
+
+    @staticmethod
+    def _stream_outcome(response):
+        """Require the same complete SSE contract consumed by real chats."""
+        content_type = str(response.headers.get('Content-Type', '')).lower()
+        if content_type.split(';', 1)[0].strip() != 'text/event-stream':
+            return 'protocol_error'
+
+        saw_event = False
+        saw_done = False
+        for line in response.iter_lines(decode_unicode=True):
+            if isinstance(line, bytes):
+                line = line.decode('utf-8', errors='replace')
+            if not line or not line.startswith('data:'):
+                continue
+            data = line[5:].strip()
+            if data == '[DONE]':
+                saw_done = True
+                break
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or 'error' in event:
+                return 'protocol_error'
+            if 'choices' in event or event.get('usage'):
+                saw_event = True
+        return 'available' if saw_event and saw_done else 'protocol_error'
 
     def handle(self, *args, **opts):
         timeout = max(1, min(opts['timeout'], 120))
@@ -92,8 +135,8 @@ class Command(BaseCommand):
             for mid, outcome in ex.map(lambda m: self._probe(m, timeout), ids):
                 results[mid] = outcome
 
-        # Retry non-200s once — serverless NIMs can cold-start slowly, and a
-        # single flaky timeout shouldn't hide a working model for a week.
+        # Retry every incomplete/failed contract once — serverless NIMs can
+        # cold-start slowly, and one flaky stream must not hide a working model.
         flaky = [m for m, result in results.items() if result['outcome'] != 'available']
         if flaky:
             with concurrent.futures.ThreadPoolExecutor(min(workers, len(flaky))) as ex:

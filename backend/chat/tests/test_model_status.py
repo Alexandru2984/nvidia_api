@@ -33,6 +33,18 @@ def complete_results(unavailable=()):
     }
 
 
+def healthy_probe_response(status_code=200):
+    response = mock.Mock()
+    response.status_code = status_code
+    response.headers = {'Content-Type': 'text/event-stream; charset=utf-8'}
+    response.iter_lines.return_value = [
+        b'data: {"choices":[{"delta":{"content":"OK"}}]}',
+        b'data: {"choices":[],"usage":{"total_tokens":2}}',
+        b'data: [DONE]',
+    ]
+    return response
+
+
 class TestModelsEndpoint:
     def test_all_models_when_no_status_file(self, auth_client, status_file):
         r = auth_client.get('/api/models/')
@@ -172,9 +184,7 @@ class TestProbeCommand:
         dead_id = sorted(MODEL_IDS)[0]
 
         def fake_post(url, json=None, **kwargs):
-            r = mock.Mock()
-            r.status_code = 404 if json['model'] == dead_id else 200
-            return r
+            return healthy_probe_response(404 if json['model'] == dead_id else 200)
 
         m_post.side_effect = fake_post
         call_command('probe_models')
@@ -205,9 +215,7 @@ class TestProbeCommand:
         def fake_post(url, json=None, **kwargs):
             if json['model'] == DEFAULT_MODEL_ID:
                 raise requests.ReadTimeout
-            response = mock.Mock()
-            response.status_code = 200
-            return response
+            return healthy_probe_response()
 
         m_post.side_effect = fake_post
         call_command('probe_models')
@@ -225,9 +233,7 @@ class TestProbeCommand:
         def fake_post(url, json=None, **kwargs):
             if json['model'] == DEFAULT_MODEL_ID:
                 raise requests.ConnectionError
-            response = mock.Mock()
-            response.status_code = 200
-            return response
+            return healthy_probe_response()
 
         m_post.side_effect = fake_post
         call_command('probe_models')
@@ -238,11 +244,48 @@ class TestProbeCommand:
 
     @mock.patch('chat.management.commands.probe_models.requests.post')
     def test_dry_run_writes_nothing(self, m_post, status_file):
-        r = mock.Mock()
-        r.status_code = 200
-        m_post.return_value = r
+        m_post.return_value = healthy_probe_response()
         call_command('probe_models', '--dry-run')
         assert not os.path.exists(status_file)
+
+    @mock.patch('chat.management.commands.probe_models.requests.post')
+    def test_probe_uses_the_production_streaming_contract(self, m_post):
+        m_post.return_value = healthy_probe_response()
+
+        _, result = Command()._probe(DEFAULT_MODEL_ID, 45)
+
+        assert result['outcome'] == 'available'
+        request = m_post.call_args
+        assert request.kwargs['stream'] is True
+        assert request.kwargs['headers']['Accept'] == 'text/event-stream'
+        assert request.kwargs['json'] == {
+            'model': DEFAULT_MODEL_ID,
+            'messages': [{'role': 'user', 'content': 'Reply OK.'}],
+            'max_tokens': 1,
+            'temperature': 0.7,
+            'stream': True,
+            'stream_options': {'include_usage': True},
+        }
+        m_post.return_value.close.assert_called_once_with()
+
+    @pytest.mark.parametrize(('content_type', 'lines'), [
+        ('application/json', [b'{"choices":[]}']),
+        ('text/event-stream', [b'data: {"choices":[]}']),
+        ('text/event-stream', [b'data: {"error":{"message":"unavailable"}}', b'data: [DONE]']),
+        ('text/event-stream', [b'data: not-json', b'data: [DONE]']),
+    ])
+    @mock.patch('chat.management.commands.probe_models.requests.post')
+    def test_http_200_requires_a_complete_valid_sse_stream(
+        self, m_post, content_type, lines,
+    ):
+        response = healthy_probe_response()
+        response.headers = {'Content-Type': content_type}
+        response.iter_lines.return_value = lines
+        m_post.return_value = response
+
+        _, result = Command()._probe(DEFAULT_MODEL_ID, 45)
+
+        assert result['outcome'] == 'protocol_error'
 
     @mock.patch('chat.management.commands.probe_models.time.monotonic', side_effect=[10, 11.5])
     @mock.patch('chat.management.commands.probe_models.requests.post', side_effect=requests.ReadTimeout)
@@ -269,7 +312,7 @@ class TestProbeCommand:
     def test_probe_classifies_only_model_contract_errors_as_definitive(
         self, m_post, status_code, expected,
     ):
-        m_post.return_value.status_code = status_code
+        m_post.return_value = healthy_probe_response(status_code)
 
         _, result = Command()._probe(DEFAULT_MODEL_ID, 45)
 

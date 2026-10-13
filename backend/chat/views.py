@@ -45,6 +45,7 @@ from rest_framework.response import Response
 
 from .attachments import content_fingerprint, detect_mime, extract_text, kind_for_mime
 from .model_status import get_status, unavailable_model_ids
+from .nvidia_client import chat_completion_headers, chat_completion_payload
 from .models import (
     Attachment,
     AttachmentUploadAttempt,
@@ -1482,19 +1483,10 @@ def download_attachment(request, pk):
 
 def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
     """Yield (kind, value) tuples: ('chunk', str), ('usage', dict), ('error', str)."""
-    payload = {
-        'model': model_id,
-        'messages': messages,
-        'max_tokens': max_tokens,
-        'temperature': temperature,
-        'stream': True,
-        'stream_options': {'include_usage': True},
-    }
-    headers = {
-        'Authorization': f'Bearer {settings.NVIDIA_API_KEY}',
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-    }
+    payload = chat_completion_payload(
+        model_id, messages, max_tokens=max_tokens, temperature=temperature,
+    )
+    headers = chat_completion_headers(settings.NVIDIA_API_KEY)
     try:
         with requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=180, stream=True) as resp:
             if resp.status_code >= 400:
