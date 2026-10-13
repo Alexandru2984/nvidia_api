@@ -411,10 +411,11 @@ Remediation: send append-only security events and host audit logs off-host; add
 release-manifest verification, file-integrity alerts, sudo/process-identity
 monitoring, provider/mail anomaly alerts, and exercise the response runbook.
 
-Status: partially mitigated. The active frontend and backend are now root-owned,
-atomically selected releases with bounded SHA-256 manifests verified every five
-minutes. The remaining high-value signals are off-host retention, sudo/process
-identity, secret/config changes and provider/mail cost anomalies.
+Status: partially mitigated. The active frontend, backend application and Python
+environment are now root-owned, atomically selected releases with bounded
+SHA-256 manifests verified every five minutes. The remaining high-value signals
+are off-host retention, sudo/process identity, secret/config changes and
+provider/mail cost anomalies.
 
 ### S-14 — Low — CI dependencies are mutable
 
@@ -540,10 +541,10 @@ production-entitlement decisions, and provide export/deletion status.
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
    claim lock are deployed.
-4. Version and root-own the shared Python dependency environment, add bounded
-   release retention, and tabletop the deployed backend rollback. Application
-   code already uses root-owned, manifest-verified atomic releases with automatic
-   code-and-unit rollback.
+4. Add hash-locked wheel provenance/SBOM, bounded release retention, and tabletop
+   both backend rollback paths. Application code and the minimal runtime Python
+   environment already use separate root-owned, manifest-verified atomic releases
+   with automatic rollback.
 5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
 6. Pin CI Actions and lock Python artifacts by hash.

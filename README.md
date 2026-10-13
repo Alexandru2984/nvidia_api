@@ -277,7 +277,7 @@ verify the maximum request shape against the official hosted endpoint.
 
 The VPS pattern matches every other `*.micutu.com` app on this host:
 
-- **systemd unit** `/etc/systemd/system/aichat-backend.service` runs `gunicorn` as the dedicated, non-login `aichat` identity (gthread workers, `--timeout 600` for SSE streams), binds `127.0.0.1:8501`, and imports application code only from the active root-owned release at `/opt/aichat-backend-current`. Secrets, media and cache remain below the private runtime directory `/home/micu/nvidia/backend`; the source checkout is hidden from the service namespace. The reviewed unit and sandbox are under `ops/systemd/`.
+- **systemd unit** `/etc/systemd/system/aichat-backend.service` runs `gunicorn` as the dedicated, non-login `aichat` identity (gthread workers, `--timeout 600` for SSE streams), binds `127.0.0.1:8501`, imports application code only from `/opt/aichat-backend-current`, and executes the root-owned runtime at `/opt/aichat-python-current`. Secrets, media and cache remain below the private runtime directory `/home/micu/nvidia/backend`; checkout source and its builder virtualenv are hidden from the service namespace. The reviewed unit and sandbox are under `ops/systemd/`.
 - **nginx** vhost `/etc/nginx/sites-available/aichat.micutu.com` serves the built SPA from `/var/www/aichat.micutu.com/`, proxies authenticated API/admin traffic, and must return `404` for `/media/`. Private files are served only through `/api/attachments/<id>/download/`. The reviewed template is `ops/nginx/aichat.micutu.com.conf`.
 - **SSL** via certbot: `sudo certbot --nginx -d aichat.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
 - **PostgreSQL** runs on `127.0.0.1:5432`. Per-app DB and user as documented in the VPS pattern.
@@ -293,7 +293,7 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
-  integrity, both active root-owned release manifests, and backup/restore freshness
+  integrity, all three active root-owned release manifests, and backup/restore freshness
   every five minutes. It uses the host's existing Telegram channel, keeps cooldown
   state under `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 
@@ -304,7 +304,12 @@ Deploy steps after a code change:
 cd /home/micu/nvidia
 git status --short
 sudo -u aichat env AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend \
-  backend/venv/bin/python backend/manage.py migrate
+  /opt/aichat-python-current/bin/python backend/manage.py migrate
+sudo scripts/deploy_backend.sh
+
+# Only when requirements.txt changes; versions must remain compatible with the
+# currently active application until the following backend switch completes.
+sudo scripts/deploy_python_env.sh
 sudo scripts/deploy_backend.sh
 
 # Frontend
@@ -346,8 +351,17 @@ and public/private boundaries, and restores both code and unit files on failure.
 Use `sudo scripts/deploy_backend.sh --bootstrap` only for the first conversion.
 Later deploys omit the flag and retain the previous release. Database migrations
 must be backed up, reviewed for backward compatibility and applied before the
-switch. The shared virtualenv remains outside the release and requires a separate
-controlled maintenance window when dependencies change.
+switch.
+
+The Python-environment deploy script builds committed, exactly pinned runtime
+requirements using only binary wheels and an unprivileged builder that cannot
+read application secrets or private state. It rejects extra packages, symlinks,
+special/unsafe paths and excessive size, runs application/import preflights,
+normalizes the release to root ownership and exact modes, writes requirement and
+full-tree manifests, and atomically switches `/opt/aichat-python-current`. On
+later dependency changes it restarts and probes the backend, restoring the prior
+environment on failure. Use `sudo scripts/deploy_python_env.sh --bootstrap` only
+for the first environment. The five-minute monitor validates this release too.
 
 Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
 once as the database administrator before migration `0017`; do not grant the
@@ -370,13 +384,17 @@ sudo chgrp aichat backend/.env && sudo chmod 0640 backend/.env
 sudo chown -R aichat:aichat backend/media backend/.cache
 sudo chmod 0700 backend/media backend/.cache
 sudo scripts/deploy_backend.sh --bootstrap
+sudo scripts/deploy_python_env.sh --bootstrap
+sudo scripts/deploy_backend.sh
 sudo install -o root -g root -m 0644 ops/systemd/aichat-{maintenance,model-probe}.{timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now aichat-maintenance.timer aichat-model-probe.timer
 ```
 
 Run production management commands that touch runtime files as `aichat`. Source
-updates and dependency installation remain owned by the deployment administrator.
+updates remain owned by the deployment administrator; production dependency
+installation runs as the secret-blind `nobody` builder and becomes root-owned
+before activation.
 
 Take a recoverable copy of each live configuration before replacing it. After
 deployment, check service logs, authentication/CSRF, a private attachment download,

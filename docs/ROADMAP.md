@@ -103,9 +103,11 @@ timed evidence.
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs
   as `aichat`; backend, maintenance and model-probe units share the same release;
   health/private-route failures restore both code and systemd configuration. The
-  five-minute monitor verifies the active manifest. Next make the Python
-  dependency environment root-owned and versioned, add safe release retention,
-  and exercise the automatic rollback path in a planned maintenance test.
+  five-minute monitor verifies the active manifest. The production Python
+  environment is also a separately versioned root-owned release, built without
+  secret access from exact runtime pins and binary wheels, with package-set and
+  manifest enforcement. Next add hash-locked wheel provenance/SBOM, safe release
+  retention, and exercise both automatic rollback paths in a maintenance test.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page
