@@ -54,6 +54,8 @@ class TestModelsEndpoint:
         assert r.json()['availability'] == {
             'state': 'unverified', 'checked_at': None, 'inconclusive_models': 0,
             'unverified_models': len(MODEL_IDS),
+            'catalog_models': len(MODEL_IDS), 'available_models': len(MODEL_IDS),
+            'unavailable_models': 0,
         }
 
     def test_required_missing_status_fails_closed(self, auth_client, status_file, settings):
@@ -63,6 +65,9 @@ class TestModelsEndpoint:
         assert response.json()['models'] == []
         assert response.json()['default'] is None
         assert response.json()['availability']['state'] == 'missing'
+        assert response.json()['availability']['catalog_models'] == len(MODEL_IDS)
+        assert response.json()['availability']['available_models'] == 0
+        assert response.json()['availability']['unavailable_models'] == len(MODEL_IDS)
 
     def test_unavailable_models_are_hidden(self, auth_client, status_file):
         some_id = sorted(MODEL_IDS - {DEFAULT_MODEL_ID})[0]
@@ -75,6 +80,8 @@ class TestModelsEndpoint:
         assert len(ids) == len(MODEL_IDS) - 1
         assert r.json()['availability_checked_at'] is not None
         assert r.json()['availability']['state'] == 'verified'
+        assert r.json()['availability']['available_models'] == len(MODEL_IDS) - 1
+        assert r.json()['availability']['unavailable_models'] == 1
 
     def test_default_falls_back_when_down(self, auth_client, status_file):
         write_status(

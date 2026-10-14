@@ -851,6 +851,7 @@ export default function App() {
   const [availabilityCheckedAt, setAvailabilityCheckedAt] = useState(null)
   const [modelAvailability, setModelAvailability] = useState({
     state: 'unverified', checked_at: null, inconclusive_models: 0, unverified_models: 0,
+    catalog_models: 0, available_models: 0, unavailable_models: 0,
   })
   const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
@@ -1010,11 +1011,15 @@ export default function App() {
         setModels(m.models)
         setDefaultModel(m.default)
         setAvailabilityCheckedAt(m.availability_checked_at || null)
-        setModelAvailability(m.availability || {
+        setModelAvailability({
           state: m.availability_checked_at ? 'verified' : 'unverified',
           checked_at: m.availability_checked_at || null,
           inconclusive_models: 0,
           unverified_models: 0,
+          catalog_models: m.models.length,
+          available_models: m.models.length,
+          unavailable_models: 0,
+          ...(m.availability || {}),
         })
         setAttachmentLimits((limits) => ({ ...limits, ...(m.attachment_limits || {}) }))
         const conversationPage = normalizeConversationPage(c, 'active')
@@ -2071,11 +2076,11 @@ export default function App() {
         </div>
 
         {mode === 'chat' && (<>
-        {modelAvailability.state !== 'verified' && (
+        {(modelAvailability.state !== 'verified' || modelAvailability.unavailable_models > 0) && (
           <div
             className="model-status-banner availability-status-banner"
-            role={modelAvailability.state === 'degraded' || modelAvailability.state === 'unverified'
-              ? 'status' : 'alert'}
+            role={['invalid', 'missing', 'stale'].includes(modelAvailability.state)
+              ? 'alert' : 'status'}
           >
             {modelAvailability.state === 'degraded' ? (
               <span>
@@ -2088,9 +2093,19 @@ export default function App() {
                     {modelAvailability.unverified_models === 1 ? ' model is' : ' models are'}
                     {' '}disabled pending verification.</>
                 )}
+                {' '}{modelAvailability.available_models} of {modelAvailability.catalog_models} catalog
+                {' '}models are currently available.
               </span>
             ) : modelAvailability.state === 'unverified' ? (
               <span><strong>Model availability is not verified yet.</strong> The configured catalog is shown.</span>
+            ) : modelAvailability.state === 'verified' ? (
+              <span>
+                <strong>{modelAvailability.available_models} of {modelAvailability.catalog_models} catalog
+                  {' '}models are currently available.</strong>{' '}
+                {modelAvailability.unavailable_models}{' '}
+                {modelAvailability.unavailable_models === 1 ? 'model is' : 'models are'} temporarily hidden
+                after the latest NVIDIA availability check.
+              </span>
             ) : (
               <span>
                 <strong>Model availability cannot be trusted.</strong>{' '}

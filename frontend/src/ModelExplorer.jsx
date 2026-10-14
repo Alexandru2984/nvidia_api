@@ -284,7 +284,10 @@ export default function ModelExplorer({
             <header className="model-explorer-header">
               <div>
                 <h2 id="model-explorer-title">Choose a model</h2>
-                <p>{models.length} available · {checkedLabel(availability?.checked_at || availabilityCheckedAt)}</p>
+                <p>
+                  {models.length} of {availability?.catalog_models || models.length} available ·{' '}
+                  {checkedLabel(availability?.checked_at || availabilityCheckedAt)}
+                </p>
               </div>
               <button
                 type="button"

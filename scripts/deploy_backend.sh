@@ -20,12 +20,14 @@ UNIT_SOURCES=(
   'ops/systemd/hardening.conf'
   'ops/systemd/aichat-maintenance.service'
   'ops/systemd/aichat-model-probe.service'
+  'ops/systemd/aichat-model-probe.timer'
 )
 UNIT_TARGETS=(
   '/etc/systemd/system/aichat-backend.service'
   '/etc/systemd/system/aichat-backend.service.d/hardening.conf'
   '/etc/systemd/system/aichat-maintenance.service'
   '/etc/systemd/system/aichat-model-probe.service'
+  '/etc/systemd/system/aichat-model-probe.timer'
 )
 
 previous=''

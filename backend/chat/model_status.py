@@ -1,8 +1,8 @@
 """Runtime availability of catalog models.
 
-`manage.py probe_models` (systemd timer, weekly) probes every catalog model against the
-live NVIDIA API and writes the result here as JSON. `/api/models/` subtracts
-the unavailable set so dead models never reach the picker, without a deploy.
+`manage.py probe_models` (systemd timer, twice weekly) probes every catalog model
+against the live NVIDIA API and writes the result here as JSON. `/api/models/`
+subtracts the unavailable set so dead models never reach the picker, without a deploy.
 
 The file lives in the private runtime cache rather than deployable source: the
 catalog says what we *support*, this file says what NVIDIA currently *serves*.

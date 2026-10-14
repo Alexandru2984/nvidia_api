@@ -5,6 +5,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=6min
 User=aichat
 Group=aichat
 WorkingDirectory=/opt/aichat-backend-current
