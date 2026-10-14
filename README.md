@@ -363,12 +363,15 @@ using only binary wheels whose exact versions and SHA-256 hashes mirror
 unprivileged builder that cannot read application secrets or private state. The
 script rejects extra packages, symlinks, special/unsafe paths and excessive size,
 runs application/import preflights, normalizes the release to root ownership and
-exact modes, writes requirement and full-tree manifests, and atomically switches
-`/opt/aichat-python-current`. On later dependency changes it restarts and probes
-the backend, restoring the prior environment on failure. Use
+exact modes, embeds a deterministic CycloneDX 1.7 SBOM for the selected wheels,
+writes requirement and full-tree manifests, and atomically switches
+`/opt/aichat-python-current`. The SBOM records each package URL, version and wheel
+SHA-256, is checked exactly against the committed lock in CI/build, and is covered
+by both release hash chains. On later dependency changes the deploy restarts and
+probes the backend, restoring the prior environment on failure. Use
 `sudo scripts/deploy_python_env.sh --bootstrap` only for the first environment.
 CI validates lockfile structure, and the five-minute monitor validates the active
-release manifest.
+release manifest and requires the SBOM artifacts.
 
 Every successful deploy keeps the active release and the two newest inactive
 rollback targets in its executable release root. Older releases and any converted

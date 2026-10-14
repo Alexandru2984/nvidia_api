@@ -422,10 +422,12 @@ provider/mail cost anomalies.
 Evidence: every remote GitHub Action is now pinned to a reviewed full commit SHA,
 and a tested CI guard rejects moving tags, branches and short SHAs. Python
 production requirements are exactly versioned and SHA-256 locked to selected
-binary wheels, enforced by pip `--require-hashes` and a CI structural check. No
-retained SBOM/provenance attestation or controlled dependency-update evidence
-exists. The workflow token is correctly restricted to `contents: read`, and no
-production deployment secret is used.
+binary wheels, enforced by pip `--require-hashes` and a CI structural check. Each
+Python release now embeds a deterministic CycloneDX 1.7 SBOM that records and
+hash-binds those wheel artifacts, the lockfile and repository commit. No signed
+builder-provenance attestation or controlled dependency-update evidence exists.
+The workflow token is correctly restricted to `contents: read`, and no production
+deployment secret is used.
 
 Impact: a silently moved Action tag can no longer alter CI execution, and a
 changed wheel cannot satisfy the committed lock. An incorrectly reviewed new pin
@@ -434,7 +436,7 @@ independent provenance evidence. Blast radius remains reduced by read-only
 permissions and lack of deploy.
 
 Remediation: use a controlled updater with explicit upstream review, and
-produce/retain an SBOM and provenance for each dependency release.
+produce/retain signed builder provenance for each dependency release.
 
 ### S-15 — Low/Medium — privacy/governance evidence is incomplete
 
@@ -547,12 +549,13 @@ production-entitlement decisions, and provide export/deletion status.
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
    claim lock are deployed.
-4. Produce and retain wheel provenance/SBOM evidence and tabletop both backend
-   rollback paths. Application code and the minimal runtime Python environment
-   already use separate root-owned, manifest-verified atomic releases with
-   automatic rollback, production wheels are SHA-256 locked, and each executable
-   root is bounded to the active plus two inactive rollbacks. Define an encrypted
-   off-site/expiry lifecycle for supplemental retired-release archives.
+4. Produce and retain signed wheel provenance and tabletop both backend rollback
+   paths. Application code and the minimal runtime Python environment already use
+   separate root-owned, manifest-verified atomic releases with automatic rollback,
+   production wheels are SHA-256 locked with an embedded CycloneDX SBOM, and each
+   executable root is bounded to the active plus two inactive rollbacks. Define
+   an encrypted off-site/expiry lifecycle for supplemental retired-release
+   archives.
 5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
 6. CI Actions are pinned to reviewed full commit SHAs and Python production

@@ -67,7 +67,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
 | A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry and account caps | Rotate sessions after any suspected historic disclosure |
-| A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels, full-commit-SHA CI Actions, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain SBOM/provenance evidence |
+| A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels with a release-embedded CycloneDX SBOM, full-commit-SHA CI Actions, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain signed provenance evidence |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
@@ -79,7 +79,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
 | A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability, while transient outcomes retain the last trusted decision and emit a degraded-probe alert. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
-| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, and bound executable roots to the active plus two rollbacks | Retain SBOM/provenance evidence, define the supplemental-archive lifecycle, and execute a planned rollback exercise |
+| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, and bound executable roots to the active plus two rollbacks | Add signed builder provenance, define the supplemental-archive lifecycle, and execute a planned rollback exercise |
 
 ## Quantitative risk view
 
@@ -889,6 +889,33 @@ is required before describing those controls as complete.
   probes passed. Supplemental archives still need an encrypted off-site and
   expiry/storage lifecycle; they are not claimed as durable backups.
 
+### Runtime SBOM rollout — 2026-10-14
+
+- Repository state `7039490dddaccab423eb86471c17a6741edba254` added a
+  deterministic CycloneDX 1.7 SBOM generator and exact verifier. For every one of
+  the 24 runtime packages it records the normalized package URL, exact version
+  and SHA-256 of the selected binary wheel. The document also binds the complete
+  lockfile digest and repository commit; changing a component, hash or metadata
+  makes exact verification fail. Six generator tests run in CI.
+- The generated document was independently accepted by the official CycloneDX
+  1.7 JSON Schema. It is intentionally an inventory, not a signed provenance
+  claim: it establishes what the committed build selected and hash-bound, but
+  does not independently attest which upstream builder produced each wheel.
+- `/opt/aichat-python-current` now selects root-owned release
+  `/opt/aichat-python-envs/release-20261014T124433_949187437`, built from the full
+  repository commit above. Its `15174`-byte `.release-sbom.cdx.json` matches the
+  active lock exactly, passes the official schema, is included in the requirements
+  checksum set and the 7,264-entry full-tree manifest, and is required by the
+  installed monitor. The two prior Python releases remain inactive rollback
+  targets, so retention stayed within the three-entry policy.
+- All 433 backend, 20 monitor, six SBOM, six retention and five Action-pin tests
+  passed with ShellCheck, Bash syntax and lock validation. `pip check`, maintenance
+  (zero deletions), the manual monitor, three timers, origin/public 200, private/
+  config 403 and media 404 probes passed. Gunicorn resolves the new environment,
+  remained active with zero automatic restarts, and emitted no warning-or-higher
+  rollout journal entries. Residual work is signed builder provenance and its
+  independently retained verification material.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
@@ -909,6 +936,7 @@ remain open.
 - [NVIDIA hosted LLM API catalog](https://docs.api.nvidia.com/nim/reference/llm-apis)
 - [NVIDIA Nemotron 3.5 Lightning model card](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard)
 - [NVIDIA GLM 5.3 Flash model card](https://build.nvidia.com/z-ai/glm-5.3-flash/modelcard)
+- [CycloneDX specification overview](https://cyclonedx.org/specification/overview/)
 - [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
 - [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)
 - [NVIDIA Riva Translate v2 API contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-riva-translate-4b-instruct-v2-infer)
