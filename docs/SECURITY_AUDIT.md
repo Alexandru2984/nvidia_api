@@ -989,6 +989,37 @@ is required before describing those controls as complete.
   findings, public/origin 200/403/404 boundaries passed, and no warning-or-higher
   backend journal entries appeared after rollout.
 
+### Model-availability transparency rollout — 2026-10-14
+
+- Repository state `3ec256d15be7ad1583a42617d685e7f0dd195d71` added
+  catalog, available and unavailable counts to the authenticated model contract.
+  The responsive UI now states when verified models are hidden instead of making
+  a smaller picker look like the complete catalog. Failure details remain private;
+  only aggregate state and bounded successful latency samples reach the browser.
+- The availability timer now runs every Monday and Thursday with a randomized
+  ten-minute delay. Its oneshot service has an effective six-minute start timeout,
+  and the backend release mechanism atomically installs and rolls back both the
+  service and timer definitions. This leaves several opportunities inside the
+  existing eight-day trust window without turning the probe into continuous
+  provider traffic.
+- All 442 backend and 35 Playwright tests passed, including the 320/390/768/1440
+  responsive suite and new verified/degraded availability cases. Frontend lint,
+  production build, ShellCheck, Bash syntax and systemd unit/calendar validation
+  passed; `npm audit` reported zero vulnerabilities.
+- Production activated backend release
+  `/opt/aichat-backend-releases/release-20261014T183355_484686667` and frontend
+  release `/var/www/aichat-releases/release-20261014T183406_765208838`, retaining
+  the previous releases as rollback targets. Both manifests match. The timer's
+  persistent catch-up probe completed successfully in 3m02s with a 70.3 MB peak,
+  refreshed the status timestamp, exposed 13 of 20 catalog models and retained
+  prior trusted decisions through ten transient provider results; seven models
+  remain hidden. The next run is scheduled for Thursday at 04:04 EEST.
+- The backend is active with `NRestarts=0`; migrations, the manual security
+  monitor and nginx validation passed. Origin/public health returned 200,
+  anonymous models returned 403 and arbitrary media returned 404. The existing
+  HSTS-preload warning remains intentionally unresolved pending an explicit
+  whole-domain preload decision.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
