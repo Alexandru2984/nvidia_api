@@ -62,6 +62,7 @@ def _evaluate_release(
     manifest_max_bytes=1024 * 1024,
     safe_path_re=SAFE_RELEASE_PATH_RE,
     executable_files=frozenset(),
+    required_files=frozenset(),
     expected_uid=0,
     expected_gid=0,
 ):
@@ -144,6 +145,8 @@ def _evaluate_release(
             expected_hashes[relative] = digest
         if not expected_hashes or set(expected_hashes) != set(actual_files):
             return issue
+        if not {f'./{path}' for path in required_files}.issubset(actual_files):
+            return issue
         if any(_hash_file(actual_files[path]) != digest for path, digest in expected_hashes.items()):
             return issue
         return {}
@@ -212,6 +215,12 @@ def evaluate_python_environment_release(
         manifest_max_bytes=4 * 1024 * 1024,
         safe_path_re=PYTHON_ENV_SAFE_PATH_RE,
         executable_files=frozenset({'bin/python'}),
+        required_files=frozenset({
+            '.release-commit',
+            '.release-requirements.lock',
+            '.release-requirements.sha256',
+            '.release-sbom.cdx.json',
+        }),
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )

@@ -256,16 +256,28 @@ class SecurityMonitorTests(unittest.TestCase):
         template = template_dir / '[Content_Types].xml'
         commit = release / '.release-commit'
         requirements = release / '.release-requirements.txt'
+        requirements_lock = release / '.release-requirements.lock'
+        requirements_hash = release / '.release-requirements.sha256'
+        sbom = release / '.release-sbom.cdx.json'
         python.write_bytes(b'python fixture\n')
         package.write_text('VERSION = 1\n', encoding='utf-8')
         template.write_text('<types />\n', encoding='utf-8')
         commit.write_text('b' * 40 + '\n', encoding='ascii')
         requirements.write_text('package==1\n', encoding='ascii')
+        requirements_lock.write_text('package==1 --hash=sha256:' + 'a' * 64 + '\n', encoding='ascii')
+        requirements_hash.write_text('fixture\n', encoding='ascii')
+        sbom.write_text('{}\n', encoding='ascii')
         python.chmod(0o755)
-        for path in (package, template, commit, requirements):
+        for path in (
+            package, template, commit, requirements, requirements_lock,
+            requirements_hash, sbom,
+        ):
             path.chmod(0o644)
         manifest = release / monitor.RELEASE_MANIFEST
-        files = (commit, requirements, python, package, template)
+        files = (
+            commit, requirements, requirements_lock, requirements_hash, sbom,
+            python, package, template,
+        )
         manifest.write_text(
             ''.join(
                 f'{hashlib.sha256(path.read_bytes()).hexdigest()}  ./{path.relative_to(release)}\n'
@@ -293,6 +305,24 @@ class SecurityMonitorTests(unittest.TestCase):
     def test_python_environment_manifest_rejects_non_executable_interpreter(self):
         live, release_root, python = self.create_python_environment_release()
         python.chmod(0o644)
+        self.assertIn(
+            'python_environment_integrity',
+            self.python_environment_issues(live, release_root),
+        )
+
+    def test_python_environment_manifest_requires_sbom(self):
+        live, release_root, _ = self.create_python_environment_release()
+        sbom = live.resolve() / '.release-sbom.cdx.json'
+        sbom.unlink()
+        manifest = live.resolve() / monitor.RELEASE_MANIFEST
+        manifest.write_text(
+            ''.join(
+                f'{hashlib.sha256(path.read_bytes()).hexdigest()}  ./{path.relative_to(live.resolve())}\n'
+                for path in live.resolve().rglob('*')
+                if path.is_file() and path.name != monitor.RELEASE_MANIFEST
+            ),
+            encoding='ascii',
+        )
         self.assertIn(
             'python_environment_integrity',
             self.python_environment_issues(live, release_root),

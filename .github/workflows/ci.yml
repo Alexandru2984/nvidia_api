@@ -47,6 +47,11 @@ jobs:
         run: |
           python ../scripts/test_security_monitor.py
           python ../scripts/test_archive_release_retention.py
+          python ../scripts/test_generate_python_sbom.py
+          python ../scripts/generate_python_sbom.py requirements.lock \
+            --commit "$GITHUB_SHA" --output /tmp/aichat-python.cdx.json
+          python ../scripts/generate_python_sbom.py requirements.lock \
+            --commit "$GITHUB_SHA" --check /tmp/aichat-python.cdx.json
       - name: Audit runtime dependencies
         run: |
           pip install pip-audit==2.10.1

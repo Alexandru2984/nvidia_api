@@ -207,6 +207,9 @@ PY
 git_read show "$commit:backend/requirements.txt" > "$release/.release-requirements.txt"
 git_read show "$commit:backend/requirements.lock" > "$release/.release-requirements.lock"
 printf '%s\n' "$commit" > "$release/.release-commit"
+"$PYTHON" "$REPO_DIR/scripts/generate_python_sbom.py" \
+  "$release/.release-requirements.lock" --commit "$commit" \
+  --output "$release/.release-sbom.cdx.json"
 chown -R nobody:nogroup -- "$release"
 
 runuser --user nobody -- env \
@@ -295,7 +298,7 @@ find "$release" -xdev -type f -exec chmod 0644 -- {} +
 chmod 0755 "$release/bin/python"
 (
   cd "$release"
-  sha256sum .release-requirements.txt .release-requirements.lock \
+  sha256sum .release-requirements.txt .release-requirements.lock .release-sbom.cdx.json \
     > .release-requirements.sha256
   find . -xdev -type f ! -name '.release-manifest.sha256' -print0 \
     | LC_ALL=C sort -z \
@@ -326,6 +329,9 @@ fi
   sha256sum --check --strict .release-requirements.sha256 >/dev/null
   sha256sum --check --strict .release-manifest.sha256 >/dev/null
 )
+"$PYTHON" "$REPO_DIR/scripts/generate_python_sbom.py" \
+  "$release/.release-requirements.lock" --commit "$commit" \
+  --check "$release/.release-sbom.cdx.json"
 "${preflight[@]}" -m pip check
 "${preflight[@]}" manage.py check --deploy
 "${preflight[@]}" -c 'import django, gunicorn, psycopg2, cryptography, lxml; print("final runtime imports ok")'
