@@ -389,6 +389,28 @@ or size/file-count limits, and never selects the active target or the newest two
 rollback releases. Archived releases are supplemental recovery material; define
 an encrypted off-site lifecycle before treating them as durable backups.
 
+Backend and Python deploys share an exclusive release-operation lock with the
+rollback drill, so their atomic symlink changes cannot overlap. Exercise each
+rollback family independently, first read-only and then with two brief service
+restarts:
+
+```bash
+sudo scripts/release_rollback_drill.sh --family backend --preflight-only
+sudo scripts/release_rollback_drill.sh --family backend
+sudo scripts/release_rollback_drill.sh --family python --preflight-only
+sudo scripts/release_rollback_drill.sh --family python
+```
+
+The drill chooses the newest inactive release, verifies root ownership, safe
+modes, the complete manifest, commit marker and compatibility before switching.
+Python candidates must additionally have exact lock/checksum/SBOM evidence, pass
+`pip check`, and use the same requirements lock as the active environment. Each
+activation is tied to the service PID's real working directory or executable and
+must pass root, health, `security.txt`, private API, source/config and media
+boundary probes within 60 seconds. An exit/signal trap always switches back to
+the exact original target and verifies it. The drill never runs migrations,
+contacts the model provider or writes application data.
+
 Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
 once as the database administrator before migration `0017`; do not grant the
 application role database-level `CREATE` solely for this operation:

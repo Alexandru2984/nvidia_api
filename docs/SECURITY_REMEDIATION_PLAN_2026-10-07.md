@@ -422,8 +422,11 @@ duplicate attachment consumption or destructive regeneration.
 - Send security/audit evidence off-host; monitor release hashes, identity/sudo
   events, environment/config changes, provider/mail anomalies and database/disk
   growth without collecting prompts or filenames.
-- Pin GitHub Actions to reviewed full SHAs, produce a hash-locked Python input,
-  retain SBOM/provenance, and automate reviewed updates.
+- GitHub Actions are pinned to reviewed full SHAs, Python runtime input is
+  version/hash locked, deterministic SBOMs are retained, executable release
+  retention is bounded, and both backend/Python rollback paths have passed a
+  timed production drill. Add signed builder provenance and automate reviewed
+  dependency updates.
 - Publish complete privacy/retention/provider disclosures and record vendor/DPA/
   production-entitlement decisions.
 - Execute a timed incident tabletop and close every action item.

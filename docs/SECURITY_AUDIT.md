@@ -79,7 +79,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
 | A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability, while transient outcomes retain the last trusted decision and emit a degraded-probe alert. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
-| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, and bound executable roots to the active plus two rollbacks | Add signed builder provenance, define the supplemental-archive lifecycle, and execute a planned rollback exercise |
+| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, bound executable roots to the active plus two rollbacks, and have passed a controlled production rollback/restore drill for both release families | Add signed builder provenance and define the supplemental-archive lifecycle plus off-host evidence retention |
 
 ## Quantitative risk view
 
@@ -915,6 +915,43 @@ is required before describing those controls as complete.
   remained active with zero automatic restarts, and emitted no warning-or-higher
   rollout journal entries. Residual work is signed builder provenance and its
   independently retained verification material.
+
+### Controlled release rollback drill — 2026-10-14
+
+- Repository state `6abef1a18c0cb92f12acb465974ef0efac6f860a` added a
+  fail-closed drill for the immutable backend and Python release families. It
+  validates trusted roots, direct symlinks, root ownership/non-writability,
+  complete manifests and commit markers before any switch. Python candidates
+  also require their lock/checksum/CycloneDX artifacts, exact SBOM validation,
+  `pip check`, the same dependency lock as the active runtime, Django/import
+  compatibility and no pending migration. Backend/Python deploys and the drill
+  now share one exclusive operation lock; CI runs Bash syntax and ShellCheck on
+  all operational shell scripts.
+- The backend exercise switched from
+  `release-20261013T210204_778720955` to
+  `release-20261013T205103_973321227` and restored the exact original target.
+  Rollback and restoration each reached verified health in three seconds, using
+  distinct process IDs `2965821` and `2966151`. The Python preflight first
+  rejected the newest old candidate because it correctly lacked the newly
+  mandatory SBOM rather than weakening policy for the test.
+- A fresh policy-compliant Python environment
+  `release-20261014T130816_816588011` was built from the unchanged 24-package
+  hash lock and repository state above. The retention policy archived the oldest
+  environment privately and preserved SBOM-valid
+  `release-20261014T124433_949187437` as the immediate candidate. The live Python
+  drill switched to it and restored the exact original runtime; rollback and
+  restoration each took three seconds with distinct process IDs `2971693` and
+  `2971841`.
+- Every activation required the PID's resolved working directory/executable plus
+  seven origin probes: root, health and `security.txt` 200; arbitrary media 404;
+  `.env`, `.git` and anonymous conversations 403. The signal/exit path always
+  restores and re-probes the original target within 60 seconds and the drill runs
+  no migrations, provider requests or application-data writes. Independent final
+  checks found the intended backend and Python targets active, both full manifests
+  and the 24-component SBOM valid, `NRestarts=0`, the monitor empty, all three
+  timers active, matching public/origin 200/403/404 boundaries, and no
+  warning-or-higher backend journal entries. Residual operational work is a
+  scheduled drill cadence plus off-host evidence retention.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

@@ -106,13 +106,15 @@ timed evidence.
   five-minute monitor verifies the active manifest. The production Python
   environment is also a separately versioned root-owned release, built without
   secret access from exact runtime pins and SHA-256-locked binary wheels, with
-  package-set, lockfile and manifest enforcement. Next produce and retain an
-  A deterministic CycloneDX 1.7 SBOM for every selected wheel is embedded in and
-  hash-bound to the Python release; next add signed builder provenance and
-  exercise both automatic rollback paths in a maintenance test. Executable roots
-  now retain the active plus two rollback releases, archiving older trees
-  privately only after SHA-256 verification; define an encrypted off-site/expiry
-  lifecycle for those supplemental archives.
+  package-set, lockfile and manifest enforcement. A deterministic CycloneDX 1.7
+  SBOM for every selected wheel is embedded in and hash-bound to the Python
+  release. Backend and Python rollback paths have now been exercised against
+  production through a common exclusive operation lock, strict compatibility
+  preflights, PID/path verification, bounded health/security probes and guaranteed
+  restoration. Executable roots retain the active plus two rollback releases,
+  archiving older trees privately only after SHA-256 verification. Next add
+  signed builder provenance and define an encrypted off-site/expiry lifecycle
+  for those supplemental archives.
   CI's remote Actions are pinned to reviewed full commit SHAs, with a regression
   gate rejecting moving refs; updates must preserve that review trail.
 - **Private-history pagination and indexed search are shipped:** conversation
