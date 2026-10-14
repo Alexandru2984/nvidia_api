@@ -1020,6 +1020,38 @@ is required before describing those controls as complete.
   HSTS-preload warning remains intentionally unresolved pending an explicit
   whole-domain preload decision.
 
+### Bounded transient-availability trust rollout — 2026-10-14
+
+- Repository state `fab6ad0e7f6db2bae803c8ecf768793051dc0072` closed a
+  liveness gap where a once-available endpoint could remain trusted forever while
+  every later probe timed out or returned an invalid stream. A private bounded
+  streak now preserves a verified model through two consecutive inconclusive runs,
+  hides it on the third, and immediately restores it after a complete successful
+  stream. New and previously unavailable models still fail closed on their first
+  inconclusive result.
+- The private runtime schema accepts pre-rollout files by inferring streak one for
+  an existing transient result and zero for a conclusive result. It rejects boolean,
+  out-of-range and outcome-inconsistent streaks; an omitted or invalid catalog
+  result becomes unverified and therefore unavailable. Logs expose only aggregate
+  inconclusive/persistent counts, while the authenticated API continues to omit
+  per-model provider failure details.
+- A production diagnostic repeated the three newly inconclusive probes sequentially
+  rather than at the normal concurrency: GPT-OSS 20B and GLM 5.3 Flash each timed
+  out after 60 seconds, while Laguna XS 2.1 returned a provider error in 182 ms.
+  This ruled out local probe concurrency as the sole cause and avoided an unsupported
+  reduction in coverage. No diagnostic result rewrote runtime availability.
+- All 444 backend tests passed before commit; the final focused suite passed 37
+  model-status cases, Python compilation, migration-drift and Django checks. No
+  schema migration or frontend release was required. Backend release
+  `/opt/aichat-backend-releases/release-20261014T184304_584274130` is active with
+  the previous release retained for rollback and a valid manifest.
+- The live pre-rollout status loaded compatibly: all three affected previously
+  verified models remain available at inferred streak one, while the seven already
+  unavailable endpoints remain hidden. The backend has `NRestarts=0`, the next
+  timer run remains Thursday, migrations and the monitor passed, public/origin
+  health returned 200, anonymous models returned 403, arbitrary media returned
+  404, and no warning-or-higher backend journal entries appeared after activation.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
