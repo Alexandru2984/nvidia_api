@@ -24,7 +24,8 @@ conversations per user. Deployed at `https://aichat.micutu.com`.
 │   │   ├── models_catalog.py   # validated list of working NVIDIA model IDs
 │   │   └── migrations/
 │   ├── manage.py
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── requirements.lock  # exact production wheels with SHA-256 hashes
 ├── frontend/
 │   ├── src/                # React application and styles
 │   ├── tests/              # responsive Playwright coverage
@@ -307,8 +308,10 @@ sudo -u aichat env AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend \
   /opt/aichat-python-current/bin/python backend/manage.py migrate
 sudo scripts/deploy_backend.sh
 
-# Only when requirements.txt changes; versions must remain compatible with the
-# currently active application until the following backend switch completes.
+# Only when requirements.txt and its validated requirements.lock change;
+# versions must remain compatible with the currently active application until
+# the following backend switch completes.
+python3 scripts/check_requirements_lock.py
 sudo scripts/deploy_python_env.sh
 sudo scripts/deploy_backend.sh
 
@@ -353,15 +356,18 @@ Later deploys omit the flag and retain the previous release. Database migrations
 must be backed up, reviewed for backward compatibility and applied before the
 switch.
 
-The Python-environment deploy script builds committed, exactly pinned runtime
-requirements using only binary wheels and an unprivileged builder that cannot
-read application secrets or private state. It rejects extra packages, symlinks,
-special/unsafe paths and excessive size, runs application/import preflights,
-normalizes the release to root ownership and exact modes, writes requirement and
-full-tree manifests, and atomically switches `/opt/aichat-python-current`. On
-later dependency changes it restarts and probes the backend, restoring the prior
-environment on failure. Use `sudo scripts/deploy_python_env.sh --bootstrap` only
-for the first environment. The five-minute monitor validates this release too.
+The Python-environment deploy script builds the committed `requirements.lock`
+using only binary wheels whose exact versions and SHA-256 hashes mirror
+`requirements.txt`. Installation runs with pip's `--require-hashes` under an
+unprivileged builder that cannot read application secrets or private state. The
+script rejects extra packages, symlinks, special/unsafe paths and excessive size,
+runs application/import preflights, normalizes the release to root ownership and
+exact modes, writes requirement and full-tree manifests, and atomically switches
+`/opt/aichat-python-current`. On later dependency changes it restarts and probes
+the backend, restoring the prior environment on failure. Use
+`sudo scripts/deploy_python_env.sh --bootstrap` only for the first environment.
+CI validates lockfile structure, and the five-minute monitor validates the active
+release manifest.
 
 Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
 once as the database administrator before migration `0017`; do not grant the

@@ -67,7 +67,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
 | A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry and account caps | Rotate sessions after any suspected historic disclosure |
-| A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges |
+| A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain SBOM/provenance evidence |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
@@ -79,7 +79,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
 | A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability, while transient outcomes retain the last trusted decision and emit a degraded-probe alert. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
-| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and minimal dependency releases, atomically switch trusted symlinks, hide checkout source/venv from the service, and restore prior targets on failed probes | Hash-lock wheel artifacts, bound retained releases, and execute a planned rollback exercise |
+| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases, atomically switch trusted symlinks, hide checkout source/venv from the service, and restore prior targets on failed probes | Bound retained releases, retain SBOM/provenance evidence, and execute a planned rollback exercise |
 
 ## Quantitative risk view
 
@@ -812,6 +812,34 @@ is required before describing those controls as complete.
   probes passed; the backend has zero automatic restarts and no post-readiness
   error-level journal entries. Residual supply-chain work is hash-locked wheels,
   provenance/SBOM, bounded release retention and a planned rollback exercise.
+
+### Hash-locked Python supply-chain rollout — 2026-10-14
+
+- Repository state `30b44d7fe7b766c073f906f721a816b97393de1f` added a
+  committed lockfile for all 24 runtime packages. Each exact version mirrors
+  `requirements.txt` and identifies the selected Python 3.14 Linux x86-64 wheel
+  by SHA-256. A dedicated structural checker runs in CI, while the production
+  builder installs binary wheels with pip `--require-hashes`; no schema or data
+  change was involved.
+- `/opt/aichat-python-current` atomically selects root-owned release
+  `/opt/aichat-python-envs/release-20261014T122746_324335164`. The prior validated
+  environment `/opt/aichat-python-envs/release-20261013T210131_257827390` remains
+  intact as the automatic rollback target. The active requirements copy exactly
+  matches the repository lockfile, both requirements hashes and all 7,263 entries
+  in the full-tree manifest passed strict verification, and the tree contains no
+  symlinks, non-root-owned entries or group/world-writable entries.
+- The active environment contains exactly the expected 24 packages plus pip and
+  passes `pip check`. Gunicorn's executable resolves inside the new release and
+  its working directory remains the immutable backend release. The service is
+  active with zero automatic restarts; all application timers are active,
+  maintenance completed successfully and deleted zero objects, the security
+  monitor returned no findings, and there are no warning-or-higher backend
+  journal entries after activation.
+- Origin and public root, health and `security.txt` probes returned 200; direct
+  media returned 404; `.env`, `.git`, session inventory and conversation probes
+  returned 403. Residual dependency-delivery work is retained SBOM/provenance
+  evidence, full-SHA pinning for CI Actions, bounded release retention and a
+  planned rollback exercise.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

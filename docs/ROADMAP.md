@@ -105,9 +105,10 @@ timed evidence.
   health/private-route failures restore both code and systemd configuration. The
   five-minute monitor verifies the active manifest. The production Python
   environment is also a separately versioned root-owned release, built without
-  secret access from exact runtime pins and binary wheels, with package-set and
-  manifest enforcement. Next add hash-locked wheel provenance/SBOM, safe release
-  retention, and exercise both automatic rollback paths in a maintenance test.
+  secret access from exact runtime pins and SHA-256-locked binary wheels, with
+  package-set, lockfile and manifest enforcement. Next produce and retain an
+  SBOM/provenance attestation, add safe release retention, and exercise both
+  automatic rollback paths in a maintenance test.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page

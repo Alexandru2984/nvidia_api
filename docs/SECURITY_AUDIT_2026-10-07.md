@@ -417,18 +417,20 @@ SHA-256 manifests verified every five minutes. The remaining high-value signals
 are off-host retention, sudo/process identity, secret/config changes and
 provider/mail cost anomalies.
 
-### S-14 — Low — CI dependencies are mutable
+### S-14 — Low — CI Actions and dependency provenance remain incomplete
 
 Evidence: GitHub Actions use moving major-version tags (`@v4`, `@v5`) rather than
-full commit SHAs; Python requirements are version-pinned but not hash-locked.
-The workflow token is correctly restricted to `contents: read`, and no production
+full commit SHAs. Python production requirements are now exactly versioned and
+SHA-256 locked to selected binary wheels, enforced by pip `--require-hashes` and
+a CI structural check, but no retained SBOM/provenance attestation exists. The
+workflow token is correctly restricted to `contents: read`, and no production
 deployment secret is used.
 
 Impact: upstream action/tag or package-index compromise can alter CI execution.
 Current blast radius is reduced by read-only permissions and lack of deploy.
 
-Remediation: pin Actions to reviewed full SHAs, use a controlled updater, build a
-hash-locked Python dependency set, and produce/retain an SBOM and provenance.
+Remediation: pin Actions to reviewed full SHAs, use a controlled updater, and
+produce/retain an SBOM and provenance for each dependency release.
 
 ### S-15 — Low/Medium — privacy/governance evidence is incomplete
 
@@ -541,13 +543,15 @@ production-entitlement decisions, and provide export/deletion status.
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
    claim lock are deployed.
-4. Add hash-locked wheel provenance/SBOM, bounded release retention, and tabletop
-   both backend rollback paths. Application code and the minimal runtime Python
-   environment already use separate root-owned, manifest-verified atomic releases
-   with automatic rollback.
+4. Produce and retain wheel provenance/SBOM evidence, add bounded release
+   retention, and tabletop both backend rollback paths. Application code and the
+   minimal runtime Python environment already use separate root-owned,
+   manifest-verified atomic releases with automatic rollback, and production
+   wheels are SHA-256 locked.
 5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
-6. Pin CI Actions and lock Python artifacts by hash.
+6. Pin CI Actions to reviewed full commit SHAs. Python production artifacts are
+   already locked by hash.
 
 ### P2 — after the verdict returns to yellow/green
 
