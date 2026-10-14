@@ -66,7 +66,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, separate root-owned application/dependency releases, narrowly bound runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials during a controlled rotation |
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
-| A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry and account caps | Rotate sessions after any suspected historic disclosure |
+| A-06 | High | Raw session keys were returned to the browser and long-lived stolen sessions could invoke session controls without fresh proof | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry/account caps; five-minute user/session/password-bound recent authentication with required 2FA and responsive step-up before revocation | Rotate sessions after any suspected historic disclosure; retain recent-auth and expiry regressions |
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels with a release-embedded CycloneDX SBOM, full-commit-SHA CI Actions, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain signed provenance evidence |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
@@ -952,6 +952,42 @@ is required before describing those controls as complete.
   timers active, matching public/origin 200/403/404 boundaries, and no
   warning-or-higher backend journal entries. Residual operational work is a
   scheduled drill cadence plus off-host evidence retention.
+
+### Recent strong-authentication rollout — 2026-10-14
+
+- Repository state `71c7932ed750c254063fa2075eea2da55e55f74a` introduced one
+  five-minute policy for sensitive account actions. Its server-side session
+  marker contains only user ID, timestamp and an HMAC-SHA256 fingerprint bound to
+  the current password hash; it rejects malformed, expired, future-dated,
+  cross-user or stale-credential state. The configurable lifetime is constrained
+  to 60–3,600 seconds and reauthentication does not move the fixed absolute
+  session deadline.
+- Successful full login and password-reset login establish the marker. The
+  dedicated, rate-limited reauthentication route requires the current password
+  and, for 2FA accounts, a replay-protected TOTP or single-use recovery code.
+  Password change now also requires that second factor. Enrollment, disable,
+  recovery-code rotation and deletion use the same credential verifier, while
+  session revocation fails closed with a machine-readable step-up response.
+  Failed step-up attempts join the monitor's existing authentication-burst
+  signal without logging passwords, codes, email addresses or session secrets.
+- The responsive Settings flow retains the requested revocation, requests only
+  the required factors, and automatically resumes after success. Backend coverage
+  includes missing/expired/future markers, failed passwords, 2FA recovery-code
+  consumption, absolute-deadline preservation and password changes on 2FA
+  accounts. The browser regression exercises stale-session step-up and resumed
+  revocation at 390 px.
+- All 442 backend, 34 Playwright, 20 monitor, six SBOM, six retention and five
+  Action-pin tests passed, alongside Django checks, frontend lint/build,
+  ShellCheck and Bash syntax. `npm audit` reported zero vulnerabilities; Python
+  dependency audit remains an enforced CI job and the runtime lock was unchanged.
+  Production activated backend release
+  `/opt/aichat-backend-releases/release-20261014T180355_832109969` and frontend
+  release `/var/www/aichat-releases/release-20261014T180406_502593434`; the new
+  anonymous reauthentication boundary returned 403. Active manifests and
+  migration checks passed, the process resolves to the intended backend/Python
+  releases with `NRestarts=0`, all timers are active, the monitor returned no
+  findings, public/origin 200/403/404 boundaries passed, and no warning-or-higher
+  backend journal entries appeared after rollout.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

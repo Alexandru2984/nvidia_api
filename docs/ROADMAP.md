@@ -96,8 +96,11 @@ timed evidence.
   alert, and the responsive Storage panel shows the limits. Authenticated sessions
   now have an indexed owner registry, fixed 30-day maximum lifetime, a 20-session
   per-account cap, deadline-preserving rotations and atomic oldest-session
-  eviction. Add global chat-byte budgets and configurable linked-history
-  retention before materially raising account volume.
+  eviction. Sensitive account changes now share a five-minute recent-strong-auth
+  policy bound to the user/session/current password; 2FA accounts require their
+  second factor for password changes, and stale session-revocation actions resume
+  only after responsive reauthentication. Add global chat-byte budgets and
+  configurable linked-history retention before materially raising account volume.
 - **Immutable backend application delivery is shipped:** production imports only
   a committed, root-owned, manifest-verified release selected through one atomic
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs

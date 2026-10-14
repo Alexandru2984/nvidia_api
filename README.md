@@ -86,6 +86,7 @@ CHAT_MAX_ASSISTANT_CHARS=64000
 CHAT_MAX_EXPORT_BYTES=26214400
 SESSION_ABSOLUTE_MAX_AGE_SECONDS=2592000
 SESSION_MAX_ACTIVE_PER_USER=20
+RECENT_AUTH_MAX_AGE_SECONDS=300
 
 # Email (used for OTP verification) — self-hosted mailcow
 SMTP_HOST=mail.micutu.com
@@ -134,12 +135,13 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/auth/resend/` | `{email}` | open | Silent 60s cooldown with a generic response for unknown, throttled, or mail-failure cases. |
 | POST | `/auth/forgot/` | `{email}` | open | Always returns generic success; emails a 6-digit reset code if eligible. |
 | POST | `/auth/reset/` | `{email, code, password}` | open | Code-state failures are generic; applies Django's password validators after code verification. |
-| POST | `/auth/login/` | `{username, password}` | open | Rejects inactive users. |
+| POST | `/auth/login/` | `{username, password, code?}` | open | Rejects inactive users and requires TOTP/recovery code when 2FA is enabled. |
 | POST | `/auth/logout/` | — | session | |
-| POST | `/auth/password/` | `{current_password, new_password}` | session | Keeps this session, revokes all others. |
+| POST | `/auth/reauthenticate/` | `{password, code?}` | session | Refreshes the five-minute sensitive-action window; 2FA accounts require both factors. |
+| POST | `/auth/password/` | `{current_password, new_password, code?}` | session | Requires both factors when enabled, keeps this session, and revokes all others. |
 | POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Cascades all user data. |
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
-| GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles and revokes selected/other sessions without decoding the global session table. |
+| GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles without decoding the global session table; revocation requires recent strong authentication. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
@@ -204,6 +206,17 @@ is removed atomically when the cap is reached. The owner-indexed session registr
 stores only a secret-keyed non-bearer handle; registry mismatches fail closed and
 feed the security monitor. Tune `SESSION_ABSOLUTE_MAX_AGE_SECONDS` and
 `SESSION_MAX_ACTIVE_PER_USER` only within their validated ranges.
+
+Sensitive account mutations share a recent-authentication policy. A complete
+password/2FA login or explicit `/auth/reauthenticate/` confirmation creates a
+five-minute marker bound to the user, session and current password hash through a
+secret-keyed fingerprint. Missing, expired, future-dated, malformed or stale-
+credential markers fail closed. Password changes, account deletion and 2FA
+changes verify the required credentials inline; changing a 2FA account's password
+now requires its second factor. Session revocation prompts responsively for a
+fresh password and, when enabled, TOTP/recovery code before retrying the original
+action. Reauthentication never extends the fixed absolute session deadline.
+`RECENT_AUTH_MAX_AGE_SECONDS` defaults to 300 and is restricted to 60–3600.
 
 The token limit is a consumption/capacity control, not a fabricated currency
 estimate. NVIDIA documents production NIM pricing around licensing/GPU capacity,

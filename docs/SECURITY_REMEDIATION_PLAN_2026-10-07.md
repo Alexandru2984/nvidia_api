@@ -414,7 +414,10 @@ duplicate attachment consumption or destructive regeneration.
 
 ## Wave 8 — abuse, retention, detection and supply chain (P1/P2)
 
-- Add absolute session lifetime and uniform recent-auth policy.
+- Fixed absolute session lifetime and a uniform, password-hash-bound recent-auth
+  policy are deployed; sensitive 2FA/password/account actions confirm credentials
+  inline and stale session controls require password plus the enabled second
+  factor before resuming.
 - Add durable per-user/global quotas for conversations, messages, sessions,
   export/download egress and retained bytes; schedule `clearsessions` and usage
   retention.
