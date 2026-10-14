@@ -20,6 +20,7 @@ from django.utils.dateparse import parse_datetime
 
 MAX_STATUS_FILE_BYTES = 512 * 1024
 MAX_PROBE_LATENCY_MS = 120_000
+MAX_INCONCLUSIVE_STREAK = 100
 ALLOWED_OUTCOMES = {
     'available', 'retired', 'rejected', 'throttled', 'provider_error',
     'authorization_error', 'entitlement_error', 'timeout', 'network_error',
@@ -131,6 +132,7 @@ def _validated_status(value) -> dict:
             outcome = result.get('outcome')
             latency_ms = result.get('latency_ms')
             attempts = result.get('attempts', 1)
+            inconclusive_streak = result.get('inconclusive_streak')
             if outcome not in ALLOWED_OUTCOMES:
                 continue
             if not isinstance(latency_ms, int) or isinstance(latency_ms, bool):
@@ -139,10 +141,26 @@ def _validated_status(value) -> dict:
                 continue
             if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts not in (1, 2):
                 continue
+            if inconclusive_streak is None:
+                # Backward-compatible migration for runtime files written before
+                # the bounded failure streak became part of the private schema.
+                inconclusive_streak = 1 if outcome in TRANSIENT_OUTCOMES else 0
+            if (
+                not isinstance(inconclusive_streak, int)
+                or isinstance(inconclusive_streak, bool)
+                or not 0 <= inconclusive_streak <= MAX_INCONCLUSIVE_STREAK
+            ):
+                continue
+            if outcome in TRANSIENT_OUTCOMES:
+                if inconclusive_streak < 1:
+                    continue
+            elif inconclusive_streak != 0:
+                continue
             results[model_id] = {
                 'outcome': outcome,
                 'latency_ms': latency_ms,
                 'attempts': attempts,
+                'inconclusive_streak': inconclusive_streak,
             }
 
     cleaned = {'unavailable': unavailable, 'checked_at': checked_at}

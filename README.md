@@ -251,9 +251,11 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
 - Definitive endpoint failures (`404/410`) and payload-contract rejection
   (`400/422`) mark a model unavailable. Authentication/entitlement failures,
   throttling, timeouts, network/protocol errors, ambiguous 4xx and provider 5xx responses
-  are inconclusive: an already verified model keeps its last decision, while a
-  never-verified model remains blocked. Degraded and authorization failures are
-  alerted and explicit in the authenticated UI without exposing provider bodies.
+  are inconclusive: an already verified model keeps its last decision through
+  two consecutive probe runs, then fails closed on the third; the first success
+  automatically restores it. A never-verified model remains blocked. Degraded,
+  persistent and authorization failures are alerted and explicit in the
+  authenticated UI without exposing provider bodies.
 - `/api/models/` subtracts the resolved unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
 - Each catalog row exposes `purpose`, `recommended`, conservative `best_for`,
   input `capabilities`, and a model-specific `generation` contract. The UI groups assistant/coding/translation/safety/

@@ -17,17 +17,44 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from chat.model_status import TRANSIENT_OUTCOMES, get_status, write_status
+from chat.model_status import (
+    MAX_INCONCLUSIVE_STREAK,
+    TRANSIENT_OUTCOMES,
+    get_status,
+    write_status,
+)
 from chat.models_catalog import MODEL_IDS
 from chat.nvidia_client import chat_completion_headers, chat_completion_payload
 
 
 DEFINITIVE_UNAVAILABLE_OUTCOMES = frozenset({'retired', 'rejected'})
+INCONCLUSIVE_HIDE_THRESHOLD = 3
 security_log = logging.getLogger('security')
 
 
+def annotate_inconclusive_streaks(results, previous_status):
+    """Bound consecutive transient failures without trusting them forever."""
+    previous_results = previous_status.get('results', {})
+    annotated = {}
+    for model_id, result in results.items():
+        current = dict(result)
+        if current['outcome'] in TRANSIENT_OUTCOMES:
+            previous = previous_results.get(model_id, {})
+            previous_streak = previous.get('inconclusive_streak', 0)
+            if previous.get('outcome') in TRANSIENT_OUTCOMES:
+                current['inconclusive_streak'] = min(
+                    previous_streak + 1, MAX_INCONCLUSIVE_STREAK,
+                )
+            else:
+                current['inconclusive_streak'] = 1
+        else:
+            current['inconclusive_streak'] = 0
+        annotated[model_id] = current
+    return annotated
+
+
 def resolve_unavailable(results, previous_status):
-    """Resolve probes without turning a transient provider outage into a week-long block."""
+    """Absorb brief provider failures without trusting a dead endpoint forever."""
     prior_unavailable = set(previous_status.get('unavailable', []))
     prior_trusted = previous_status.get('state') in {'verified', 'degraded'}
     unavailable = set()
@@ -38,8 +65,13 @@ def resolve_unavailable(results, previous_status):
         if outcome in DEFINITIVE_UNAVAILABLE_OUTCOMES:
             unavailable.add(model_id)
             continue
-        if outcome in TRANSIENT_OUTCOMES and (not prior_trusted or model_id in prior_unavailable):
-            unavailable.add(model_id)
+        if outcome in TRANSIENT_OUTCOMES:
+            if (
+                not prior_trusted
+                or model_id in prior_unavailable
+                or result.get('inconclusive_streak', 1) >= INCONCLUSIVE_HIDE_THRESHOLD
+            ):
+                unavailable.add(model_id)
     return sorted(unavailable)
 
 
@@ -147,6 +179,7 @@ class Command(BaseCommand):
                     outcome['attempts'] = 2
                     results[mid] = outcome
 
+        results = annotate_inconclusive_streaks(results, previous_status)
         unavailable = resolve_unavailable(results, previous_status)
         inconclusive = sorted(
             model_id for model_id, result in results.items()
@@ -158,6 +191,13 @@ class Command(BaseCommand):
         summary = f'{ok}/{len(ids)} models available; {len(unavailable)} marked unavailable.'
         if inconclusive:
             summary += f' {len(inconclusive)} probe results were inconclusive.'
+        persistently_inconclusive = sum(
+            result['outcome'] in TRANSIENT_OUTCOMES
+            and result['inconclusive_streak'] >= INCONCLUSIVE_HIDE_THRESHOLD
+            for result in results.values()
+        )
+        if persistently_inconclusive:
+            summary += f' {persistently_inconclusive} exceeded the failure threshold.'
 
         if dry:
             self.stdout.write(f'[dry-run] {summary}')
@@ -169,7 +209,8 @@ class Command(BaseCommand):
                 for result in results.values()
             )
             security_log.warning(
-                'event=model_probe_degraded inconclusive=%s', len(inconclusive),
+                'event=model_probe_degraded inconclusive=%s persistent=%s',
+                len(inconclusive), persistently_inconclusive,
             )
             if authorization_failures:
                 security_log.error(

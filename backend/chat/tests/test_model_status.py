@@ -184,6 +184,42 @@ class TestModelsEndpoint:
         assert status['state'] == 'invalid'
         assert set(status['unavailable']) == MODEL_IDS
 
+    def test_runtime_status_rejects_inconsistent_inconclusive_streak(
+        self, status_file,
+    ):
+        with open(status_file, 'w') as status:
+            json.dump({
+                'checked_at': timezone.now().isoformat(),
+                'unavailable': [],
+                'results': {
+                    DEFAULT_MODEL_ID: {
+                        'outcome': 'timeout', 'latency_ms': 100,
+                        'attempts': 2, 'inconclusive_streak': 0,
+                    },
+                },
+            }, status)
+
+        runtime = get_status()
+        assert DEFAULT_MODEL_ID not in runtime.get('results', {})
+        assert DEFAULT_MODEL_ID in runtime['unavailable']
+        assert runtime['unverified_models'] == len(MODEL_IDS)
+
+    def test_legacy_runtime_status_infers_bounded_streak(self, status_file):
+        with open(status_file, 'w') as status:
+            json.dump({
+                'checked_at': timezone.now().isoformat(),
+                'unavailable': [],
+                'results': {
+                    DEFAULT_MODEL_ID: {
+                        'outcome': 'timeout', 'latency_ms': 100, 'attempts': 2,
+                    },
+                },
+            }, status)
+
+        result = get_status()['results'][DEFAULT_MODEL_ID]
+        assert result['outcome'] == 'timeout'
+        assert result['inconclusive_streak'] == 1
+
 
 class TestProbeCommand:
     @mock.patch('chat.management.commands.probe_models.requests.post')
@@ -230,8 +266,40 @@ class TestProbeCommand:
         data = json.loads(open(status_file).read())
         assert DEFAULT_MODEL_ID not in data['unavailable']
         assert data['results'][DEFAULT_MODEL_ID]['outcome'] == 'timeout'
+        assert data['results'][DEFAULT_MODEL_ID]['inconclusive_streak'] == 1
         assert get_status()['state'] == 'degraded'
         assert get_status()['inconclusive_models'] == 1
+
+    @mock.patch('chat.management.commands.probe_models.requests.post')
+    def test_repeated_transient_failures_eventually_hide_then_recover_model(
+        self, m_post, status_file,
+    ):
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        failing = True
+
+        def fake_post(url, json=None, **kwargs):
+            if failing and json['model'] == DEFAULT_MODEL_ID:
+                raise requests.ReadTimeout
+            return healthy_probe_response()
+
+        m_post.side_effect = fake_post
+        for expected_streak in (1, 2):
+            call_command('probe_models')
+            data = json.loads(open(status_file).read())
+            assert DEFAULT_MODEL_ID not in data['unavailable']
+            assert data['results'][DEFAULT_MODEL_ID]['inconclusive_streak'] == expected_streak
+
+        call_command('probe_models')
+        data = json.loads(open(status_file).read())
+        assert DEFAULT_MODEL_ID in data['unavailable']
+        assert data['results'][DEFAULT_MODEL_ID]['inconclusive_streak'] == 3
+
+        failing = False
+        call_command('probe_models')
+        data = json.loads(open(status_file).read())
+        assert DEFAULT_MODEL_ID not in data['unavailable']
+        assert data['results'][DEFAULT_MODEL_ID]['outcome'] == 'available'
+        assert data['results'][DEFAULT_MODEL_ID]['inconclusive_streak'] == 0
 
     @mock.patch('chat.management.commands.probe_models.requests.post')
     def test_transient_failure_for_unverified_model_fails_closed(
