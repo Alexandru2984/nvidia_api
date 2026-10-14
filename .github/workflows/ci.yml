@@ -45,6 +45,8 @@ jobs:
         run: python -m pytest -q
       - name: Security operations tests
         run: |
+          bash -n ../scripts/*.sh
+          shellcheck ../scripts/*.sh
           python ../scripts/test_security_monitor.py
           python ../scripts/test_archive_release_retention.py
           python ../scripts/test_generate_python_sbom.py

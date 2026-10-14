@@ -12,6 +12,7 @@ RELEASE_ROOT='/opt/aichat-backend-releases'
 LIVE_PATH='/opt/aichat-backend-current'
 SERVICE='aichat-backend.service'
 RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
+LOCK_FILE='/run/aichat-release-operation.lock'
 BOOTSTRAP=0
 
 UNIT_SOURCES=(
@@ -180,12 +181,14 @@ if (( EUID != 0 )); then
   echo 'ERROR: backend deployment must run as root' >&2
   exit 1
 fi
-for command in git tar sha256sum runuser curl systemctl readlink; do
+for command in flock git tar sha256sum runuser curl systemctl readlink; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
   }
 done
+exec 9>"$LOCK_FILE"
+flock -n 9 || { echo 'ERROR: another release operation is running' >&2; exit 1; }
 if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
