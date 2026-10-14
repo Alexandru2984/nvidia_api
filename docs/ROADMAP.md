@@ -108,7 +108,9 @@ timed evidence.
   secret access from exact runtime pins and SHA-256-locked binary wheels, with
   package-set, lockfile and manifest enforcement. Next produce and retain an
   SBOM/provenance attestation, add safe release retention, and exercise both
-  automatic rollback paths in a maintenance test.
+  automatic rollback paths in a maintenance test. CI's remote Actions are pinned
+  to reviewed full commit SHAs, with a regression gate rejecting moving refs;
+  updates must preserve that review trail.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page

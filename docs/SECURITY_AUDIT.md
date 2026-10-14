@@ -67,7 +67,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
 | A-06 | High | Raw session keys were returned to the browser | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry and account caps | Rotate sessions after any suspected historic disclosure |
-| A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain SBOM/provenance evidence |
+| A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels, full-commit-SHA CI Actions, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain SBOM/provenance evidence |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
@@ -838,8 +838,25 @@ is required before describing those controls as complete.
 - Origin and public root, health and `security.txt` probes returned 200; direct
   media returned 404; `.env`, `.git`, session inventory and conversation probes
   returned 403. Residual dependency-delivery work is retained SBOM/provenance
-  evidence, full-SHA pinning for CI Actions, bounded release retention and a
+  evidence, controlled dependency updates, bounded release retention and a
   planned rollback exercise.
+
+### Immutable CI Action rollout — 2026-10-14
+
+- Repository state `a79a19d65a7cf1c3ee99cdd18e519d2a0234b5ad` replaced every
+  moving remote Action reference with the full commit behind its reviewed
+  official release: `actions/checkout` v4.4.0, `actions/setup-python` v5.6.0 and
+  `actions/setup-node` v4.4.0. Human-readable release labels remain comments;
+  GitHub executes only the immutable 40-character commit identifiers.
+- A repository checker rejects tags, branches, missing refs and short SHAs while
+  allowing local and explicit container actions. Its five regression tests and
+  the checker itself run in CI, so a future moving reference fails the pipeline.
+  Local tests, the current workflow scan and the independent production-lock
+  check passed. This stage changed no production process, dependency or data.
+- Residual CI/dependency provenance work is a controlled update/review process
+  plus retained SBOM and provenance attestations. Pinning prevents a tag from
+  silently moving; it does not establish that a newly reviewed commit or wheel
+  was built through a trustworthy upstream chain.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

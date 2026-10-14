@@ -417,19 +417,23 @@ SHA-256 manifests verified every five minutes. The remaining high-value signals
 are off-host retention, sudo/process identity, secret/config changes and
 provider/mail cost anomalies.
 
-### S-14 — Low — CI Actions and dependency provenance remain incomplete
+### S-14 — Low — dependency provenance remains incomplete
 
-Evidence: GitHub Actions use moving major-version tags (`@v4`, `@v5`) rather than
-full commit SHAs. Python production requirements are now exactly versioned and
-SHA-256 locked to selected binary wheels, enforced by pip `--require-hashes` and
-a CI structural check, but no retained SBOM/provenance attestation exists. The
-workflow token is correctly restricted to `contents: read`, and no production
-deployment secret is used.
+Evidence: every remote GitHub Action is now pinned to a reviewed full commit SHA,
+and a tested CI guard rejects moving tags, branches and short SHAs. Python
+production requirements are exactly versioned and SHA-256 locked to selected
+binary wheels, enforced by pip `--require-hashes` and a CI structural check. No
+retained SBOM/provenance attestation or controlled dependency-update evidence
+exists. The workflow token is correctly restricted to `contents: read`, and no
+production deployment secret is used.
 
-Impact: upstream action/tag or package-index compromise can alter CI execution.
-Current blast radius is reduced by read-only permissions and lack of deploy.
+Impact: a silently moved Action tag can no longer alter CI execution, and a
+changed wheel cannot satisfy the committed lock. An incorrectly reviewed new pin
+or an already-compromised upstream build can still enter the trusted set without
+independent provenance evidence. Blast radius remains reduced by read-only
+permissions and lack of deploy.
 
-Remediation: pin Actions to reviewed full SHAs, use a controlled updater, and
+Remediation: use a controlled updater with explicit upstream review, and
 produce/retain an SBOM and provenance for each dependency release.
 
 ### S-15 — Low/Medium — privacy/governance evidence is incomplete
@@ -550,8 +554,9 @@ production-entitlement decisions, and provide export/deletion status.
    wheels are SHA-256 locked.
 5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
-6. Pin CI Actions to reviewed full commit SHAs. Python production artifacts are
-   already locked by hash.
+6. CI Actions are pinned to reviewed full commit SHAs and Python production
+   artifacts are locked by hash. Preserve both gates through a controlled update
+   process.
 
 ### P2 — after the verdict returns to yellow/green
 
