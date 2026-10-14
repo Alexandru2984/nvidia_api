@@ -71,6 +71,7 @@ from .models_catalog import (
     model_generation_limits,
 )
 from .registration import hash_invite_code
+from .recent_auth import confirm_recent_auth, mark_recent_auth
 from .security_events import actor_for_request, security_log
 from .serializers import (
     AttachmentSerializer,
@@ -181,6 +182,7 @@ def auth_login(request):
     if verified_2fa:
         mark_staff_2fa_verified(request, user)
     stamp_session(request)
+    mark_recent_auth(request)
     return Response({'username': user.username})
 
 
@@ -188,6 +190,24 @@ def auth_login(request):
 def auth_logout(request):
     django_logout(request)
     return Response({'ok': True})
+
+
+@api_view(['POST'])
+@ratelimit(key='user', rate='10/h', block=False)
+def auth_reauthenticate(request):
+    """Refresh the short-lived authorization window for sensitive actions."""
+    if (r := _rate_limited(request)): return r
+    response = confirm_recent_auth(
+        request,
+        request.data.get('password') or '',
+        request.data.get('code') or '',
+    )
+    if response is not None:
+        return response
+    return Response({
+        'authenticated': True,
+        'valid_for_seconds': settings.RECENT_AUTH_MAX_AGE_SECONDS,
+    })
 
 
 USERNAME_RE = re.compile(r'^[A-Za-z0-9_]{3,30}$')
@@ -639,19 +659,20 @@ def auth_reset(request):
 
     django_login(request, user)
     stamp_session(request)
+    mark_recent_auth(request)
     return Response({'reset': True, 'username': user.username, 'sessions_revoked': revoked})
 
 
 @api_view(['POST'])
 @ratelimit(key='user', rate='10/h', block=False)
 def auth_change_password(request):
-    """Change password for the logged-in user. Requires the current password.
-    Keeps this session alive, kills every other one."""
+    """Change password after fresh strong auth; keep only this session."""
     if (r := _rate_limited(request)): return r
     current = request.data.get('current_password') or ''
     new = request.data.get('new_password') or ''
-    if len(current) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(current):
-        return Response({'error': 'Current password is incorrect.'}, status=status.HTTP_401_UNAUTHORIZED)
+    response = confirm_recent_auth(request, current, request.data.get('code') or '')
+    if response is not None:
+        return response
     if len(new) < 8 or len(new) > settings.MAX_PASSWORD_LENGTH:
         return Response({'error': f'Password must be 8-{settings.MAX_PASSWORD_LENGTH} characters.'}, status=400)
     try:
@@ -665,6 +686,7 @@ def auth_change_password(request):
     # then revoke everything else (anything on the old password is suspect).
     update_session_auth_hash(request, request.user)
     sync_session_record(request)
+    mark_recent_auth(request)
     revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
     security_log.warning('event=password_changed user_id=%s sessions_revoked=%s',
                          request.user.pk, revoked)
@@ -679,16 +701,9 @@ def auth_delete_account(request):
     messages and attachments (files removed via the pre_delete signal)."""
     if (r := _rate_limited(request)): return r
     password = request.data.get('password') or ''
-    if len(password) > settings.MAX_PASSWORD_LENGTH or not request.user.check_password(password):
-        return Response({'error': 'Wrong password.'}, status=status.HTTP_401_UNAUTHORIZED)
-    if login_requires_2fa(request.user):
-        code = (request.data.get('code') or '').strip()
-        if not code:
-            return Response({'error': 'Two-factor code required.', 'two_factor_required': True},
-                            status=status.HTTP_401_UNAUTHORIZED)
-        if not verify_for_login(request.user, code):
-            return Response({'error': 'Invalid 2FA code.', 'two_factor_required': True},
-                            status=status.HTTP_401_UNAUTHORIZED)
+    response = confirm_recent_auth(request, password, request.data.get('code') or '')
+    if response is not None:
+        return response
 
     user = request.user
     user_id = user.pk

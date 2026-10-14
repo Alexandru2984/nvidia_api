@@ -213,6 +213,10 @@ function SessionsPanel() {
   const [sessions, setSessions] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [pendingAction, setPendingAction] = useState(null)
+  const [reauthPassword, setReauthPassword] = useState('')
+  const [reauthCode, setReauthCode] = useState('')
+  const [reauthNeedsCode, setReauthNeedsCode] = useState(false)
 
   async function refresh() {
     try { setSessions(await api.listSessions()) } catch (e) { setError(e.message) }
@@ -224,19 +228,55 @@ function SessionsPanel() {
     return () => { cancelled = true }
   }, [])
 
+  async function performRevocation(action) {
+    try {
+      if (action.type === 'one') await api.revokeSession(action.key)
+      else await api.revokeOtherSessions()
+      await refresh()
+      return true
+    } catch (e) {
+      if (e.body?.reauthentication_required) {
+        setPendingAction(action)
+        setReauthNeedsCode(Boolean(e.body?.two_factor_required))
+        setError('Confirm your identity before changing active sessions.')
+        return false
+      }
+      setError(e.message)
+      return false
+    }
+  }
   async function revokeOne(key) {
     if (!confirm('Sign this session out?')) return
     setBusy(true)
-    try { await api.revokeSession(key); await refresh() }
-    catch (e) { setError(e.message) }
+    setError(null)
+    try { await performRevocation({ type: 'one', key }) }
     finally { setBusy(false) }
   }
   async function revokeOthers() {
     if (!confirm('Sign out everywhere except here?')) return
     setBusy(true)
-    try { await api.revokeOtherSessions(); await refresh() }
-    catch (e) { setError(e.message) }
+    setError(null)
+    try { await performRevocation({ type: 'others' }) }
     finally { setBusy(false) }
+  }
+  async function reauthenticateAndContinue(e) {
+    e.preventDefault()
+    if (!pendingAction) return
+    setBusy(true); setError(null)
+    try {
+      await api.reauthenticate(reauthPassword, reauthCode.trim() || undefined)
+      const action = pendingAction
+      setPendingAction(null); setReauthPassword(''); setReauthCode('')
+      setReauthNeedsCode(false)
+      await performRevocation(action)
+    } catch (err) {
+      if (err.body?.two_factor_required) setReauthNeedsCode(true)
+      setError(err.message)
+    } finally { setBusy(false) }
+  }
+  function cancelReauthentication() {
+    setPendingAction(null); setReauthPassword(''); setReauthCode('')
+    setReauthNeedsCode(false); setError(null)
   }
 
   if (!sessions) return <div role="status">{error || 'Loading sessions…'}</div>
@@ -248,6 +288,28 @@ function SessionsPanel() {
         Each browser gets a bounded session with a fixed maximum lifetime. Older sessions are removed automatically; revoke any you don't recognize.
       </p>
       {error && <div className="login-error">{error}</div>}
+      {pendingAction && (
+        <form className="enroll-card" onSubmit={reauthenticateAndContinue}>
+          <p>For your security, this action needs a recent sign-in confirmation.</p>
+          <label className="settings-field">
+            <span>Current password</span>
+            <input type="password" autoComplete="current-password"
+              value={reauthPassword} onChange={(e) => setReauthPassword(e.target.value)} required />
+          </label>
+          {reauthNeedsCode && <label className="settings-field">
+            <span>2FA or recovery code</span>
+            <input type="text" autoComplete="one-time-code" maxLength={17}
+              value={reauthCode} onChange={(e) => setReauthCode(e.target.value)} required />
+          </label>}
+          <div className="settings-actions">
+            <button className="primary" type="submit"
+              disabled={busy || !reauthPassword || (reauthNeedsCode && !reauthCode)}>
+              {busy ? 'Confirming…' : 'Confirm and continue'}
+            </button>
+            <button className="link" type="button" onClick={cancelReauthentication}>Cancel</button>
+          </div>
+        </form>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {sessions.map((s) => (
           <div key={s.id} className="session-row">
@@ -280,6 +342,8 @@ function PasswordPanel() {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [code, setCode] = useState('')
+  const [needsCode, setNeedsCode] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
@@ -291,10 +355,13 @@ function PasswordPanel() {
     if (next.length < 8) { setError('New password must be at least 8 characters.'); return }
     setBusy(true)
     try {
-      const r = await api.changePassword(current, next)
+      const r = await api.changePassword(current, next, code.trim() || undefined)
       setInfo(`Password changed. ${r.sessions_revoked} other session(s) signed out.`)
-      setCurrent(''); setNext(''); setConfirm('')
-    } catch (e2) { setError(e2.message) }
+      setCurrent(''); setNext(''); setConfirm(''); setCode(''); setNeedsCode(false)
+    } catch (e2) {
+      if (e2.body?.two_factor_required) setNeedsCode(true)
+      setError(e2.message)
+    }
     finally { setBusy(false) }
   }
 
@@ -311,7 +378,11 @@ function PasswordPanel() {
           value={next} onChange={(e) => setNext(e.target.value)} minLength={8} required />
         <input type="password" placeholder="Repeat new password" autoComplete="new-password"
           value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={8} required />
-        <button className="primary" type="submit" disabled={busy || !current || !next || !confirm}>
+        {needsCode && <input type="text" placeholder="2FA code or recovery code"
+          autoComplete="one-time-code" maxLength={17}
+          value={code} onChange={(e) => setCode(e.target.value)} required />}
+        <button className="primary" type="submit"
+          disabled={busy || !current || !next || !confirm || (needsCode && !code)}>
           {busy ? 'Changing…' : 'Change password'}
         </button>
       </form>

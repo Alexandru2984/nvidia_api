@@ -205,12 +205,19 @@ SESSION_ABSOLUTE_MAX_AGE_SECONDS = _nonnegative_int_env(
 SESSION_MAX_ACTIVE_PER_USER = _nonnegative_int_env(
     'SESSION_MAX_ACTIVE_PER_USER', 20,
 )
+RECENT_AUTH_MAX_AGE_SECONDS = _nonnegative_int_env(
+    'RECENT_AUTH_MAX_AGE_SECONDS', 5 * 60,
+)
 if not 60 * 60 <= SESSION_ABSOLUTE_MAX_AGE_SECONDS <= 365 * 24 * 60 * 60:
     raise ImproperlyConfigured(
         'SESSION_ABSOLUTE_MAX_AGE_SECONDS must be between 3600 and 31536000.',
     )
 if not 1 <= SESSION_MAX_ACTIVE_PER_USER <= 100:
     raise ImproperlyConfigured('SESSION_MAX_ACTIVE_PER_USER must be between 1 and 100.')
+if not 60 <= RECENT_AUTH_MAX_AGE_SECONDS <= 60 * 60:
+    raise ImproperlyConfigured(
+        'RECENT_AUTH_MAX_AGE_SECONDS must be between 60 and 3600.',
+    )
 
 
 REGISTRATION_INVITE_AUDIT_DAYS = _nonnegative_int_env('REGISTRATION_INVITE_AUDIT_DAYS', 90)

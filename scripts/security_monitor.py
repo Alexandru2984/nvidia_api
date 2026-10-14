@@ -380,7 +380,10 @@ def evaluate(
         if stat.S_IMODE(info.st_mode) & 0o077:
             issues['restore_log_permissions'] = 'Restore-drill log has group/other permissions.'
 
-    auth_failures = journal.count('event=auth_failed')
+    auth_failures = (
+        journal.count('event=auth_failed')
+        + journal.count('event=recent_auth_failed')
+    )
     rate_limits = journal.count('event=rate_limit')
     admin_denied = journal.count('event=admin_access_denied')
     admin_changes = journal.count('event=admin_change')
@@ -398,7 +401,9 @@ def evaluate(
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
     if auth_failures >= int(os.environ.get('AUTH_FAILURE_ALERT_THRESHOLD', '10')):
-        issues['auth_burst'] = f'{auth_failures} failed logins were detected in six minutes.'
+        issues['auth_burst'] = (
+            f'{auth_failures} failed authentication attempts were detected in six minutes.'
+        )
     if rate_limits >= int(os.environ.get('RATE_LIMIT_ALERT_THRESHOLD', '20')):
         issues['rate_limit_burst'] = f'{rate_limits} rate-limit events were detected in six minutes.'
     if admin_denied >= int(os.environ.get('ADMIN_DENIED_ALERT_THRESHOLD', '10')):

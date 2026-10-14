@@ -16,6 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import AuthenticatedSession
+from .recent_auth import require_recent_auth
 
 log = logging.getLogger(__name__)
 security_log = logging.getLogger('security')
@@ -238,6 +239,8 @@ def revoke_session(request, key):
     """Revoke one owner-scoped session by its non-bearer indexed handle."""
     if (response := _rate_limited(request)) is not None:
         return response
+    if (response := require_recent_auth(request)) is not None:
+        return response
     if constant_time_compare(key, session_handle(request.session.session_key)):
         return Response(
             {'error': 'Use /auth/logout/ to end your current session.'},
@@ -260,6 +263,8 @@ def revoke_session(request, key):
 def revoke_other_sessions(request):
     """Revoke all indexed sessions except the current one."""
     if (response := _rate_limited(request)) is not None:
+        return response
+    if (response := require_recent_auth(request)) is not None:
         return response
     deleted = revoke_user_sessions(
         request.user,

@@ -262,8 +262,15 @@ export const api = {
 
   // Account
   accountUsage: () => request('/account/usage/'),
-  changePassword: (current_password, new_password) =>
-    request('/auth/password/', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
+  reauthenticate: (password, code) =>
+    request('/auth/reauthenticate/', {
+      method: 'POST', body: JSON.stringify({ password, ...(code ? { code } : {}) }),
+    }),
+  changePassword: (current_password, new_password, code) =>
+    request('/auth/password/', {
+      method: 'POST',
+      body: JSON.stringify({ current_password, new_password, ...(code ? { code } : {}) }),
+    }),
   deleteAccount: (password, code) =>
     request('/auth/delete-account/', { method: 'POST', body: JSON.stringify({ password, ...(code ? { code } : {}) }) }),
 

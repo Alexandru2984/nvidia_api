@@ -195,6 +195,59 @@ test('2FA enrollment sends and then clears the current password', async ({ page 
   await expect(panel.getByLabel('Current password', { exact: true })).toHaveValue('')
 })
 
+test('expired session controls reauthenticate with 2FA and resume revocation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  let otherActive = true
+  let recentlyAuthenticated = false
+  const reauthPayloads = []
+  await page.route('**/api/auth/sessions/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/auth/sessions/' && route.request().method() === 'GET') {
+      const sessions = [{
+        id: 'current-handle', current: true, ua: 'This browser', ip: '198.51.100.1',
+        login_at: '2026-10-14T10:00:00Z', expires_at: '2026-11-01T00:00:00Z',
+      }]
+      if (otherActive) sessions.push({
+        id: 'other-handle', current: false, ua: 'Unknown browser', ip: '203.0.113.9',
+        login_at: '2026-10-13T10:00:00Z', expires_at: '2026-11-01T00:00:00Z',
+      })
+      return route.fulfill({ status: 200, json: sessions })
+    }
+    if (url.pathname === '/api/auth/sessions/other-handle/'
+        && route.request().method() === 'DELETE') {
+      if (!recentlyAuthenticated) return route.fulfill({ status: 403, json: {
+        error: 'Confirm your identity to continue.',
+        reauthentication_required: true,
+        two_factor_required: true,
+      } })
+      otherActive = false
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fallback()
+  })
+  await page.route('**/api/auth/reauthenticate/', async (route) => {
+    reauthPayloads.push(route.request().postDataJSON())
+    recentlyAuthenticated = true
+    return route.fulfill({ status: 200, json: { authenticated: true, valid_for_seconds: 300 } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Settings', { exact: true }).click()
+  const panel = page.getByRole('heading', { name: 'Active sessions' }).locator('..')
+  page.once('dialog', (dialog) => dialog.accept())
+  await panel.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await expect(panel.getByText('this action needs a recent sign-in confirmation')).toBeVisible()
+  await panel.getByLabel('Current password').fill('correct-password')
+  await panel.getByLabel('2FA or recovery code').fill('123456')
+  await panel.getByRole('button', { name: 'Confirm and continue' }).click()
+
+  await expect(panel.getByText('Unknown browser')).toHaveCount(0)
+  expect(reauthPayloads).toEqual([{ password: 'correct-password', code: '123456' }])
+  await expectNoPageOverflow(page)
+})
+
 async function expectNoPageOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }

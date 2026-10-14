@@ -49,6 +49,31 @@ class TestChangePassword:
         assert c2.get('/api/models/').status_code in (401, 403)
         assert c1.get('/api/models/').status_code == 200
 
+    def test_two_factor_account_requires_second_factor(self, auth_client, user):
+        recovery = 'aaaa1111-bbbb2222'
+        TwoFactor.objects.create(
+            user=user,
+            secret='irrelevant',
+            enabled=True,
+            recovery_codes=[_hash_recovery(recovery)],
+        )
+
+        missing = auth_client.post(self.URL, {
+            'current_password': 'Hunter2pass',
+            'new_password': 'Brand-New-Pass-42',
+        }, format='json')
+        accepted = auth_client.post(self.URL, {
+            'current_password': 'Hunter2pass',
+            'new_password': 'Brand-New-Pass-42',
+            'code': recovery,
+        }, format='json')
+
+        assert missing.status_code == 401
+        assert missing.json()['two_factor_required'] is True
+        assert accepted.status_code == 200
+        user.refresh_from_db()
+        assert user.check_password('Brand-New-Pass-42')
+
 
 @pytest.mark.django_db
 class TestDeleteAccount:

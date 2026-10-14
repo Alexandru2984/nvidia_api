@@ -34,7 +34,8 @@ class SecurityMonitorTests(unittest.TestCase):
 
     def test_detects_auth_rate_admin_budget_and_error_signals(self):
         journal = '\n'.join(
-            ['event=auth_failed'] * 10
+            ['event=auth_failed'] * 5
+            + ['event=recent_auth_failed'] * 5
             + ['event=rate_limit'] * 20
             + ['event=admin_access_denied'] * 10
             + ['event=admin_access user_id=1', 'event=admin_change action=change',
