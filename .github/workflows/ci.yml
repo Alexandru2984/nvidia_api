@@ -35,6 +35,8 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Django system checks
         run: python manage.py check --settings=nvidia_chat.test_settings
+      - name: Validate production wheel lock
+        run: python ../scripts/check_requirements_lock.py requirements.txt requirements.lock
       - name: Run tests
         run: python -m pytest -q
       - name: Security monitor tests

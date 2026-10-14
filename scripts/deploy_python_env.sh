@@ -200,13 +200,15 @@ for path in Path(sys.argv[1]).iterdir():
         path.unlink()
 PY
 git_read show "$commit:backend/requirements.txt" > "$release/.release-requirements.txt"
+git_read show "$commit:backend/requirements.lock" > "$release/.release-requirements.lock"
 printf '%s\n' "$commit" > "$release/.release-commit"
 chown -R nobody:nogroup -- "$release"
 
 runuser --user nobody -- env \
   HOME=/nonexistent PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONDONTWRITEBYTECODE=1 \
   "$release/bin/python" -m pip install \
-  --no-cache-dir --only-binary=:all: --requirement "$release/.release-requirements.txt"
+  --no-cache-dir --only-binary=:all: --require-hashes \
+  --requirement "$release/.release-requirements.lock"
 runuser --user nobody -- env HOME=/nonexistent PYTHONDONTWRITEBYTECODE=1 \
   "$release/bin/python" -m pip check
 runuser --user nobody -- env HOME=/nonexistent PYTHONDONTWRITEBYTECODE=1 \
@@ -288,7 +290,8 @@ find "$release" -xdev -type f -exec chmod 0644 -- {} +
 chmod 0755 "$release/bin/python"
 (
   cd "$release"
-  sha256sum .release-requirements.txt > .release-requirements.sha256
+  sha256sum .release-requirements.txt .release-requirements.lock \
+    > .release-requirements.sha256
   find . -xdev -type f ! -name '.release-manifest.sha256' -print0 \
     | LC_ALL=C sort -z \
     | xargs -0 sha256sum > .release-manifest.sha256
