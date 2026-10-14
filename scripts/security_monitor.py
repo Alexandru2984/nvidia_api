@@ -34,7 +34,9 @@ BACKEND_MAX_FILES = 5_000
 BACKEND_MAX_BYTES = 128 * 1024 * 1024
 PYTHON_ENV_MAX_FILES = 20_000
 PYTHON_ENV_MAX_BYTES = 512 * 1024 * 1024
+MAX_RELEASE_DIRECTORIES = 3
 SAFE_RELEASE_NAME_RE = re.compile(r'^release-\d{8}T\d{6}_\d+$')
+SAFE_LEGACY_NAME_RE = re.compile(r'^legacy-\d{8}T\d{6}_\d+$')
 SAFE_RELEASE_PATH_RE = re.compile(r'^(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$')
 PYTHON_ENV_SAFE_PATH_RE = re.compile(
     r'^(?:[A-Za-z0-9._\[\]-]+/)*[A-Za-z0-9._\[\]-]+$',
@@ -215,6 +217,38 @@ def evaluate_python_environment_release(
     )
 
 
+def evaluate_release_retention(live_path, release_root, *, issue_key):
+    issue = {
+        issue_key: (
+            f'The executable release root exceeds {MAX_RELEASE_DIRECTORIES} entries '
+            'or contains an unsafe entry.'
+        ),
+    }
+    live_path = Path(live_path)
+    release_root = Path(release_root)
+    try:
+        root = release_root.resolve(strict=True)
+        target = live_path.resolve(strict=True)
+        if target.parent != root or not SAFE_RELEASE_NAME_RE.fullmatch(target.name):
+            return issue
+        entries = []
+        for entry in release_root.iterdir():
+            info = entry.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                return issue
+            if not (
+                SAFE_RELEASE_NAME_RE.fullmatch(entry.name)
+                or SAFE_LEGACY_NAME_RE.fullmatch(entry.name)
+            ):
+                return issue
+            entries.append(entry)
+        if target not in entries or len(entries) > MAX_RELEASE_DIRECTORIES:
+            return issue
+        return {}
+    except (OSError, RuntimeError, ValueError):
+        return issue
+
+
 def read_journal():
     result = subprocess.run(
         ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
@@ -262,6 +296,11 @@ def evaluate(
                 expected_uid=frontend_expected_uid,
                 expected_gid=frontend_expected_gid,
             ))
+            issues.update(evaluate_release_retention(
+                frontend_live,
+                frontend_release_root,
+                issue_key='frontend_release_retention',
+            ))
 
     if backend_live is not None or backend_release_root is not None:
         if backend_live is None or backend_release_root is None:
@@ -272,6 +311,11 @@ def evaluate(
                 backend_release_root,
                 expected_uid=backend_expected_uid,
                 expected_gid=backend_expected_gid,
+            ))
+            issues.update(evaluate_release_retention(
+                backend_live,
+                backend_release_root,
+                issue_key='backend_release_retention',
             ))
 
     if python_environment_live is not None or python_environment_release_root is not None:
@@ -285,6 +329,11 @@ def evaluate(
                 python_environment_release_root,
                 expected_uid=python_environment_expected_uid,
                 expected_gid=python_environment_expected_gid,
+            ))
+            issues.update(evaluate_release_retention(
+                python_environment_live,
+                python_environment_release_root,
+                issue_key='python_environment_release_retention',
             ))
 
     if not backup_dir.is_dir() or backup_dir.is_symlink():

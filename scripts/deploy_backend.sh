@@ -11,6 +11,7 @@ VENV_DIR='/opt/aichat-python-current'
 RELEASE_ROOT='/opt/aichat-backend-releases'
 LIVE_PATH='/opt/aichat-backend-current'
 SERVICE='aichat-backend.service'
+RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
 BOOTSTRAP=0
 
 UNIT_SOURCES=(
@@ -189,6 +190,10 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
 fi
+if [[ ! -x "$RETENTION_TOOL" || -L "$RETENTION_TOOL" ]]; then
+  echo 'ERROR: release-retention tool is missing or unsafe' >&2
+  exit 1
+fi
 if [[ ! -x "$VENV_DIR/bin/python" || ! -f "$VENV_DIR/.release-manifest.sha256" ]]; then
   echo 'ERROR: immutable production Python environment is incomplete' >&2
   exit 1
@@ -332,6 +337,7 @@ wait_for_release
 trap - ERR INT TERM
 rm -rf --one-file-system -- "$temporary"
 temporary=''
+"$RETENTION_TOOL" --apply --family backend --keep-inactive 2
 
 echo "Backend release active: $release"
 echo "Commit: $commit"

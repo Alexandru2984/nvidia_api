@@ -152,6 +152,40 @@ class SecurityMonitorTests(unittest.TestCase):
         unsafe.symlink_to('/etc/passwd')
         self.assertIn('frontend_integrity', self.frontend_issues(live, release_root))
 
+    def test_release_retention_detects_excess_directories(self):
+        live, release_root, _ = self.create_frontend_release()
+        for sequence in range(3):
+            (release_root / f'release-20261007T02020{sequence}_{sequence:09d}').mkdir()
+        issues = monitor.evaluate_release_retention(
+            live,
+            release_root,
+            issue_key='frontend_release_retention',
+        )
+        self.assertIn('frontend_release_retention', issues)
+
+    def test_release_retention_accepts_active_and_two_rollbacks(self):
+        live, release_root, _ = self.create_frontend_release()
+        for sequence in range(2):
+            (release_root / f'release-20261007T02020{sequence}_{sequence:09d}').mkdir()
+        self.assertEqual(
+            monitor.evaluate_release_retention(
+                live,
+                release_root,
+                issue_key='frontend_release_retention',
+            ),
+            {},
+        )
+
+    def test_release_retention_rejects_unrecognized_entry(self):
+        live, release_root, _ = self.create_frontend_release()
+        (release_root / '.staging-untrusted').mkdir()
+        issues = monitor.evaluate_release_retention(
+            live,
+            release_root,
+            issue_key='frontend_release_retention',
+        )
+        self.assertIn('frontend_release_retention', issues)
+
     def create_backend_release(self):
         release_root = self.root / 'backend-releases'
         release = release_root / 'release-20261013T010203_123456789'

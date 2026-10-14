@@ -8,6 +8,7 @@ REPO_DIR='/home/micu/nvidia'
 DIST_DIR="$REPO_DIR/frontend/dist"
 RELEASE_ROOT='/var/www/aichat-releases'
 LIVE_PATH='/var/www/aichat.micutu.com'
+RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
 BOOTSTRAP=0
 previous=''
 legacy=''
@@ -64,6 +65,10 @@ if (( $# != 0 )); then
 fi
 if (( EUID != 0 )); then
   echo 'ERROR: frontend deployment must run as root' >&2
+  exit 1
+fi
+if [[ ! -x "$RETENTION_TOOL" || -L "$RETENTION_TOOL" ]]; then
+  echo 'ERROR: release-retention tool is missing or unsafe' >&2
   exit 1
 fi
 if [[ ! -d "$DIST_DIR" || -L "$DIST_DIR" ]]; then
@@ -178,6 +183,7 @@ if (( ! healthy )); then
 fi
 
 trap - ERR INT TERM
+"$RETENTION_TOOL" --apply --family frontend --keep-inactive 2
 
 echo "Frontend release active: $release"
 if [[ -n "$previous" ]]; then

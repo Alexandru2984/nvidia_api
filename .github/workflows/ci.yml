@@ -43,8 +43,10 @@ jobs:
         run: python ../scripts/check_requirements_lock.py requirements.txt requirements.lock
       - name: Run tests
         run: python -m pytest -q
-      - name: Security monitor tests
-        run: python ../scripts/test_security_monitor.py
+      - name: Security operations tests
+        run: |
+          python ../scripts/test_security_monitor.py
+          python ../scripts/test_archive_release_retention.py
       - name: Audit runtime dependencies
         run: |
           pip install pip-audit==2.10.1

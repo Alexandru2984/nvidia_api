@@ -13,6 +13,7 @@ RELEASE_ROOT='/opt/aichat-python-envs'
 LIVE_PATH='/opt/aichat-python-current'
 SERVICE='aichat-backend.service'
 PYTHON='/usr/bin/python3.14'
+RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
 BOOTSTRAP=0
 
 previous=''
@@ -122,6 +123,10 @@ for command in git sha256sum runuser curl systemctl readlink "$PYTHON"; do
 done
 if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
+  exit 1
+fi
+if [[ ! -x "$RETENTION_TOOL" || -L "$RETENTION_TOOL" ]]; then
+  echo 'ERROR: release-retention tool is missing or unsafe' >&2
   exit 1
 fi
 if [[ ! -L "$APP_LIVE" ]]; then
@@ -337,6 +342,7 @@ if (( service_uses_release )); then
 fi
 
 trap - ERR INT TERM
+"$RETENTION_TOOL" --apply --family python --keep-inactive 2
 echo "Python environment active: $release"
 echo "Requirements commit: $commit"
 if [[ -n "$previous" ]]; then
