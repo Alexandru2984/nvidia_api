@@ -95,6 +95,10 @@ for evidence validation.
    target or rerun the committed deploy script; never copy repaired Python files
    into the active release. Restore dependencies only through a retained
    `/opt/aichat-python-envs` target or the committed environment deploy script.
+   The two newest inactive targets are kept in each executable release root.
+   Older supplemental copies may exist as root-only, SHA-256-sidecar archives in
+   `/home/micu/backups/nvidia_release_archive`; verify both the sidecar and tar
+   member paths/types in isolated staging before considering one for recovery.
 3. Watch authentication, request/token reservations, unmetered provider calls,
    contractual/GPU spend, error rates, and database changes at elevated
    sensitivity for at least 24 hours.

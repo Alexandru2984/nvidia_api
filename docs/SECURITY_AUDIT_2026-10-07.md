@@ -547,11 +547,12 @@ production-entitlement decisions, and provide export/deletion status.
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
    claim lock are deployed.
-4. Produce and retain wheel provenance/SBOM evidence, add bounded release
-   retention, and tabletop both backend rollback paths. Application code and the
-   minimal runtime Python environment already use separate root-owned,
-   manifest-verified atomic releases with automatic rollback, and production
-   wheels are SHA-256 locked.
+4. Produce and retain wheel provenance/SBOM evidence and tabletop both backend
+   rollback paths. Application code and the minimal runtime Python environment
+   already use separate root-owned, manifest-verified atomic releases with
+   automatic rollback, production wheels are SHA-256 locked, and each executable
+   root is bounded to the active plus two inactive rollbacks. Define an encrypted
+   off-site/expiry lifecycle for supplemental retired-release archives.
 5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`.
 6. CI Actions are pinned to reviewed full commit SHAs and Python production

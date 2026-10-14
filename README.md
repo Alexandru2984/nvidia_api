@@ -294,9 +294,10 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
-  integrity, all three active root-owned release manifests, and backup/restore freshness
-  every five minutes. It uses the host's existing Telegram channel, keeps cooldown
-  state under `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
+  integrity, all three active root-owned release manifests, executable-release
+  retention, and backup/restore freshness every five minutes. It uses the host's
+  existing Telegram channel, keeps cooldown state under
+  `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 
 Deploy steps after a code change:
 
@@ -368,6 +369,22 @@ the backend, restoring the prior environment on failure. Use
 `sudo scripts/deploy_python_env.sh --bootstrap` only for the first environment.
 CI validates lockfile structure, and the five-minute monitor validates the active
 release manifest.
+
+Every successful deploy keeps the active release and the two newest inactive
+rollback targets in its executable release root. Older releases and any converted
+legacy frontend tree are frozen to root ownership, archived below the private
+`/home/micu/backups/nvidia_release_archive`, gzip- and SHA-256-verified, and only
+then removed from the executable root. The retention tool is dry-run by default:
+
+```bash
+python3 scripts/archive_release_retention.py --family all
+sudo scripts/archive_release_retention.py --apply --family all
+```
+
+It fails closed on symlinks, special files, unknown root entries, unsafe ownership
+or size/file-count limits, and never selects the active target or the newest two
+rollback releases. Archived releases are supplemental recovery material; define
+an encrypted off-site lifecycle before treating them as durable backups.
 
 Conversation search uses PostgreSQL's trusted `pg_trgm` extension. Install it
 once as the database administrator before migration `0017`; do not grant the

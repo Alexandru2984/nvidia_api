@@ -72,14 +72,14 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | File signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Add malware scanning/quarantine if uploads become public-facing |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, all three active release manifests, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and malware/contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; add malware quarantine before public uploads and retain ownership/cache/XSS regressions |
 | A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability, while transient outcomes retain the last trusted decision and emit a degraded-probe alert. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
-| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases, atomically switch trusted symlinks, hide checkout source/venv from the service, and restore prior targets on failed probes | Bound retained releases, retain SBOM/provenance evidence, and execute a planned rollback exercise |
+| A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, and bound executable roots to the active plus two rollbacks | Retain SBOM/provenance evidence, define the supplemental-archive lifecycle, and execute a planned rollback exercise |
 
 ## Quantitative risk view
 
@@ -857,6 +857,37 @@ is required before describing those controls as complete.
   plus retained SBOM and provenance attestations. Pinning prevents a tag from
   silently moving; it does not establish that a newly reviewed commit or wheel
   was built through a trustworthy upstream chain.
+
+### Bounded immutable-release retention rollout — 2026-10-14
+
+- Repository state `08979f928242b955b8b0254630a211fea02b8b23` added one
+  fail-closed retention path shared by frontend, backend application and Python
+  environment deploys. Each executable root keeps its active release plus the
+  two newest inactive rollback targets. Active selection is resolved and checked
+  beneath the expected root; symlinks, special files, unknown entries, unsafe
+  ownership/modes and family-specific file/byte overruns abort processing.
+- Retirement is recoverable: a candidate is first removed from the executable
+  namespace, frozen to root ownership, archived in a private `0700` hierarchy,
+  validated for safe member paths/types and family bounds, written as `0600`,
+  SHA-256-verified and fsynced before its source tree is removed. The tool is
+  dry-run by default, requires root for `--apply`, never allows fewer than one
+  rollback, and deploys explicitly preserve two.
+- Production retained the active frontend
+  `/var/www/aichat-releases/release-20261013T204054_055053842` plus releases
+  `release-20261013T160109_983111340` and
+  `release-20261013T104046_858573441`. Six older frontend releases and the
+  group-writable legacy webroot were converted into seven root-only archives
+  below `/home/micu/backups/nvidia_release_archive/frontend`; every gzip stream
+  and SHA-256 sidecar passed independent verification. Backend and Python each
+  already had only the active and one rollback, so nothing there was retired.
+- All 433 backend, 19 monitor and six retention tests passed with ShellCheck,
+  Bash syntax, Action-pin and requirement-lock gates. The installed monitor now
+  rejects more than three executable entries or an unknown/stale staging entry
+  and returned no findings after rollout. Active symlink targets did not change;
+  the backend stayed active with zero automatic restarts and no warning-or-higher
+  rollout journal entries. Origin/public 200, private/config 403 and media 404
+  probes passed. Supplemental archives still need an encrypted off-site and
+  expiry/storage lifecycle; they are not claimed as durable backups.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
