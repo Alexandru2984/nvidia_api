@@ -176,6 +176,19 @@ class SecurityMonitorTests(unittest.TestCase):
         finally:
             server.close()
 
+    def test_forbidden_backend_tcp_alerts_only_when_reachable(self):
+        client = mock.MagicMock()
+        client.__enter__.return_value = client
+        client.connect_ex.return_value = 111
+        with mock.patch.object(monitor.socket, 'socket', return_value=client):
+            self.assertEqual(monitor.evaluate_forbidden_backend_tcp(), {})
+        client.connect_ex.return_value = 0
+        with mock.patch.object(monitor.socket, 'socket', return_value=client):
+            self.assertIn(
+                'backend_tcp_origin',
+                monitor.evaluate_forbidden_backend_tcp(),
+            )
+
     def test_document_parser_socket_requires_exact_private_health_response(self):
         socket_path = self.root / 'parser.sock'
         socket_path.touch(mode=0o660)

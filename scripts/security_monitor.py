@@ -395,6 +395,21 @@ def evaluate_backend_origin_socket(socket_path, *, expected_uid, expected_gid):
         return issue
 
 
+def evaluate_forbidden_backend_tcp(host='127.0.0.1', port=8501, timeout_seconds=1):
+    """Alert if the retired direct backend TCP origin becomes reachable."""
+    issue = {
+        'backend_tcp_origin': (
+            'The retired direct backend TCP origin is listening again.'
+        ),
+    }
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+            client.settimeout(timeout_seconds)
+            return issue if client.connect_ex((host, port)) == 0 else {}
+    except (OSError, ValueError):
+        return issue
+
+
 def evaluate_document_parser_installation(
     backend_live,
     service_path,
@@ -472,6 +487,7 @@ def evaluate(
     backend_socket=None,
     backend_socket_expected_uid=0,
     backend_socket_expected_gid=0,
+    forbidden_backend_tcp=None,
     python_environment_live=None,
     python_environment_release_root=None,
     python_environment_expected_uid=0,
@@ -517,6 +533,8 @@ def evaluate(
             expected_uid=backend_socket_expected_uid,
             expected_gid=backend_socket_expected_gid,
         ))
+    if forbidden_backend_tcp is not None:
+        issues.update(evaluate_forbidden_backend_tcp(*forbidden_backend_tcp))
 
     if frontend_live is not None or frontend_release_root is not None:
         if frontend_live is None or frontend_release_root is None:
@@ -817,6 +835,7 @@ def main():
     parser.add_argument('--backend-live', default='/opt/aichat-backend-current')
     parser.add_argument('--backend-release-root', default='/opt/aichat-backend-releases')
     parser.add_argument('--backend-socket', default='/run/aichat-backend/gunicorn.sock')
+    parser.add_argument('--forbidden-backend-port', type=int, default=8501)
     parser.add_argument('--python-environment-live', default='/opt/aichat-python-current')
     parser.add_argument('--python-environment-release-root', default='/opt/aichat-python-envs')
     parser.add_argument('--scanner-database-dir', default='/var/lib/clamav')
@@ -857,6 +876,7 @@ def main():
             backend_socket=args.backend_socket,
             backend_socket_expected_uid=pwd.getpwnam('aichat').pw_uid,
             backend_socket_expected_gid=grp.getgrnam('aichat-origin').gr_gid,
+            forbidden_backend_tcp=('127.0.0.1', args.forbidden_backend_port),
             python_environment_live=args.python_environment_live,
             python_environment_release_root=args.python_environment_release_root,
             scanner_database_dir=args.scanner_database_dir,

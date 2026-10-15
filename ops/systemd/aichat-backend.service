@@ -13,10 +13,7 @@ RuntimeDirectory=aichat-backend
 RuntimeDirectoryMode=0750
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend
-# The loopback bind exists only for the first half of the coordinated migration.
-# nginx switches to the permissioned Unix socket before the follow-up commit
-# removes TCP entirely.
-ExecStart=/opt/aichat-python-current/bin/python -m gunicorn nvidia_chat.wsgi:application --bind 127.0.0.1:8501 --bind unix:/run/aichat-backend/gunicorn.sock --forwarded-allow-ips=* --worker-class gthread --workers 3 --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile - --error-logfile -
+ExecStart=/opt/aichat-python-current/bin/python -m gunicorn nvidia_chat.wsgi:application --bind unix:/run/aichat-backend/gunicorn.sock --forwarded-allow-ips=* --worker-class gthread --workers 3 --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile - --error-logfile -
 ExecStartPost=/opt/aichat-python-current/bin/python -m chat.prepare_origin_socket
 Restart=always
 RestartSec=5
