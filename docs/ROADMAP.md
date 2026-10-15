@@ -35,8 +35,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   overruns, invalid-invite bursts, invitation consumption, verified
   registrations, privileged admin changes, admin-audit integrity failures,
   backend error bursts, backup/restore freshness, malware detections, local
-  scanner outages and ClamAV-signature freshness. Add parser/contract-spend
-  correlation and an external log sink without logging prompts,
+  scanner outages and ClamAV-signature freshness, isolated-parser health and
+  parser/upload failure correlation. Add contract-spend correlation and an
+  external log sink without logging prompts,
   cookies, OTPs, filenames, raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;
   schedule and monitor it. Encrypt backups with a separately held key, keep a
@@ -84,8 +85,10 @@ timed evidence.
   across workers without deleting an older deduplicated file. Upload bytes and
   generated NVIDIA images are now scanned by a local, permissioned ClamAV
   `INSTREAM` service before parsing, deduplication or storage; ambiguous verdicts,
-  stale signatures and daemon failures fail closed and alert. Move large-document
-  processing to the background before raising upload or parser limits.
+  stale signatures and daemon failures fail closed and alert. PDF/DOCX extraction
+  is serialized behind a bounded Unix protocol in a secret-blind, network-denied
+  `aichat-parser` systemd sandbox. Move large-document processing to the background
+  before raising upload or parser limits.
 - **Conversation generation integrity is shipped:** a token-owned PostgreSQL
   lease serializes send/regenerate across workers, returns a bounded retry hint,
   heartbeats long streams, safely reclaims crashes, and blocks branch edits or
@@ -169,9 +172,10 @@ owner-scoped and auditable.
   response state.
 - Add OpenTelemetry metrics/traces with redaction, SLOs for request success and
   first-token latency, and capacity dashboards.
-- Isolate document parsers in a separate identity/container or microVM and add a
-  recoverable evidence-quarantine workflow for confirmed incidents; local
-  fail-closed malware scanning is shipped.
+- The separate-identity, no-network, aggregate-bounded document parser and local
+  fail-closed malware scanning are shipped. Consider a microVM only if future
+  volume/risk warrants it; add a recoverable evidence-quarantine workflow for
+  confirmed incidents without retaining rejected content by default.
 - PWA shell and offline drafts without caching authenticated API responses or
   attachment bodies.
 - WCAG 2.2 AA audit with assistive-technology testing and performance budgets for

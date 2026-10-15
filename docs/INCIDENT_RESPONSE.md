@@ -27,6 +27,8 @@ invitations/6 minutes, any invitation consumption or verified new account,
 5 incompatible attachment/model rejections/6 minutes, 3 backend errors/6 minutes,
 any attachment malware detection, any request blocked because the scanner was
 unavailable, any failed scanner health check or ClamAV database older than 30 hours,
+any request blocked because the isolated parser was unavailable, any parser
+failure or failed parser-socket health check,
 any invalid runtime model-status file, any degraded scheduled model probe, any
 provider authorization/entitlement probe failure, a database backup older than
 30 hours, a restore drill older than eight days, or any frontend/backend/Python-
@@ -40,7 +42,10 @@ environment release manifest, ownership or permission failure.
 - Block confirmed hostile indicators at the closest trusted edge, but preserve
   the evidence that justified the block.
 - For upload/parser compromise, stop the backend, quarantine the file without
-  opening it on a workstation, and inspect the service account's reachable files.
+  opening it on a workstation, stop `aichat-document-parser`, preserve its
+  privacy-minimized journal and inspect the `aichat-parser` sandbox boundaries.
+  Treat access to application secrets or network activity as evidence that the
+  isolation boundary failed and escalate to host compromise.
 - For a malware-rejection alert, remember that the rejected bytes were not stored:
   preserve the privacy-minimized event/time, verify scanner readiness and current
   signatures, correlate only within approved local logs, and ask the owner for the
@@ -102,6 +107,11 @@ for evidence validation.
    of `/media/` before reopening traffic.
    Run `manage.py check_attachment_scanner` as `aichat` and require PING, benign
    CLEAN and EICAR FOUND verdicts before reopening attachment or image paths.
+   Run `manage.py check_document_parser` as `aichat` and require the real DOCX
+   marker to be extracted through the production Unix socket before reopening
+   PDF/DOCX uploads. Confirm the parser service and backend both have zero
+   unexpected restarts and that the socket remains `0660 aichat-parser` below a
+   `0750 aichat-parser` runtime directory.
    Restore application code through the retained `/opt/aichat-backend-releases`
    target or rerun the committed deploy script; never copy repaired Python files
    into the active release. Restore dependencies only through a retained

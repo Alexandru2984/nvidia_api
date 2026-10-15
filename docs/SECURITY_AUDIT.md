@@ -28,7 +28,8 @@ session-identifier disclosure weaknesses. Dependency scans found known advisorie
 in both Python and Node development dependencies.
 
 The repository now contains ownership-checked attachment downloads, signature and
-archive validation, resource-bounded document parsing in a child process, atomic
+archive validation, serialized resource-bounded document parsing in a dedicated
+credential-free/network-denied service identity, atomic
 rate counters, stronger authentication/recovery transactions, cleaned session
 handles, updated dependencies, model payload budgets, sanitized upstream errors,
 responsive browser coverage, and hardened nginx/systemd templates. Runtime
@@ -62,17 +63,17 @@ upstream responses are now logged server-side while clients receive generic text
 | ID | Severity | Finding | Repository control | Residual action |
 |---|---|---|---|---|
 | A-01 | Critical | `/media/` could bypass object ownership | Authenticated download endpoint and deployed nginx denial | Keep the external `/media/*` 404 regression probe in every rollout |
-| A-02 | High | PDF/DOCX handled in the request process | Magic-byte checks, ZIP limits, subprocess timeout and OS resource limits | Move parsing to a dedicated worker/container before higher-volume use |
+| A-02 | High | PDF/DOCX handled in the request process | Deployed sequential Unix-socket parser under dedicated `aichat-parser`; no app secrets/network/capabilities; strict protocol plus child/cgroup time, CPU, memory, file, descriptor and task limits; outage fails closed | Keep limits low; move large asynchronous jobs to a durable queue before raising the 10 MB boundary |
 | A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, separate root-owned application/dependency releases, narrowly bound runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials during a controlled rotation |
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
 | A-06 | High | Raw session keys were returned to the browser and long-lived stolen sessions could invoke session controls without fresh proof | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry/account caps; five-minute user/session/password-bound recent authentication with required 2FA and responsive step-up before revocation | Rotate sessions after any suspected historic disclosure; retain recent-auth and expiry regressions |
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels with a release-embedded CycloneDX SBOM, full-commit-SHA CI Actions, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain signed provenance evidence |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
-| A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current and isolate parsers before public uploads |
+| A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and parser/contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days | Add Cloudflare Access/VPN, minimize superusers, and retain security events externally |
@@ -104,7 +105,9 @@ global NVIDIA budget exhaustion. Five incompatible attachment/model rejections i
 six minutes, any invalid runtime model-status file and any degraded scheduled
 model probe use the same alert path. Any malware detection or scanner outage,
 proactive scanner health failure, or ClamAV daily-signature age over 30 hours also
-alerts without forwarding content or filenames.
+alerts without forwarding content or filenames. Parser socket failure, any
+fail-closed parser request and privacy-minimized worker failures also alert; no
+document bytes, extracted text, filename or owner metadata enters those events.
 External log retention and contractual/GPU-spend signals remain open. Target
 containment time is 60 minutes after a confirmed high-severity alert.
 
@@ -1134,9 +1137,44 @@ is required before describing those controls as complete.
   permissions plus any malware rejection or fail-closed request. Its installed
   executable matches the repository at SHA-256
   `c34be19f34356b6256dadfb3b07d76c11ce520f421d9d5393fa03b400a1e01ab`;
-  the first post-rollout run exited successfully with no active issue. This does
-  not close the remaining parser identity/network isolation work or prove that
-  signature scanning detects novel malicious documents.
+  the first post-rollout run exited successfully with no active issue. Signature
+  scanning still cannot prove that novel malicious documents are harmless.
+
+### Isolated document-parser rollout — 2026-10-15
+
+- Repository state `36b193f79cea7719c681f658b089b419fc641cd3` removes
+  PDF/DOCX library execution from the web identity and its 24 request threads.
+  The web process sends only protocol version, document type, byte length,
+  character cap and bounded bytes over a permissioned Unix socket; filenames,
+  owners, prompts and credentials are not sent. Exact framed replies are required
+  and timeout, truncation, invalid UTF-8, unknown status or trailing data fails
+  closed with a generic retryable `503` before storage.
+- Parsing is sequential under the non-login `aichat-parser` identity. The
+  `aichat-document-parser` systemd sandbox has `PrivateNetwork=yes`, only
+  `AF_UNIX`, an empty capability set, `ProtectHome=tmpfs`, read-only system paths,
+  private devices/tmp, one-core quota, eight-task ceiling, 640/768 MiB memory
+  high/max bounds and no core dumps. The child additionally has 512 MiB address
+  space, six-second CPU, eight-second wall, 256 KiB output-file and 32-descriptor
+  limits. The identity was verified unable to read the runtime `.env`; the unit
+  scored `2.1 OK` and remained at `NRestarts=0`.
+- All 482 backend and 43 operations tests passed. Focused protocol/upload tests,
+  Python compilation, Django checks, migration-drift checks, ShellCheck and
+  systemd unit/security validation passed. The deploy preflight and manual
+  readiness command extracted a marker from a real DOCX through the production
+  socket. No schema or frontend change was required.
+- Production activated
+  `/opt/aichat-backend-releases/release-20261015T125858_317189238`; immediate
+  rollback `/opt/aichat-backend-releases/release-20261015T125838_969924808` uses
+  the same parser-enforcing commit and both manifests verify. Backend, parser,
+  scanner and signature updater are active with `NRestarts=0`. Public/origin
+  health returned `200`, anonymous upload returned `403`, and arbitrary media
+  returned `404`.
+- The monitor now probes the exact parser health frame and correlates parser
+  worker failures plus fail-closed upload events without forwarding content,
+  extracted text or filenames. The installed executable matches repository
+  SHA-256 `ab12d12fe5e5b26fc39da3f943753afff9293e81f64db208d49ffa4270f3be4c`;
+  its post-rollout run succeeded with no active issue. Large asynchronous
+  documents and evidence quarantine remain future work before any limit increase.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

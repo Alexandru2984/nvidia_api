@@ -155,6 +155,13 @@ secret values are reproduced here.
   address family or capabilities, scored `2.1 OK` under `systemd-analyze security`,
   and uses bounded official signatures. Parser identity/network isolation remains
   open, so the finding stays High.
+- 2026-10-15: S-06 parser isolation was remediated in commit `36b193f` and
+  production. PDF/DOCX extraction is serialized by a dedicated `aichat-parser`
+  identity over a bounded Unix protocol. The service has no app secrets, home or
+  network address family, has no capabilities, and enforces child plus aggregate
+  CPU/memory/time/task bounds. Parser outage and protocol ambiguity fail closed
+  before storage and are monitored. Novel parser defects remain possible, but
+  their credential/network/aggregate-concurrency blast radius is now bounded.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -274,7 +281,7 @@ Remediation: require password re-entry and a short-lived recent-auth marker for
 2FA before granting staff; place `/admin/` behind Cloudflare Access or a VPN; and
 enroll the current staff account from a trusted device after deploying the fix.
 
-### S-06 — High — document-parser compromise still reaches app secrets/network
+### S-06 — Remediated — document-parser compromise reached app secrets/network
 
 Evidence: PDF/DOCX parsing is correctly moved into a child with time, CPU, file,
 descriptor and 512 MiB address-space limits, and its environment is scrubbed.
@@ -291,14 +298,24 @@ secrets, no network, a read-only single input, a write-only bounded result, tota
 concurrency/memory limits, quarantine, malware scanning, and explicit parser
 timeouts.
 
-Status: partially mitigated on 2026-10-15. Uploads are streamed to a local,
+Initial status: partially mitigated on 2026-10-15. Uploads are streamed to a local,
 permissioned ClamAV `INSTREAM` socket before signature inspection, parser entry,
 deduplication or storage; generated provider images are scanned before storage.
 Only exact clean/infected verdicts are accepted, scanner failure is fail-closed,
 the upload rate is reduced, and health/signature age/detection/outage events are
 monitored. `clamd` has no internet address family, uses official signatures and
-bounded scan resources. Parser sandbox/identity/network isolation and aggregate
-parser concurrency remain open, so S-06 remains High.
+bounded scan resources.
+
+Final status: remediated on 2026-10-15 in `36b193f`. Complex PDF/DOCX parsing no
+longer runs under `aichat`: a versioned bounded Unix-socket protocol sends only
+type, length, character cap and bytes to a sequential `aichat-parser` service.
+The identity cannot read the runtime `.env`, has no network address family or
+capabilities, and runs with read-only system paths, hidden homes, private devices
+and tmp, a 768 MiB cgroup ceiling, one-core quota and eight-task ceiling. Its
+child retains 512 MiB address-space, CPU, output, descriptor and wall-time bounds.
+Service or protocol failure returns retryable `503` before storage; unreadable
+content returns `422`. The remaining risk is a parser defect contained inside
+this boundary, not direct credential/network access or 24-way parser fan-out.
 
 ### S-07 — High — host security updates and reboot are pending
 
@@ -559,11 +576,9 @@ production-entitlement decisions, and provide export/deletion status.
 
 ### P1 — next security wave
 
-1. Isolate document processing with no secrets/network and aggregate concurrency
-   limits.
-2. Replace loopback TCP/backend trust with permissioned/authenticated origin
+1. Replace loopback TCP/backend trust with permissioned/authenticated origin
    paths.
-3. Add recent-auth policy, request idempotency/durable job state, global/chat-byte
+2. Add recent-auth policy, request idempotency/durable job state, global/chat-byte
    quotas and linked-history retention. Absolute session deadlines, the indexed
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment

@@ -151,7 +151,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Atomically reserves both saved-message slots before proxying to NVIDIA. The effective model is validated before any override is saved; incompatible type, MIME, byte size, image count, storage quota, or output bound fails closed. |
 | GET | `/conversations/<id>/export/` | — | session | Owner-scoped Markdown stream; limited to 10/hour and rejected before streaming when its conservative estimate exceeds `CHAT_MAX_EXPORT_BYTES`. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
-| POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Bytes are streamed to the local ClamAV daemon before signature inspection, extraction, deduplication or storage; malware is rejected generically and scanner ambiguity/unavailability fails closed. Empty or image-only documents are rejected after bounded extraction. An identical pending upload for the same owner is reused with `deduplicated: true`. |
+| POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Bytes are streamed to local ClamAV before type inspection, extraction, deduplication or storage. PDF/DOCX extraction then runs serially under the credential-free, network-denied `aichat-parser` identity; scanner/parser ambiguity or outage fails closed. Empty or image-only documents are rejected. An identical pending upload for the same owner is reused with `deduplicated: true`. |
 | DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
 | GET | `/attachments/<id>/preview/` | — | session | Ownership-checked, 4,000-character extracted-text preview for documents; returned with private/no-store cache policy. |
 | GET | `/attachments/<id>/download/` | — | session | Ownership-checked private download, limited to 120/hour; never expose `MEDIA_ROOT` directly. |
@@ -315,7 +315,15 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   scanner limits are tighter than the application upload boundary, encrypted or
   limit-exceeding containers are rejected, and upload/image paths fail closed on
   timeout, malformed verdict or daemon failure. This reduces known-malware risk;
-  it does not replace the separate parser-isolation requirement.
+  it does not prove that a novel malicious document is harmless.
+- **Isolated document parsing** — PDF/DOCX bytes cross a versioned, bounded local
+  Unix-socket protocol with no filename, owner or prompt metadata. A sequential
+  `aichat-document-parser` service starts a resource-limited child under the
+  non-login `aichat-parser` identity. Its systemd sandbox hides home/secrets,
+  denies network address families and capabilities, keeps the filesystem
+  read-only except for private runtime/tmp paths, and caps aggregate memory,
+  CPU and tasks. Invalid documents are never stored; service/protocol failure is
+  a retryable fail-closed response.
 - **Scheduled jobs**: application jobs run as `aichat` through the sandboxed
   `aichat-maintenance.timer` and `aichat-model-probe.timer`. Host-level backup
   jobs remain in the administrator's cron:
@@ -330,7 +338,8 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
   integrity, all three active root-owned release manifests, executable-release
   retention, backup/restore freshness, ClamAV health/signature freshness, scanner
-  failures and malware rejections every five minutes. It uses the host's
+  failures, malware rejections, parser socket health and parser failures every
+  five minutes. It uses the host's
   existing Telegram channel, keeps cooldown state under
   `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 
@@ -343,12 +352,18 @@ sudo scripts/install_attachment_scanner.sh
 sudo -u aichat env --chdir=/home/micu/nvidia/backend \
   /home/micu/nvidia/backend/venv/bin/python manage.py check_attachment_scanner
 
+# One-time isolated PDF/DOCX parser prerequisite
+sudo scripts/install_document_parser.sh
+
 # Backend application code (deploys committed HEAD only)
 cd /home/micu/nvidia
 git status --short
 sudo -u aichat env AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend \
   /opt/aichat-python-current/bin/python backend/manage.py migrate
 sudo scripts/deploy_backend.sh
+sudo runuser --user aichat -- env --chdir=/opt/aichat-backend-current \
+  AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend PYTHONDONTWRITEBYTECODE=1 \
+  /opt/aichat-python-current/bin/python manage.py check_document_parser
 
 # Only when requirements.txt and its validated requirements.lock change;
 # versions must remain compatible with the currently active application until
@@ -390,7 +405,8 @@ The backend deploy script archives only tracked files from committed `HEAD`,
 rejects dirty tracked changes, symlinks, special files, secrets and mutable-state
 directories, and stages a root-owned `0755`/`0644` release below
 `/opt/aichat-backend-releases`. It verifies the manifest, runs Django and migration
-preflights as `aichat`, atomically switches `/opt/aichat-backend-current`, installs
+preflights as `aichat` (including real scanner and isolated-parser readiness),
+atomically switches `/opt/aichat-backend-current`, installs
 the committed systemd templates, restarts, checks the process working directory
 and public/private boundaries, and restores both code and unit files on failure.
 Use `sudo scripts/deploy_backend.sh --bootstrap` only for the first conversion.
