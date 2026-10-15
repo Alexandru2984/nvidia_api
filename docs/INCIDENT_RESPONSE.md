@@ -28,7 +28,7 @@ invitations/6 minutes, any invitation consumption or verified new account,
 any attachment malware detection, any request blocked because the scanner was
 unavailable, any failed scanner health check or ClamAV database older than 30 hours,
 any request blocked because the isolated parser was unavailable, any parser
-failure or failed parser-socket health check,
+failure, failed parser-socket health check or installed-parser integrity mismatch,
 any invalid runtime model-status file, any degraded scheduled model probe, any
 provider authorization/entitlement probe failure, a database backup older than
 30 hours, a restore drill older than eight days, or any frontend/backend/Python-

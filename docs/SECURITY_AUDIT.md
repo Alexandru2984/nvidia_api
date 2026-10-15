@@ -1171,10 +1171,13 @@ is required before describing those controls as complete.
   returned `404`.
 - The monitor now probes the exact parser health frame and correlates parser
   worker failures plus fail-closed upload events without forwarding content,
-  extracted text or filenames. The installed executable matches repository
-  SHA-256 `ab12d12fe5e5b26fc39da3f943753afff9293e81f64db208d49ffa4270f3be4c`;
-  its post-rollout run succeeded with no active issue. Large asynchronous
-  documents and evidence quarantine remain future work before any limit increase.
+  extracted text or filenames. Follow-up state `75d3932f8febb27c49f6a468232a02fabb2e5647`
+  also compares the installed service and worker's content, ownership and exact
+  modes with their copies inside the active manifest-verified backend release;
+  46 operations tests pass. The installed monitor matches repository SHA-256
+  `861a4892c3c819a94b0e70fc390a6ab5ac72e7d75b0d017ec5119f0e17c4c2b0`, and
+  its post-update run succeeded with no active issue. Large asynchronous documents
+  and evidence quarantine remain future work before any limit increase.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

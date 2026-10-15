@@ -36,7 +36,8 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   registrations, privileged admin changes, admin-audit integrity failures,
   backend error bursts, backup/restore freshness, malware detections, local
   scanner outages and ClamAV-signature freshness, isolated-parser health and
-  parser/upload failure correlation. Add contract-spend correlation and an
+  parser/upload failure correlation, including installed parser drift from the
+  manifest-verified backend release. Add contract-spend correlation and an
   external log sink without logging prompts,
   cookies, OTPs, filenames, raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;
