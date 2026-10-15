@@ -1218,6 +1218,45 @@ is required before describing those controls as complete.
   `e44b33315fe0ad64bf54cae38c05da9c5ad436f0bc72396b998baaddcd699e34`;
   its post-rollout state had no active issue.
 
+### Versioned two-factor key rollout — 2026-10-15
+
+- Repository state `84cd788a55f4a8e22877714912ad2fbd61761abd` removes
+  TOTP, recovery-code and enrollment-fingerprint dependence on Django's signing
+  key. A separately generated 32-byte root key is purpose-separated for Fernet
+  encryption and HMAC use; every stored artifact records an allowlisted version
+  and key ID. The keyring is bounded to eight canonical base64url keys and
+  malformed JSON, duplicate/invalid identifiers, unknown keys, invalid base32,
+  bad recovery digests and corrupt ciphertext all fail closed.
+- Production contained zero `TwoFactor` rows and zero recovery artifacts before
+  rollout, so the independently generated `prod-2026-10` key was activated with
+  legacy `SECRET_KEY` compatibility disabled and no account migration or forced
+  re-enrollment. The read-only production audit passes with zero invalid or
+  inactive artifacts. Future TOTP secrets can be rewrapped transactionally by
+  management command or lazily after a successful use; old recovery hashes keep
+  their recorded key dependency until consumed or regenerated, preventing unsafe
+  early key removal.
+- The atomic keyring configurator preserves unrelated dotenv values and never
+  prints key material. Its first pre-deploy execution exposed that an
+  unprivileged atomic replacement could preserve mode but not the service group;
+  the verification gate caught this before restart while the live backend stayed
+  healthy at zero restarts. Ownership was restored to `0640 micu:aichat`, and the
+  helper now preserves UID/GID exactly or aborts, which requires `sudo` on this
+  host and is regression-tested.
+- All 512 backend tests and 50 focused operations tests passed, together with
+  Django checks, ShellCheck, immutable Actions validation and the exact runtime
+  requirements check. Production activated
+  `/opt/aichat-backend-releases/release-20261015T183607_732311747`; immediate
+  rollback `/opt/aichat-backend-releases/release-20261015T131413_413201885` was
+  retained and both manifests verify. Backend and isolated parser are active at
+  `NRestarts=0`, and the live gunicorn process uses the active release.
+- The five-minute monitor now alerts on any privacy-minimized
+  `two_factor_key_error`. Its installed root-owned executable matches repository
+  SHA-256 `0e25b77aab25c66bc41f04c5ee37db2056bdc14b4328745143b7155a6731024a`;
+  the post-rollout run exited successfully with no active issue. Public and
+  origin health returned `200`, anonymous models and `/.env` returned `403`,
+  arbitrary media returned `404`, and no warning-or-higher service event appeared
+  after activation.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
