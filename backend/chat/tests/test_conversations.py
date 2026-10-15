@@ -487,7 +487,10 @@ class TestNvidiaStreamParser:
         assert 'provider detail' not in repr(events)
 
     @patch('chat.views.requests.post')
-    def test_rejects_oversized_stream_line_before_json_parsing(self, mock_post):
+    def test_rejects_oversized_stream_line_before_json_parsing(
+        self, mock_post, caplog,
+    ):
+        caplog.set_level('WARNING', logger='security')
         response = MagicMock(status_code=200)
         response.headers = {'Content-Type': 'text/event-stream'}
         response.iter_content.return_value = [b'data: ' + b'x' * (SSE_MAX_LINE_BYTES + 1)]
@@ -496,6 +499,21 @@ class TestNvidiaStreamParser:
         events = list(_stream_nvidia('test/model', []))
 
         assert events == [('error', 'NVIDIA API returned an invalid stream. Try again later.')]
+        assert 'event=provider_protocol_rejected kind=chat reason=bounds_or_shape' in caplog.text
+
+    @patch('chat.views.requests.post')
+    def test_provider_redirect_is_not_followed_and_is_security_logged(
+        self, mock_post, caplog,
+    ):
+        caplog.set_level('WARNING', logger='security')
+        response = MagicMock(status_code=307)
+        response.headers = {'Location': 'https://attacker.invalid/'}
+        mock_post.return_value.__enter__.return_value = response
+
+        events = list(_stream_nvidia('test/model', []))
+
+        assert events == [('error', 'NVIDIA API returned an invalid stream. Try again later.')]
+        assert 'event=provider_protocol_rejected kind=chat reason=redirect' in caplog.text
 
     @pytest.mark.parametrize('event', [
         {'choices': {'delta': {'content': 'wrong container'}}},

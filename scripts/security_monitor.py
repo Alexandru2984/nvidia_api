@@ -580,6 +580,7 @@ def evaluate(
     scanner_unavailable = journal.count('event=attachment_scanner_unavailable')
     parser_unavailable = journal.count('event=attachment_parser_unavailable')
     parser_failures = journal.count('event=document_parser_failure')
+    provider_protocol_rejections = journal.count('event=provider_protocol_rejected')
     model_status_invalid = journal.count('event=model_status_invalid')
     model_probe_degraded = journal.count('event=model_probe_degraded')
     model_probe_authorization = journal.count('event=model_probe_authorization_failed')
@@ -647,6 +648,11 @@ def evaluate(
     if parser_failures:
         issues['document_parser_failure'] = (
             f'{parser_failures} isolated document-parser failures were detected in six minutes.'
+        )
+    if provider_protocol_rejections:
+        issues['provider_protocol_rejected'] = (
+            f'{provider_protocol_rejections} malformed or redirected provider responses '
+            'were rejected in six minutes.'
         )
     if model_status_invalid:
         issues['model_status_invalid'] = 'The runtime model-status file failed validation.'

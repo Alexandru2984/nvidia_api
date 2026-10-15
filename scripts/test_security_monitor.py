@@ -56,6 +56,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=attachment_scanner_unavailable source=image user_id=4']
             + ['event=attachment_parser_unavailable user_id=4']
             + ['event=document_parser_failure type=pdf reason=timeout']
+            + ['event=provider_protocol_rejected kind=chat reason=bounds_or_shape']
             + ['event=model_status_invalid reason=schema']
             + ['event=model_probe_degraded inconclusive=2']
             + ['event=model_probe_authorization_failed count=2']
@@ -72,6 +73,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'attachment_capability_burst',
              'attachment_malware', 'attachment_scanner_unavailable',
              'attachment_parser_unavailable', 'document_parser_failure',
+             'provider_protocol_rejected',
              'model_status_invalid',
              'model_probe_degraded',
              'model_probe_authorization',

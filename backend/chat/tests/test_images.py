@@ -145,10 +145,14 @@ class TestGenerateImage:
         assert not Attachment.objects.exists()
 
     @mock.patch('chat.views.requests.post')
-    def test_invalid_poll_identifier_is_rejected(self, m_post, auth_client):
+    def test_invalid_poll_identifier_is_rejected(
+        self, m_post, auth_client, caplog,
+    ):
+        caplog.set_level('WARNING', logger='security')
         m_post.return_value = _resp(202, headers={'NVCF-REQID': '../admin'})
         r = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
         assert r.status_code == 502
+        assert 'event=provider_protocol_rejected kind=image reason=poll_identifier' in caplog.text
 
     @mock.patch('chat.views.requests.post')
     def test_oversized_provider_json_is_rejected_without_reading_body(

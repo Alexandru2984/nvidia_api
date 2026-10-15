@@ -1775,9 +1775,18 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                 yield ('usage', {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0})
                 yield ('error', f'NVIDIA API error ({resp.status_code}). Try again later.')
                 return
+            if 300 <= resp.status_code < 400:
+                security_log.warning(
+                    'event=provider_protocol_rejected kind=chat reason=redirect',
+                )
+                yield ('error', 'NVIDIA API returned an invalid stream. Try again later.')
+                return
             content_type = resp.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
             if content_type != 'text/event-stream':
                 log.warning('NVIDIA chat API returned an invalid streaming content type')
+                security_log.warning(
+                    'event=provider_protocol_rejected kind=chat reason=content_type',
+                )
                 yield ('error', 'NVIDIA API returned an invalid stream. Try again later.')
                 return
             saw_done = False
@@ -1819,9 +1828,15 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                         yield ('usage', usage)
             if not saw_done:
                 log.warning('NVIDIA chat API stream ended without a completion marker')
+                security_log.warning(
+                    'event=provider_protocol_rejected kind=chat reason=incomplete',
+                )
                 yield ('error', 'NVIDIA API stream ended unexpectedly. Try again later.')
     except ProviderStreamError:
         log.warning('NVIDIA chat API stream exceeded bounds or violated framing')
+        security_log.warning(
+            'event=provider_protocol_rejected kind=chat reason=bounds_or_shape',
+        )
         yield ('error', 'NVIDIA API returned an invalid stream. Try again later.')
     except requests.RequestException:
         log.warning('NVIDIA chat API request failed', exc_info=True)
@@ -2976,8 +2991,15 @@ def _nvcf_generate(url, payload):
         )
         while resp.status_code == 202:
             reqid = resp.headers.get('NVCF-REQID')
-            if not reqid or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', reqid) or time.monotonic() > deadline:
-                log.warning('NVIDIA genai polling gave up (reqid=%s)', reqid)
+            if not reqid or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', reqid):
+                log.warning('NVIDIA genai polling returned an invalid identifier')
+                security_log.warning(
+                    'event=provider_protocol_rejected kind=image reason=poll_identifier',
+                )
+                resp.close()
+                return None, unavailable
+            if time.monotonic() > deadline:
+                log.warning('NVIDIA genai polling exceeded its deadline')
                 resp.close()
                 return None, unavailable
             resp.close()
@@ -3000,13 +3022,27 @@ def _nvcf_generate(url, payload):
         return None, unavailable
     if resp.status_code != 200:
         log.warning('NVIDIA genai returned HTTP %s', resp.status_code)
+        if 300 <= resp.status_code < 400:
+            security_log.warning(
+                'event=provider_protocol_rejected kind=image reason=redirect',
+            )
+        elif resp.status_code < 400:
+            security_log.warning(
+                'event=provider_protocol_rejected kind=image reason=terminal_status',
+            )
         resp.close()
         return None, Response({'error': f'NVIDIA image API error ({resp.status_code}). Try again later.'},
                               status=status.HTTP_502_BAD_GATEWAY)
     try:
-        return _bounded_provider_json(resp), None
+        data = _bounded_provider_json(resp)
+        if not isinstance(data, dict):
+            raise ValueError('provider response was not an object')
+        return data, None
     except (UnicodeError, ValueError, json.JSONDecodeError):
-        return None, Response({'error': 'NVIDIA image API returned a non-JSON response'},
+        security_log.warning(
+            'event=provider_protocol_rejected kind=image reason=bounds_or_shape',
+        )
+        return None, Response({'error': 'NVIDIA image API returned an invalid response'},
                               status=status.HTTP_502_BAD_GATEWAY)
     finally:
         resp.close()
