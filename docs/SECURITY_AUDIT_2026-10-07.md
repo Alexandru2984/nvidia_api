@@ -313,9 +313,15 @@ The identity cannot read the runtime `.env`, has no network address family or
 capabilities, and runs with read-only system paths, hidden homes, private devices
 and tmp, a 768 MiB cgroup ceiling, one-core quota and eight-task ceiling. Its
 child retains 512 MiB address-space, CPU, output, descriptor and wall-time bounds.
-Service or protocol failure returns retryable `503` before storage; unreadable
-content returns `422`. The remaining risk is a parser defect contained inside
-this boundary, not direct credential/network access or 24-way parser fan-out.
+  Service or protocol failure returns retryable `503` before storage; unreadable
+  content returns `422`. The remaining risk is a parser defect contained inside
+  this boundary, not direct credential/network access or 24-way parser fan-out.
+- 2026-10-15: S-09's direct backend bypass was remediated in commits `985f691`
+  and `e66697f`. Gunicorn no longer listens on TCP; nginx reaches a monitored
+  `0660 aichat:aichat-origin` Unix socket below a `0750` runtime directory, and
+  unrelated service identities are denied. Reintroduction of port 8501 alerts
+  within five minutes. Authentication of the separate cloudflared-to-nginx
+  client-IP trust path remains open, so S-09 is only partially closed.
 
 ### S-07 — High — host security updates and reboot are pending
 
@@ -360,6 +366,13 @@ removing passwordless sudo.
 Remediation: put gunicorn behind a permissioned Unix socket; prevent untrusted
 services from reaching the origin listener; authenticate/isolate the
 cloudflared-to-nginx path; and accept client-IP headers only on that path.
+
+Status: the direct gunicorn bypass is closed. The backend binds only a
+permissioned, shape-checked Unix socket whose group contains nginx but neither
+the interactive account nor unrelated service identities; the five-minute
+monitor validates its owner/group/mode and asserts that port 8501 remains closed.
+The local cloudflared-to-nginx trust and client-IP header boundary still requires
+independent authentication/isolation.
 
 ### S-10 — Medium — sensitive actions lack absolute-session/recent-auth policy
 
@@ -520,7 +533,7 @@ production-entitlement decisions, and provide export/deletion status.
 - Password reset/verification codes are keyed hashes with expiry, attempt limits,
   transactional consumption and anti-enumeration response bodies. Password resets
   revoke sessions and do not bypass enabled 2FA.
-- The backend runs as non-login `aichat`, binds only to loopback, has no Linux
+- The backend runs as non-login `aichat`, binds only to a permissioned Unix socket, has no Linux
   capabilities, and scores 2.9 `OK` in `systemd-analyze security`. Its PostgreSQL
   role is neither superuser nor role/database creator and lacks database CREATE.
 - UFW denies unsolicited inbound traffic except SSH and TURN; direct web-origin

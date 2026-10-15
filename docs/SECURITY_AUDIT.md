@@ -1257,6 +1257,35 @@ is required before describing those controls as complete.
   arbitrary media returned `404`, and no warning-or-higher service event appeared
   after activation.
 
+### Private backend-origin rollout — 2026-10-15
+
+- Transitional repository state `985f691cd44a6dbd9dcfd1f8eaa8ec2a28dece83`
+  created a dedicated `aichat-origin` group, a systemd-managed `0750
+  aichat:aichat-origin` runtime directory and a Gunicorn Unix socket whose startup
+  helper accepts only the expected real socket/UID/GID and enforces mode `0660`.
+  Nginx was granted only that one-purpose group; `micu` and an unrelated
+  `nobody` identity were confirmed absent/denied. A dual TCP/socket bind kept the
+  service recoverable only while nginx moved to the committed socket vhost.
+- Nginx configuration was retained privately at
+  `/home/micu/backups/nvidia_config/aichat.nginx.before-origin-socket.20261015T184345Z.conf`,
+  validated as root, reloaded and proven healthy before final state
+  `e66697f841cd5754b8fa0dfbe1c1c949be351c42` removed TCP. Nothing now listens on
+  `127.0.0.1:8501`; nginx and `www-data` receive health `200` through the socket,
+  while an unrelated identity cannot traverse/connect.
+- All 516 backend tests and 31 monitor tests passed, including unsafe directory,
+  regular-file/symlink substitution, exact socket mode and TCP-regression cases.
+  ShellCheck and systemd unit verification passed. The active backend release is
+  `/opt/aichat-backend-releases/release-20261015T184456_343664785`; the process
+  working directory and commit marker match, its manifest verifies, backend and
+  parser have `NRestarts=0`, and the backend sandbox remains `2.9 OK`.
+- The installed monitor matches repository SHA-256
+  `66f710b5e235902ac0d48bb31f4c34c12b440a0aa075857d33c05989ba315745`
+  and completed with no active issue. Root-run nginx validation passed. Public
+  and origin health returned `200`, anonymous models and `/.env` returned `403`,
+  arbitrary media returned `404`, and no warning-or-higher service journal event
+  appeared after final activation. The cloudflared-to-nginx trust path remains a
+  separate residual control.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

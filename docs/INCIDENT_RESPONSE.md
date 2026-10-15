@@ -114,6 +114,10 @@ key. Never enable legacy `SECRET_KEY` compatibility as an unreviewed workaround.
 2. Apply migrations/configuration, start the backend, validate nginx/systemd, and
    probe health, authentication, private downloads, CSRF, rate limits, and denial
    of `/media/` before reopening traffic.
+   Confirm `/run/aichat-backend` is `0750 aichat:aichat-origin`, its
+   `gunicorn.sock` is a real `0660` socket with the same ownership, nginx can
+   reach it, an unrelated service identity cannot, and nothing listens on the
+   retired TCP port `127.0.0.1:8501`.
    Run `manage.py check_attachment_scanner` as `aichat` and require PING, benign
    CLEAN and EICAR FOUND verdicts before reopening attachment or image paths.
    Run `manage.py check_document_parser` as `aichat` and require the real DOCX
