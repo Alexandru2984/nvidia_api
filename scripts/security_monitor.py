@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import stat
 import subprocess
 import sys
@@ -25,6 +26,8 @@ from pathlib import Path
 DUMP_RE = re.compile(r'^nvidia_db_\d{8}_\d{6}(?:_\d+)?\.sql\.gz$')
 BACKUP_MAX_AGE_SECONDS = 30 * 60 * 60
 RESTORE_MAX_AGE_SECONDS = 8 * 24 * 60 * 60
+CLAMAV_DATABASE_MAX_AGE_SECONDS = 30 * 60 * 60
+CLAMAV_DAILY_DATABASE_NAMES = frozenset({'daily.cvd', 'daily.cld'})
 JOURNAL_WINDOW = '6 minutes ago'
 RELEASE_MANIFEST = '.release-manifest.sha256'
 FRONTEND_MANIFEST = RELEASE_MANIFEST
@@ -258,6 +261,78 @@ def evaluate_release_retention(live_path, release_root, *, issue_key):
         return issue
 
 
+def evaluate_clamav_database(database_dir, now=None):
+    """Require a recent, non-writable official daily-signature database."""
+    now = now or time.time()
+    database_dir = Path(database_dir)
+    integrity_issue = {
+        'malware_database_integrity': (
+            'The ClamAV signature database is missing or has unsafe permissions.'
+        ),
+    }
+    try:
+        directory_info = database_dir.lstat()
+        if (
+            not stat.S_ISDIR(directory_info.st_mode)
+            or stat.S_ISLNK(directory_info.st_mode)
+            or stat.S_IMODE(directory_info.st_mode) & 0o022
+        ):
+            return integrity_issue
+        databases = []
+        for name in CLAMAV_DAILY_DATABASE_NAMES:
+            path = database_dir / name
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or stat.S_ISLNK(info.st_mode)
+                or stat.S_IMODE(info.st_mode) & 0o022
+            ):
+                return integrity_issue
+            databases.append(info)
+        if not databases:
+            return integrity_issue
+        newest = max(info.st_mtime for info in databases)
+        if now - newest > CLAMAV_DATABASE_MAX_AGE_SECONDS:
+            age_hours = max(0, int((now - newest) // 3600))
+            return {
+                'malware_database_stale': (
+                    f'The newest ClamAV daily-signature database is {age_hours} hours old.'
+                ),
+            }
+        return {}
+    except (OSError, ValueError):
+        return integrity_issue
+
+
+def evaluate_clamav_socket(socket_path, timeout_seconds=3):
+    """Require an authenticated local socket shape and an exact clamd PONG."""
+    issue = {'malware_scanner_health': 'The local attachment malware scanner is unavailable.'}
+    socket_path = Path(socket_path)
+    try:
+        info = socket_path.lstat()
+        if not stat.S_ISSOCK(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o007:
+            return issue
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(timeout_seconds)
+            client.connect(str(socket_path))
+            client.sendall(b'zPING\0')
+            reply = bytearray()
+            while len(reply) <= 16:
+                chunk = client.recv(17 - len(reply))
+                if not chunk:
+                    break
+                reply.extend(chunk)
+                terminator = reply.find(b'\0')
+                if terminator >= 0:
+                    return {} if bytes(reply[:terminator]) == b'PONG' else issue
+        return issue
+    except (OSError, ValueError):
+        return issue
+
+
 def read_journal():
     result = subprocess.run(
         ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
@@ -289,11 +364,18 @@ def evaluate(
     python_environment_release_root=None,
     python_environment_expected_uid=0,
     python_environment_expected_gid=0,
+    scanner_database_dir=None,
+    scanner_socket=None,
 ):
     now = now or time.time()
     issues = {}
     backup_dir = Path(backup_dir)
     restore_log = Path(restore_log)
+
+    if scanner_database_dir is not None:
+        issues.update(evaluate_clamav_database(scanner_database_dir, now))
+    if scanner_socket is not None:
+        issues.update(evaluate_clamav_socket(scanner_socket))
 
     if frontend_live is not None or frontend_release_root is not None:
         if frontend_live is None or frontend_release_root is None:
@@ -394,6 +476,8 @@ def evaluate(
     session_limit_enforcements = journal.count('event=session_limit_enforced')
     invite_rejections = journal.count('event=registration_invite_rejected')
     attachment_rejections = journal.count('event=attachment_capability_rejected')
+    malware_rejections = journal.count('event=attachment_malware_rejected')
+    scanner_unavailable = journal.count('event=attachment_scanner_unavailable')
     model_status_invalid = journal.count('event=model_status_invalid')
     model_probe_degraded = journal.count('event=model_probe_degraded')
     model_probe_authorization = journal.count('event=model_probe_authorization_failed')
@@ -445,6 +529,14 @@ def evaluate(
     if attachment_rejections >= int(os.environ.get('ATTACHMENT_REJECTION_ALERT_THRESHOLD', '5')):
         issues['attachment_capability_burst'] = (
             f'{attachment_rejections} incompatible attachment attempts were detected in six minutes.'
+        )
+    if malware_rejections:
+        issues['attachment_malware'] = (
+            f'{malware_rejections} attachment malware detections were recorded in six minutes.'
+        )
+    if scanner_unavailable:
+        issues['attachment_scanner_unavailable'] = (
+            'Attachment malware scanning was unavailable during a request.'
         )
     if model_status_invalid:
         issues['model_status_invalid'] = 'The runtime model-status file failed validation.'
@@ -564,6 +656,8 @@ def main():
     parser.add_argument('--backend-release-root', default='/opt/aichat-backend-releases')
     parser.add_argument('--python-environment-live', default='/opt/aichat-python-current')
     parser.add_argument('--python-environment-release-root', default='/opt/aichat-python-envs')
+    parser.add_argument('--scanner-database-dir', default='/var/lib/clamav')
+    parser.add_argument('--scanner-socket', default='/run/clamav/clamd.ctl')
     args = parser.parse_args()
 
     try:
@@ -587,6 +681,8 @@ def main():
             backend_release_root=args.backend_release_root,
             python_environment_live=args.python_environment_live,
             python_environment_release_root=args.python_environment_release_root,
+            scanner_database_dir=args.scanner_database_dir,
+            scanner_socket=args.scanner_socket,
         )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))

@@ -4,6 +4,7 @@ from unittest import mock
 
 import pytest
 
+from chat.malware import INFECTED, MalwareScanError
 from chat.models import Attachment
 
 PNG_1PX = base64.b64decode(
@@ -101,6 +102,36 @@ class TestGenerateImage:
         m_post.return_value = _resp(200, {'image': base64.b64encode(b'<script>x</script>').decode()})
         r = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
         assert r.status_code == 502
+        assert not Attachment.objects.exists()
+
+    @mock.patch('chat.views._reserve_provider_call')
+    @mock.patch('chat.views.ping_scanner', side_effect=MalwareScanError)
+    def test_scanner_outage_blocks_before_provider_budget(
+        self, ping, reserve, auth_client, settings,
+    ):
+        settings.ATTACHMENT_MALWARE_SCAN_REQUIRED = True
+        response = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert response.status_code == 503
+        assert response.json()['code'] == 'attachment_scanner_unavailable'
+        assert response['Retry-After'] == '60'
+        reserve.assert_not_called()
+
+    @mock.patch('chat.views.scan_attachment', return_value=INFECTED)
+    @mock.patch('chat.views.ping_scanner')
+    @mock.patch('chat.views.requests.post')
+    def test_generated_malware_is_not_stored(
+        self, m_post, ping, scan, auth_client, settings,
+    ):
+        settings.ATTACHMENT_MALWARE_SCAN_REQUIRED = True
+        b64 = base64.b64encode(PNG_1PX).decode()
+        m_post.return_value = _resp(200, {'artifacts': [{'base64': b64}]})
+
+        response = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert response.status_code == 502
+        assert response.json()['code'] == 'attachment_malware_detected'
+        scan.assert_called_once()
         assert not Attachment.objects.exists()
 
     @mock.patch('chat.views.requests.post')

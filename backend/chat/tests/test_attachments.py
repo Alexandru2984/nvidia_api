@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import uuid
+from unittest import mock
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -12,6 +13,7 @@ from chat.attachments import (
     extract_text,
     kind_for_mime,
 )
+from chat.malware import CLEAN, INFECTED, MalwareScanError
 from chat.models import Attachment, AttachmentUploadAttempt, Message
 
 
@@ -85,6 +87,56 @@ class TestUploadValidation:
     def test_unauthenticated_blocked(self, client):
         r = client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
         assert r.status_code in (401, 403)
+
+    @mock.patch('chat.views.detect_mime')
+    @mock.patch('chat.views.scan_attachment', return_value=INFECTED)
+    def test_malware_is_rejected_before_type_parsing(
+        self, scan, detect_mime_mock, auth_client, user, settings,
+    ):
+        settings.ATTACHMENT_MALWARE_SCAN_REQUIRED = True
+        response = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload('private-name.png')},
+            format='multipart',
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            'error': 'The file was rejected by the security scanner.',
+            'code': 'attachment_malware_detected',
+        }
+        scan.assert_called_once()
+        detect_mime_mock.assert_not_called()
+        assert not Attachment.objects.filter(user=user).exists()
+
+    @mock.patch('chat.views.scan_attachment', side_effect=MalwareScanError)
+    def test_scanner_outage_fails_closed(self, scan, auth_client, user, settings):
+        settings.ATTACHMENT_MALWARE_SCAN_REQUIRED = True
+        response = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': _img_upload()},
+            format='multipart',
+        )
+
+        assert response.status_code == 503
+        assert response.json()['code'] == 'attachment_scanner_unavailable'
+        assert response['Retry-After'] == '60'
+        assert not Attachment.objects.filter(user=user).exists()
+
+    @mock.patch('chat.views.scan_attachment', return_value=CLEAN)
+    def test_deduplicated_uploads_are_each_scanned(self, scan, auth_client, settings):
+        settings.ATTACHMENT_MALWARE_SCAN_REQUIRED = True
+        first = auth_client.post(
+            '/api/attachments/upload/', {'file': _img_upload('one.png')}, format='multipart',
+        )
+        second = auth_client.post(
+            '/api/attachments/upload/', {'file': _img_upload('two.png')}, format='multipart',
+        )
+
+        assert first.status_code == 201
+        assert second.status_code == 200
+        assert second.json()['deduplicated'] is True
+        assert scan.call_count == 2
 
 
 @pytest.mark.django_db

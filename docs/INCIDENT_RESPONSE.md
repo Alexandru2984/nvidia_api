@@ -25,6 +25,8 @@ failure, 2FA disable, global AI-budget exhaustion, 10 failed logins/6 minutes,
 10 denied admin requests/6 minutes, 20 rate limits/6 minutes, 5 rejected
 invitations/6 minutes, any invitation consumption or verified new account,
 5 incompatible attachment/model rejections/6 minutes, 3 backend errors/6 minutes,
+any attachment malware detection, any request blocked because the scanner was
+unavailable, any failed scanner health check or ClamAV database older than 30 hours,
 any invalid runtime model-status file, any degraded scheduled model probe, any
 provider authorization/entitlement probe failure, a database backup older than
 30 hours, a restore drill older than eight days, or any frontend/backend/Python-
@@ -39,6 +41,13 @@ environment release manifest, ownership or permission failure.
   the evidence that justified the block.
 - For upload/parser compromise, stop the backend, quarantine the file without
   opening it on a workstation, and inspect the service account's reachable files.
+- For a malware-rejection alert, remember that the rejected bytes were not stored:
+  preserve the privacy-minimized event/time, verify scanner readiness and current
+  signatures, correlate only within approved local logs, and ask the owner for the
+  source file only through an approved evidence channel if investigation requires it.
+  For scanner outage or stale signatures, keep uploads and generated-image storage
+  fail-closed while repairing `aichat-clamd`/`clamav-freshclam`; do not bypass the
+  scanner to restore availability.
 - For NVIDIA cost abuse, disable generation or revoke the API key before tuning
   throttles. A spending incident can continue while the UI appears healthy.
 - For registration abuse, set `REGISTRATION_MODE=closed`, restart the backend,
@@ -91,6 +100,8 @@ for evidence validation.
 2. Apply migrations/configuration, start the backend, validate nginx/systemd, and
    probe health, authentication, private downloads, CSRF, rate limits, and denial
    of `/media/` before reopening traffic.
+   Run `manage.py check_attachment_scanner` as `aichat` and require PING, benign
+   CLEAN and EICAR FOUND verdicts before reopening attachment or image paths.
    Restore application code through the retained `/opt/aichat-backend-releases`
    target or rerun the committed deploy script; never copy repaired Python files
    into the active release. Restore dependencies only through a retained

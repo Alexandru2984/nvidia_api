@@ -266,6 +266,7 @@ preflight=(
 )
 "${preflight[@]}" manage.py check --deploy
 "${preflight[@]}" manage.py migrate --check
+"${preflight[@]}" manage.py check_attachment_scanner
 "${preflight[@]}" -c 'import django, gunicorn, psycopg2, cryptography, lxml; print("runtime imports ok")'
 
 if [[ -L "$release/lib64" && "$(readlink -- "$release/lib64")" == 'lib' ]]; then
@@ -337,6 +338,7 @@ fi
   --check "$release/.release-sbom.cdx.json"
 "${preflight[@]}" -m pip check
 "${preflight[@]}" manage.py check --deploy
+"${preflight[@]}" manage.py check_attachment_scanner
 "${preflight[@]}" -c 'import django, gunicorn, psycopg2, cryptography, lxml; print("final runtime imports ok")'
 
 next_link="$LIVE_PATH.next.$stamp"

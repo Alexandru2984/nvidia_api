@@ -28,6 +28,7 @@ from django.contrib.auth import (
 from django.contrib.auth.password_validation import validate_password
 from django.core import signing
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
@@ -46,6 +47,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .attachments import content_fingerprint, detect_mime, extract_text, kind_for_mime
+from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
 from .model_status import get_status, unavailable_model_ids
 from .nvidia_client import chat_completion_headers, chat_completion_payload
 from .models import (
@@ -1455,9 +1457,53 @@ def _complete_upload_attempt(attempt, attachment, *, owns_attachment):
     attempt.save(update_fields=['state', 'attachment', 'owns_attachment', 'updated_at'])
 
 
+def _scanner_unavailable_response(request, source):
+    security_log.error(
+        'event=attachment_scanner_unavailable source=%s user_id=%s',
+        source,
+        request.user.pk,
+    )
+    response = Response({
+        'error': 'File security scanning is temporarily unavailable. Try again later.',
+        'code': 'attachment_scanner_unavailable',
+    }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    response['Retry-After'] = '60'
+    return response
+
+
+def _scanner_readiness_response(request, source):
+    if not settings.ATTACHMENT_MALWARE_SCAN_REQUIRED:
+        return None
+    try:
+        ping_scanner()
+    except MalwareScanError:
+        return _scanner_unavailable_response(request, source)
+    return None
+
+
+def _malware_scan_response(request, uploaded_file, source, *, infected_status):
+    if not settings.ATTACHMENT_MALWARE_SCAN_REQUIRED:
+        return None
+    try:
+        verdict = scan_attachment(uploaded_file)
+    except MalwareScanError:
+        return _scanner_unavailable_response(request, source)
+    if verdict == INFECTED:
+        security_log.warning(
+            'event=attachment_malware_rejected source=%s user_id=%s',
+            source,
+            request.user.pk,
+        )
+        return Response({
+            'error': 'The file was rejected by the security scanner.',
+            'code': 'attachment_malware_detected',
+        }, status=infected_status)
+    return None
+
+
 @api_view(['POST'])
 @parser_classes([MultiPartParser])
-@ratelimit(key='user', rate='30/m', block=False)
+@ratelimit(key='user', rate='12/m', block=False)
 def upload_attachment(request):
     if (r := _rate_limited(request)): return r
     f = request.FILES.get('file')
@@ -1465,6 +1511,13 @@ def upload_attachment(request):
         return Response({'error': 'file is required'}, status=400)
     if f.size > settings.MAX_ATTACHMENT_SIZE:
         return Response({'error': f'File too large. Max {settings.MAX_ATTACHMENT_SIZE // (1024 * 1024)}MB.'}, status=413)
+    if (response := _malware_scan_response(
+        request,
+        f,
+        'upload',
+        infected_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )) is not None:
+        return response
 
     mime = detect_mime(f)
     kind = kind_for_mime(mime)
@@ -2913,6 +2966,8 @@ def generate_image(request):
 
     if (response := _provider_disclosure_required_response(request)) is not None:
         return response
+    if (response := _scanner_readiness_response(request, 'provider_image')) is not None:
+        return response
 
     # Coarse pre-check before paying for an NVIDIA call. Atomic check happens after.
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
@@ -2949,7 +3004,14 @@ def generate_image(request):
     if not (len(raw) >= 33 and raw.startswith(b'\x89PNG\r\n\x1a\n') and raw[12:16] == b'IHDR'):
         return Response({'error': 'Generated image failed validation'}, status=502)
 
-    from django.core.files.base import ContentFile
+    image_file = ContentFile(raw)
+    if (response := _malware_scan_response(
+        request,
+        image_file,
+        'provider_image',
+        infected_status=status.HTTP_502_BAD_GATEWAY,
+    )) is not None:
+        return response
     safe_slug = re.sub(r'[^a-z0-9]+', '-', prompt.lower())[:32].strip('-') or 'image'
     filename = f'{safe_slug}-{secrets.token_hex(4)}.png'
     User = get_user_model()
@@ -2966,7 +3028,7 @@ def generate_image(request):
                 size=len(raw),
                 kind=Attachment.KIND_GENERATED,
             )
-            att.file.save(filename, ContentFile(raw), save=True)
+            att.file.save(filename, image_file, save=True)
     except Exception:
         log.exception('Generated image save failed for user=%s', request.user.pk)
         return Response({'error': 'Failed to save generated image.'}, status=500)

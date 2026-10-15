@@ -400,8 +400,10 @@ off-site restore meets documented RPO/RTO.
 - Run PDF/DOCX parsing under a separate identity with no app credentials, no
   network, a minimal read-only runtime, per-job and aggregate resource ceilings,
   bounded concurrency and a strict request/response protocol.
-- Quarantine and malware-scan uploads before provider/browser use when a suitable
-  engine and update policy are selected.
+- Local fail-closed ClamAV scanning before parsing/deduplication/storage is
+  shipped with official-signature refresh, readiness tests and five-minute
+  health/freshness/detection alerts. Add an incident-evidence quarantine workflow
+  without retaining every rejected body.
 - Move gunicorn to a permissioned Unix socket and remove direct local TCP access.
 - Isolate/authenticate cloudflared-to-nginx client-IP trust so unrelated local
   processes cannot mint rate-limit identities.

@@ -283,6 +283,15 @@ secrets, no network, a read-only single input, a write-only bounded result, tota
 concurrency/memory limits, quarantine, malware scanning, and explicit parser
 timeouts.
 
+Status: partially mitigated on 2026-10-15. Uploads are streamed to a local,
+permissioned ClamAV `INSTREAM` socket before signature inspection, parser entry,
+deduplication or storage; generated provider images are scanned before storage.
+Only exact clean/infected verdicts are accepted, scanner failure is fail-closed,
+the upload rate is reduced, and health/signature age/detection/outage events are
+monitored. `clamd` has no internet address family, uses official signatures and
+bounded scan resources. Parser sandbox/identity/network isolation and aggregate
+parser concurrency remain open, so S-06 remains High.
+
 ### S-07 — High — host security updates and reboot are pending
 
 Evidence: three standard Ubuntu security updates are pending; 24 installed
@@ -413,7 +422,9 @@ monitoring, provider/mail anomaly alerts, and exercise the response runbook.
 
 Status: partially mitigated. The active frontend, backend application and Python
 environment are now root-owned, atomically selected releases with bounded
-SHA-256 manifests verified every five minutes. The remaining high-value signals
+SHA-256 manifests verified every five minutes. Local malware detections, scanner
+outages, proactive socket health and signature freshness now use the same alert
+path without filenames or content. The remaining high-value signals
 are off-host retention, sudo/process identity, secret/config changes and
 provider/mail cost anomalies.
 

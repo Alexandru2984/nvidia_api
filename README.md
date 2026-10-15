@@ -151,12 +151,12 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Atomically reserves both saved-message slots before proxying to NVIDIA. The effective model is validated before any override is saved; incompatible type, MIME, byte size, image count, storage quota, or output bound fails closed. |
 | GET | `/conversations/<id>/export/` | — | session | Owner-scoped Markdown stream; limited to 10/hour and rejected before streaming when its conservative estimate exceeds `CHAT_MAX_EXPORT_BYTES`. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
-| POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Empty or image-only documents are rejected after bounded extraction. An identical pending upload for the same owner is reused with `deduplicated: true`. |
+| POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Bytes are streamed to the local ClamAV daemon before signature inspection, extraction, deduplication or storage; malware is rejected generically and scanner ambiguity/unavailability fails closed. Empty or image-only documents are rejected after bounded extraction. An identical pending upload for the same owner is reused with `deduplicated: true`. |
 | DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
 | GET | `/attachments/<id>/preview/` | — | session | Ownership-checked, 4,000-character extracted-text preview for documents; returned with private/no-store cache policy. |
 | GET | `/attachments/<id>/download/` | — | session | Ownership-checked private download, limited to 120/hour; never expose `MEDIA_ROOT` directly. |
 | GET | `/images/models/` | — | session | List image-generation catalog (FLUX schnell/dev; each entry includes `allowed_dims`). |
-| POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Saves the generated image to local media storage. |
+| POST | `/images/generate/` | `{prompt, model_id?, width?, height?, steps?, seed?}` | session | Returns `{attachment, …}`. Requires scanner readiness before provider egress and scans the returned PNG before local storage. |
 
 The composer accepts picker, drag/drop, and clipboard image inputs through one
 capability-aware queue. Each file has progress, cancel, retry, and dismiss state;
@@ -309,6 +309,13 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **nginx** vhost `/etc/nginx/sites-available/aichat.micutu.com` serves the built SPA from `/var/www/aichat.micutu.com/`, proxies authenticated API/admin traffic, and must return `404` for `/media/`. Private files are served only through `/api/attachments/<id>/download/`. The reviewed template is `ops/nginx/aichat.micutu.com.conf`.
 - **SSL** via certbot: `sudo certbot --nginx -d aichat.micutu.com --non-interactive --agree-tos --email <you> --redirect`. `certbot.timer` handles renewal.
 - **PostgreSQL** runs on `127.0.0.1:5432`. Per-app DB and user as documented in the VPS pattern.
+- **Attachment malware scanning** — `clamd` accepts only a permissioned local
+  Unix socket and receives raw bytes through `INSTREAM`; it receives no filename,
+  owner, prompt or attachment metadata. Official signatures refresh locally,
+  scanner limits are tighter than the application upload boundary, encrypted or
+  limit-exceeding containers are rejected, and upload/image paths fail closed on
+  timeout, malformed verdict or daemon failure. This reduces known-malware risk;
+  it does not replace the separate parser-isolation requirement.
 - **Scheduled jobs**: application jobs run as `aichat` through the sandboxed
   `aichat-maintenance.timer` and `aichat-model-probe.timer`. Host-level backup
   jobs remain in the administrator's cron:
@@ -322,13 +329,20 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
   integrity, all three active root-owned release manifests, executable-release
-  retention, and backup/restore freshness every five minutes. It uses the host's
+  retention, backup/restore freshness, ClamAV health/signature freshness, scanner
+  failures and malware rejections every five minutes. It uses the host's
   existing Telegram channel, keeps cooldown state under
   `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 
 Deploy steps after a code change:
 
 ```bash
+# One-time local scanner prerequisite (Ubuntu repository packages only)
+sudo apt-get install --no-install-recommends clamav-daemon clamav-freshclam
+sudo scripts/install_attachment_scanner.sh
+sudo -u aichat env --chdir=/home/micu/nvidia/backend \
+  /home/micu/nvidia/backend/venv/bin/python manage.py check_attachment_scanner
+
 # Backend application code (deploys committed HEAD only)
 cd /home/micu/nvidia
 git status --short

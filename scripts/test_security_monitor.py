@@ -1,6 +1,7 @@
 import importlib.util
 import hashlib
 import os
+import stat
 import tempfile
 import time
 import unittest
@@ -51,6 +52,8 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=ai_usage_unmetered'] * 3
             + ['event=registration_invite_rejected'] * 5
             + ['event=attachment_capability_rejected'] * 5
+            + ['event=attachment_malware_rejected source=upload user_id=4']
+            + ['event=attachment_scanner_unavailable source=image user_id=4']
             + ['event=model_status_invalid reason=schema']
             + ['event=model_probe_degraded inconclusive=2']
             + ['event=model_probe_authorization_failed count=2']
@@ -65,11 +68,82 @@ class SecurityMonitorTests(unittest.TestCase):
              'token_reservation_overrun', 'chat_object_quota',
              'session_registry_mismatch', 'session_limit_burst', 'invite_rejection_burst',
              'attachment_capability_burst',
+             'attachment_malware', 'attachment_scanner_unavailable',
              'model_status_invalid',
              'model_probe_degraded',
              'model_probe_authorization',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
+
+    def test_clamav_database_requires_recent_protected_daily_signatures(self):
+        database_dir = self.root / 'clamav'
+        database_dir.mkdir(mode=0o755)
+        database = database_dir / 'daily.cvd'
+        database.write_bytes(b'signed fixture')
+        database.chmod(0o644)
+
+        self.assertEqual(
+            monitor.evaluate_clamav_database(database_dir, now=time.time()),
+            {},
+        )
+
+        old = time.time() - monitor.CLAMAV_DATABASE_MAX_AGE_SECONDS - 60
+        os.utime(database, (old, old))
+        self.assertIn(
+            'malware_database_stale',
+            monitor.evaluate_clamav_database(database_dir, now=time.time()),
+        )
+        database.chmod(0o666)
+        self.assertIn(
+            'malware_database_integrity',
+            monitor.evaluate_clamav_database(database_dir, now=time.time()),
+        )
+
+    def test_clamav_database_rejects_missing_or_symlinked_daily_signatures(self):
+        database_dir = self.root / 'clamav'
+        database_dir.mkdir(mode=0o755)
+        self.assertIn(
+            'malware_database_integrity',
+            monitor.evaluate_clamav_database(database_dir),
+        )
+        (database_dir / 'daily.cld').symlink_to(self.dump)
+        self.assertIn(
+            'malware_database_integrity',
+            monitor.evaluate_clamav_database(database_dir),
+        )
+
+    def test_clamav_socket_rejects_non_socket_path_without_connecting(self):
+        not_a_socket = self.root / 'clamd.ctl'
+        not_a_socket.write_bytes(b'not a socket')
+        with mock.patch.object(monitor.socket, 'socket') as socket_factory:
+            issues = monitor.evaluate_clamav_socket(not_a_socket)
+        self.assertIn('malware_scanner_health', issues)
+        socket_factory.assert_not_called()
+
+    def test_clamav_socket_requires_exact_pong(self):
+        socket_path = self.root / 'clamd.ctl'
+        socket_path.touch(mode=0o660)
+        socket_info = mock.Mock(st_mode=stat.S_IFSOCK | 0o660)
+        client = mock.MagicMock()
+        client.__enter__.return_value = client
+        client.recv.return_value = b'PONG\0'
+        with (
+            mock.patch.object(Path, 'lstat', return_value=socket_info),
+            mock.patch.object(monitor.socket, 'socket', return_value=client),
+        ):
+            self.assertEqual(monitor.evaluate_clamav_socket(socket_path), {})
+        client.connect.assert_called_once_with(str(socket_path))
+        client.sendall.assert_called_once_with(b'zPING\0')
+
+        client.recv.return_value = b'UNKNOWN\0'
+        with (
+            mock.patch.object(Path, 'lstat', return_value=socket_info),
+            mock.patch.object(monitor.socket, 'socket', return_value=client),
+        ):
+            self.assertIn(
+                'malware_scanner_health',
+                monitor.evaluate_clamav_socket(socket_path),
+            )
 
     def test_detects_stale_or_permissive_backup(self):
         old = time.time() - monitor.BACKUP_MAX_AGE_SECONDS - 60

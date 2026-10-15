@@ -199,6 +199,28 @@ def _nonnegative_int_env(name, default):
     return value
 
 
+def _boolean_env(name, default):
+    value = os.environ.get(name, str(default)).strip().lower()
+    if value not in {'true', 'false'}:
+        raise ImproperlyConfigured(f'{name} must be true or false.')
+    return value == 'true'
+
+
+ATTACHMENT_MALWARE_SCAN_REQUIRED = _boolean_env(
+    'ATTACHMENT_MALWARE_SCAN_REQUIRED', not DEBUG,
+)
+ATTACHMENT_SCANNER_SOCKET = os.environ.get(
+    'ATTACHMENT_SCANNER_SOCKET', '/run/clamav/clamd.ctl',
+).strip()
+ATTACHMENT_SCAN_TIMEOUT_SECONDS = _nonnegative_int_env(
+    'ATTACHMENT_SCAN_TIMEOUT_SECONDS', 20,
+)
+if ATTACHMENT_MALWARE_SCAN_REQUIRED and not Path(ATTACHMENT_SCANNER_SOCKET).is_absolute():
+    raise ImproperlyConfigured('ATTACHMENT_SCANNER_SOCKET must be an absolute path.')
+if not 1 <= ATTACHMENT_SCAN_TIMEOUT_SECONDS <= 60:
+    raise ImproperlyConfigured('ATTACHMENT_SCAN_TIMEOUT_SECONDS must be between 1 and 60.')
+
+
 SESSION_ABSOLUTE_MAX_AGE_SECONDS = _nonnegative_int_env(
     'SESSION_ABSOLUTE_MAX_AGE_SECONDS', 30 * 24 * 60 * 60,
 )
