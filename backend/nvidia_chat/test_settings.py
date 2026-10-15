@@ -47,3 +47,4 @@ NVIDIA_API_KEY = 'test-nvidia-key'
 MODEL_STATUS_FILE = tempfile.gettempdir() + '/nvidia_test_model_status_does_not_exist.json'
 MODEL_STATUS_REQUIRED = False
 ATTACHMENT_MALWARE_SCAN_REQUIRED = False
+DOCUMENT_PARSER_REQUIRED = False

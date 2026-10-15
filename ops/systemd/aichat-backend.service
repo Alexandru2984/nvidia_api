@@ -1,12 +1,13 @@
 [Unit]
 Description=AI Chat Hub backend
-Wants=network-online.target
-After=network-online.target postgresql.service
+Wants=network-online.target aichat-document-parser.service
+After=network-online.target postgresql.service aichat-document-parser.service
 
 [Service]
 Type=simple
 User=aichat
 Group=aichat
+SupplementaryGroups=clamav aichat-parser
 WorkingDirectory=/opt/aichat-backend-current
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend

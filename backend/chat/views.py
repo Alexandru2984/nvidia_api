@@ -46,7 +46,13 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .attachments import content_fingerprint, detect_mime, extract_text, kind_for_mime
+from .attachments import (
+    DocumentParserError,
+    content_fingerprint,
+    detect_mime,
+    extract_text,
+    kind_for_mime,
+)
 from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
 from .model_status import get_status, unavailable_model_ids
 from .nvidia_client import chat_completion_headers, chat_completion_payload
@@ -1471,6 +1477,19 @@ def _scanner_unavailable_response(request, source):
     return response
 
 
+def _parser_unavailable_response(request):
+    security_log.error(
+        'event=attachment_parser_unavailable user_id=%s',
+        request.user.pk,
+    )
+    response = Response({
+        'error': 'Document processing is temporarily unavailable. Try again later.',
+        'code': 'attachment_parser_unavailable',
+    }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    response['Retry-After'] = '60'
+    return response
+
+
 def _scanner_readiness_response(request, source):
     if not settings.ATTACHMENT_MALWARE_SCAN_REQUIRED:
         return None
@@ -1573,7 +1592,10 @@ def upload_attachment(request):
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
     if used + f.size > settings.MAX_USER_STORAGE:
         return Response({'error': 'Storage quota exceeded.'}, status=413)
-    extracted = extract_text(f, mime) if kind == 'document' else ''
+    try:
+        extracted = extract_text(f, mime) if kind == 'document' else ''
+    except DocumentParserError:
+        return _parser_unavailable_response(request)
     if kind == 'document' and not extracted.strip():
         return _attachment_capability_response(
             request,

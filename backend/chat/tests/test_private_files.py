@@ -43,7 +43,7 @@ def test_spoofed_upload_rejected(auth_client, name, content, mime):
     assert response.status_code == 415
 
 
-def test_docx_zip_bomb_rejected(auth_client):
+def test_docx_zip_bomb_is_not_accepted(auth_client):
     data = io.BytesIO()
     with zipfile.ZipFile(data, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('[Content_Types].xml', '<xml/>')
@@ -51,7 +51,7 @@ def test_docx_zip_bomb_rejected(auth_client):
     response = auth_client.post('/api/attachments/upload/', {
         'file': SimpleUploadedFile('bomb.docx', data.getvalue()),
     }, format='multipart')
-    assert response.status_code == 415
+    assert response.status_code == 422
 
 
 def test_valid_docx_extracted_from_gunicorn_like_thread():

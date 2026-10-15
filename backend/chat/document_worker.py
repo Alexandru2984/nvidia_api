@@ -1,8 +1,4 @@
-"""Linux parser worker: no Django import, credentials or unbounded runtime.
-
-This limits resource consumption, not filesystem privileges. The service's
-systemd sandbox provides the filesystem boundary for this child as well.
-"""
+"""Resource-bounded PDF/DOCX child for the isolated parser service."""
 import io
 import resource
 import sys
@@ -11,7 +7,7 @@ import sys
 def main():
     resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024,) * 2)
     resource.setrlimit(resource.RLIMIT_CPU, (6, 7))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (256 * 1024,) * 2)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
     kind, cap = sys.argv[1], min(int(sys.argv[2]), 50_000)

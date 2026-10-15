@@ -54,6 +54,8 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=attachment_capability_rejected'] * 5
             + ['event=attachment_malware_rejected source=upload user_id=4']
             + ['event=attachment_scanner_unavailable source=image user_id=4']
+            + ['event=attachment_parser_unavailable user_id=4']
+            + ['event=document_parser_failure type=pdf reason=timeout']
             + ['event=model_status_invalid reason=schema']
             + ['event=model_probe_degraded inconclusive=2']
             + ['event=model_probe_authorization_failed count=2']
@@ -69,6 +71,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'session_registry_mismatch', 'session_limit_burst', 'invite_rejection_burst',
              'attachment_capability_burst',
              'attachment_malware', 'attachment_scanner_unavailable',
+             'attachment_parser_unavailable', 'document_parser_failure',
              'model_status_invalid',
              'model_probe_degraded',
              'model_probe_authorization',
@@ -144,6 +147,32 @@ class SecurityMonitorTests(unittest.TestCase):
                 'malware_scanner_health',
                 monitor.evaluate_clamav_socket(socket_path),
             )
+
+    def test_document_parser_socket_requires_exact_private_health_response(self):
+        socket_path = self.root / 'parser.sock'
+        socket_path.touch(mode=0o660)
+        socket_info = mock.Mock(st_mode=stat.S_IFSOCK | 0o660)
+        client = mock.MagicMock()
+        client.__enter__.return_value = client
+        client.recv.side_effect = [monitor.PARSER_RESPONSE.pack(monitor.PARSER_MAGIC, 0, 0), b'']
+        with (
+            mock.patch.object(Path, 'lstat', return_value=socket_info),
+            mock.patch.object(monitor.socket, 'socket', return_value=client),
+        ):
+            self.assertEqual(monitor.evaluate_document_parser_socket(socket_path), {})
+        client.connect.assert_called_once_with(str(socket_path))
+        client.sendall.assert_called_once_with(
+            monitor.PARSER_REQUEST.pack(monitor.PARSER_MAGIC, 0, 0, 0),
+        )
+
+        unsafe_info = mock.Mock(st_mode=stat.S_IFSOCK | 0o666)
+        with (
+            mock.patch.object(Path, 'lstat', return_value=unsafe_info),
+            mock.patch.object(monitor.socket, 'socket') as socket_factory,
+        ):
+            issues = monitor.evaluate_document_parser_socket(socket_path)
+        self.assertIn('document_parser_health', issues)
+        socket_factory.assert_not_called()
 
     def test_detects_stale_or_permissive_backup(self):
         old = time.time() - monitor.BACKUP_MAX_AGE_SECONDS - 60

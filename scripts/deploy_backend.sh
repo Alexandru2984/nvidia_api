@@ -318,6 +318,7 @@ preflight=(
 "${preflight[@]}" manage.py check --deploy
 "${preflight[@]}" manage.py migrate --check
 "${preflight[@]}" manage.py check_attachment_scanner
+"${preflight[@]}" manage.py check_document_parser
 imported_from="$("${preflight[@]}" -c \
   'from pathlib import Path; import chat; print(Path(chat.__file__).resolve())')"
 if [[ "$imported_from" != "$staging"/* ]]; then

@@ -1,18 +1,24 @@
 """Attachment type checks and resource-bounded document extraction."""
 import hashlib
 import hmac
-import io
 import logging
 import os
+import socket
+import struct
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 from django.conf import settings
 
 log = logging.getLogger(__name__)
 EXTRACT_TIMEOUT_SECONDS = 8
+PARSER_MAGIC = b'AIP1'
+PARSER_REQUEST = struct.Struct('!4sBII')
+PARSER_RESPONSE = struct.Struct('!4sBI')
+PARSER_STATUS_OK = 0
+PARSER_STATUS_UNREADABLE = 1
+PARSER_MAX_OUTPUT_BYTES = 200_000
 DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 _EXT_TO_MIME = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
@@ -66,20 +72,8 @@ def detect_mime(uploaded_file) -> str:
         except UnicodeDecodeError:
             pass
     elif mime == DOCX_MIME:
-        try:
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                entries = archive.infolist()
-                names = {entry.filename for entry in entries}
-                valid = (
-                    {'[Content_Types].xml', 'word/document.xml'} <= names
-                    and len(entries) <= 1000
-                    and sum(entry.file_size for entry in entries) <= 32 * 1024 * 1024
-                    and all(not entry.flag_bits & 1 and entry.file_size <= 16 * 1024 * 1024
-                            and entry.file_size <= max(entry.compress_size, 1) * 200
-                            for entry in entries)
-                )
-        except (zipfile.BadZipFile, ValueError):
-            pass
+        # Complex ZIP/XML handling belongs to the isolated parser service.
+        valid = len(data) >= 4 and data.startswith(b'PK\x03\x04')
     return mime if valid else 'application/octet-stream'
 
 
@@ -89,6 +83,77 @@ def kind_for_mime(mime: str) -> str | None:
     if mime in settings.ALLOWED_DOC_MIMES:
         return 'document'
     return None
+
+
+class DocumentParserError(RuntimeError):
+    """The isolated parser did not return an authoritative response."""
+
+
+def _read_exact(client, length):
+    data = bytearray()
+    while len(data) < length:
+        chunk = client.recv(length - len(data))
+        if not chunk:
+            raise DocumentParserError('document parser returned a truncated response')
+        data.extend(chunk)
+    return bytes(data)
+
+
+def _remote_extract(data, mime, cap):
+    kind = 1 if mime == 'application/pdf' else 2
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(settings.DOCUMENT_PARSER_TIMEOUT_SECONDS)
+            client.connect(settings.DOCUMENT_PARSER_SOCKET)
+            client.sendall(PARSER_REQUEST.pack(PARSER_MAGIC, kind, cap, len(data)))
+            client.sendall(data)
+            magic, status, length = PARSER_RESPONSE.unpack(
+                _read_exact(client, PARSER_RESPONSE.size),
+            )
+            if magic != PARSER_MAGIC or length > min(PARSER_MAX_OUTPUT_BYTES, cap * 4):
+                raise DocumentParserError('document parser returned an invalid response')
+            payload = _read_exact(client, length)
+            if client.recv(1):
+                raise DocumentParserError('document parser returned trailing data')
+        if status == PARSER_STATUS_UNREADABLE and not payload:
+            return ''
+        if status != PARSER_STATUS_OK:
+            raise DocumentParserError('document parser returned an invalid status')
+        return payload.decode('utf-8')[:cap]
+    except DocumentParserError:
+        raise
+    except (OSError, UnicodeError, ValueError, struct.error) as exc:
+        raise DocumentParserError('document parser is unavailable') from exc
+
+
+def _local_extract(data, mime, cap):
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                '-I',
+                str(Path(__file__).with_name('document_worker.py')),
+                'pdf' if mime == 'application/pdf' else 'docx',
+                str(cap),
+            ],
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=EXTRACT_TIMEOUT_SECONDS,
+            check=False,
+            env={
+                'PATH': os.defpath,
+                'LANG': 'C.UTF-8',
+                'PYTHONDONTWRITEBYTECODE': '1',
+            },
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        log.warning('Document extraction timed out or could not start (type=%s)', mime)
+        return ''
+    if result.returncode == 0:
+        return result.stdout.decode('utf-8', errors='replace')[:cap]
+    log.warning('Document extraction failed (exit=%s, type=%s)', result.returncode, mime)
+    return ''
 
 
 def extract_text(uploaded_file, mime: str) -> str:
@@ -103,17 +168,6 @@ def extract_text(uploaded_file, mime: str) -> str:
     uploaded_file.seek(0)
     if len(data) > settings.MAX_ATTACHMENT_SIZE:
         return ''
-    try:
-        result = subprocess.run(
-            [sys.executable, '-I', str(Path(__file__).with_name('document_worker.py')),
-             'pdf' if mime == 'application/pdf' else 'docx', str(cap)],
-            input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=EXTRACT_TIMEOUT_SECONDS, check=False,
-            env={'PATH': os.defpath, 'LANG': 'C.UTF-8'},
-        )
-        if result.returncode == 0:
-            return result.stdout.decode('utf-8', errors='replace')[:cap]
-        log.warning('Document extraction failed (exit=%s, type=%s)', result.returncode, mime)
-    except (subprocess.TimeoutExpired, OSError):
-        log.warning('Document extraction timed out or could not start (type=%s)', mime)
-    return ''
+    if settings.DOCUMENT_PARSER_REQUIRED:
+        return _remote_extract(data, mime, cap)
+    return _local_extract(data, mime, cap)

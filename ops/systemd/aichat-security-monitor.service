@@ -1,6 +1,6 @@
 [Unit]
 Description=AI Chat Hub security and recovery monitor
-After=network-online.target aichat-backend.service aichat-clamd.service
+After=network-online.target aichat-backend.service aichat-clamd.service aichat-document-parser.service
 
 [Service]
 Type=oneshot
@@ -8,7 +8,7 @@ User=micu
 Group=micu
 # Grant journal and local scanner-socket visibility only inside this sandboxed
 # monitor process, not to the interactive `micu` account.
-SupplementaryGroups=systemd-journal clamav
+SupplementaryGroups=systemd-journal clamav aichat-parser
 ExecStart=/usr/local/libexec/aichat-security-monitor
 UMask=0077
 StateDirectory=aichat-security-monitor

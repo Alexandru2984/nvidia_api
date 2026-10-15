@@ -220,6 +220,20 @@ if ATTACHMENT_MALWARE_SCAN_REQUIRED and not Path(ATTACHMENT_SCANNER_SOCKET).is_a
 if not 1 <= ATTACHMENT_SCAN_TIMEOUT_SECONDS <= 60:
     raise ImproperlyConfigured('ATTACHMENT_SCAN_TIMEOUT_SECONDS must be between 1 and 60.')
 
+DOCUMENT_PARSER_REQUIRED = _boolean_env(
+    'DOCUMENT_PARSER_REQUIRED', not DEBUG,
+)
+DOCUMENT_PARSER_SOCKET = os.environ.get(
+    'DOCUMENT_PARSER_SOCKET', '/run/aichat-document-parser/parser.sock',
+).strip()
+DOCUMENT_PARSER_TIMEOUT_SECONDS = _nonnegative_int_env(
+    'DOCUMENT_PARSER_TIMEOUT_SECONDS', 10,
+)
+if DOCUMENT_PARSER_REQUIRED and not Path(DOCUMENT_PARSER_SOCKET).is_absolute():
+    raise ImproperlyConfigured('DOCUMENT_PARSER_SOCKET must be an absolute path.')
+if not 1 <= DOCUMENT_PARSER_TIMEOUT_SECONDS <= 30:
+    raise ImproperlyConfigured('DOCUMENT_PARSER_TIMEOUT_SECONDS must be between 1 and 30.')
+
 
 SESSION_ABSOLUTE_MAX_AGE_SECONDS = _nonnegative_int_env(
     'SESSION_ABSOLUTE_MAX_AGE_SECONDS', 30 * 24 * 60 * 60,

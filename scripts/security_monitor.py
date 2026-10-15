@@ -13,6 +13,7 @@ import os
 import re
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -44,6 +45,9 @@ SAFE_RELEASE_PATH_RE = re.compile(r'^(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$')
 PYTHON_ENV_SAFE_PATH_RE = re.compile(
     r'^(?:[A-Za-z0-9._\[\]-]+/)*[A-Za-z0-9._\[\]-]+$',
 )
+PARSER_MAGIC = b'AIP1'
+PARSER_REQUEST = struct.Struct('!4sBII')
+PARSER_RESPONSE = struct.Struct('!4sBI')
 
 
 def _hash_file(path):
@@ -333,10 +337,37 @@ def evaluate_clamav_socket(socket_path, timeout_seconds=3):
         return issue
 
 
+def evaluate_document_parser_socket(socket_path, timeout_seconds=3):
+    """Require the private socket shape and exact parser health response."""
+    issue = {'document_parser_health': 'The isolated document parser is unavailable.'}
+    socket_path = Path(socket_path)
+    try:
+        info = socket_path.lstat()
+        if not stat.S_ISSOCK(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o660:
+            return issue
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(timeout_seconds)
+            client.connect(str(socket_path))
+            client.sendall(PARSER_REQUEST.pack(PARSER_MAGIC, 0, 0, 0))
+            response = bytearray()
+            while len(response) < PARSER_RESPONSE.size:
+                chunk = client.recv(PARSER_RESPONSE.size - len(response))
+                if not chunk:
+                    return issue
+                response.extend(chunk)
+            if bytes(response) != PARSER_RESPONSE.pack(PARSER_MAGIC, 0, 0):
+                return issue
+            if client.recv(1):
+                return issue
+        return {}
+    except (OSError, ValueError, struct.error):
+        return issue
+
+
 def read_journal():
     result = subprocess.run(
         ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
-         '--unit=aichat-model-probe.service',
+         '--unit=aichat-model-probe.service', '--unit=aichat-document-parser.service',
          f'--since={JOURNAL_WINDOW}',
          '--output=cat', '--no-pager', '--quiet'],
         capture_output=True, text=True, timeout=20, check=False,
@@ -366,6 +397,7 @@ def evaluate(
     python_environment_expected_gid=0,
     scanner_database_dir=None,
     scanner_socket=None,
+    document_parser_socket=None,
 ):
     now = now or time.time()
     issues = {}
@@ -376,6 +408,8 @@ def evaluate(
         issues.update(evaluate_clamav_database(scanner_database_dir, now))
     if scanner_socket is not None:
         issues.update(evaluate_clamav_socket(scanner_socket))
+    if document_parser_socket is not None:
+        issues.update(evaluate_document_parser_socket(document_parser_socket))
 
     if frontend_live is not None or frontend_release_root is not None:
         if frontend_live is None or frontend_release_root is None:
@@ -478,6 +512,8 @@ def evaluate(
     attachment_rejections = journal.count('event=attachment_capability_rejected')
     malware_rejections = journal.count('event=attachment_malware_rejected')
     scanner_unavailable = journal.count('event=attachment_scanner_unavailable')
+    parser_unavailable = journal.count('event=attachment_parser_unavailable')
+    parser_failures = journal.count('event=document_parser_failure')
     model_status_invalid = journal.count('event=model_status_invalid')
     model_probe_degraded = journal.count('event=model_probe_degraded')
     model_probe_authorization = journal.count('event=model_probe_authorization_failed')
@@ -537,6 +573,14 @@ def evaluate(
     if scanner_unavailable:
         issues['attachment_scanner_unavailable'] = (
             'Attachment malware scanning was unavailable during a request.'
+        )
+    if parser_unavailable:
+        issues['attachment_parser_unavailable'] = (
+            'Isolated document parsing was unavailable during an upload.'
+        )
+    if parser_failures:
+        issues['document_parser_failure'] = (
+            f'{parser_failures} isolated document-parser failures were detected in six minutes.'
         )
     if model_status_invalid:
         issues['model_status_invalid'] = 'The runtime model-status file failed validation.'
@@ -658,6 +702,10 @@ def main():
     parser.add_argument('--python-environment-release-root', default='/opt/aichat-python-envs')
     parser.add_argument('--scanner-database-dir', default='/var/lib/clamav')
     parser.add_argument('--scanner-socket', default='/run/clamav/clamd.ctl')
+    parser.add_argument(
+        '--document-parser-socket',
+        default='/run/aichat-document-parser/parser.sock',
+    )
     args = parser.parse_args()
 
     try:
@@ -683,6 +731,7 @@ def main():
             python_environment_release_root=args.python_environment_release_root,
             scanner_database_dir=args.scanner_database_dir,
             scanner_socket=args.scanner_socket,
+            document_parser_socket=args.document_parser_socket,
         )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))

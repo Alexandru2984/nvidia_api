@@ -8,6 +8,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from chat.attachments import (
+    DocumentParserError,
     content_fingerprint,
     detect_mime,
     extract_text,
@@ -121,6 +122,24 @@ class TestUploadValidation:
         assert response.status_code == 503
         assert response.json()['code'] == 'attachment_scanner_unavailable'
         assert response['Retry-After'] == '60'
+        assert not Attachment.objects.filter(user=user).exists()
+
+    @mock.patch('chat.views.extract_text', side_effect=DocumentParserError)
+    def test_document_parser_outage_fails_closed(self, extract, auth_client, user):
+        upload = SimpleUploadedFile('private.pdf', b'%PDF-1.7\n', content_type='application/pdf')
+        response = auth_client.post(
+            '/api/attachments/upload/',
+            {'file': upload},
+            format='multipart',
+        )
+
+        assert response.status_code == 503
+        assert response.json() == {
+            'error': 'Document processing is temporarily unavailable. Try again later.',
+            'code': 'attachment_parser_unavailable',
+        }
+        assert response['Retry-After'] == '60'
+        extract.assert_called_once()
         assert not Attachment.objects.filter(user=user).exists()
 
     @mock.patch('chat.views.scan_attachment', return_value=CLEAN)
