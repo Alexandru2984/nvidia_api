@@ -1099,6 +1099,45 @@ is required before describing those controls as complete.
   SHA-256 exactly. The next timer-initiated run at 03:43 EEST completed with exit
   status zero and scheduled the following five-minute run.
 
+### Attachment malware-scanning rollout — 2026-10-15
+
+- Repository state `75e0d6b0968bf6fb22b1abde1abc1d68b523c259` streams
+  upload bytes to local ClamAV before MIME/signature inspection, archive or
+  document parsing, owner-scoped deduplication and storage. Generated NVIDIA PNG
+  bytes are scanned before storage, with a scanner readiness gate before provider
+  egress. The protocol sends neither filenames nor owner/prompt metadata, accepts
+  only exact clean/infected replies, rewinds every input and fails closed on
+  timeout, socket or protocol ambiguity. Malware responses and logs are generic.
+- Ubuntu ClamAV `1.5.4` is installed from the distribution repository with
+  official database version `28154` and `3,642,872` signatures at rollout.
+  `aichat-clamd` runs as the non-login `clamav` identity, over a `0660
+  clamav:clamav` Unix socket, in a private network namespace with only Unix
+  sockets permitted and without devices, capabilities or home access. Scan time,
+  stream/file/expanded size,
+  recursion, archive-file count, threads, queue, tasks and memory are bounded;
+  encrypted and limit-exceeding containers alert as detections. Its systemd
+  exposure score is `2.1 OK`; the separately sandboxed signature updater scores
+  `2.8 OK`.
+- The deployment preflight and manual production readiness command required exact
+  PING, benign CLEAN and EICAR FOUND outcomes. All 465 backend tests and 42
+  operations tests passed, along with ShellCheck, Python compilation, Django
+  checks, migration-drift checks and systemd unit validation. No schema migration
+  was required.
+- Production activated
+  `/opt/aichat-backend-releases/release-20261015T081727_217819455`; its immediate
+  rollback `/opt/aichat-backend-releases/release-20261015T081658_904867316` uses
+  the same scanner-enforcing commit, and both SHA-256 manifests verify. Backend,
+  scanner and updater are active with `NRestarts=0`; public/origin health returned
+  `200`, anonymous upload returned `403`, arbitrary media returned `404`, and the
+  backend had no new warning-or-higher journal entry after activation.
+- The five-minute monitor now checks the scanner socket, daily-signature age and
+  permissions plus any malware rejection or fail-closed request. Its installed
+  executable matches the repository at SHA-256
+  `c34be19f34356b6256dadfb3b07d76c11ce520f421d9d5393fa03b400a1e01ab`;
+  the first post-rollout run exited successfully with no active issue. This does
+  not close the remaining parser identity/network isolation work or prove that
+  signature scanning detects novel malicious documents.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

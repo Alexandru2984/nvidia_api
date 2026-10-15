@@ -147,6 +147,14 @@ secret values are reproduced here.
   replacement content exists. Conversation mutation and message editing are
   fenced while generation is active. Explicit request idempotency keys and a
   durable generation-job state machine remain open for safe automatic retries.
+- 2026-10-15: S-06 was partially mitigated in commit `75e0d6b` and production.
+  Every upload is scanned before type inspection, parsing, deduplication or
+  storage, and generated NVIDIA images are scanned before storage. Only exact
+  clean/infected verdicts are accepted; scanner errors and ambiguous replies fail
+  closed. The local `aichat-clamd` service runs as `clamav`, has no internet
+  address family or capabilities, scored `2.1 OK` under `systemd-analyze security`,
+  and uses bounded official signatures. Parser identity/network isolation remains
+  open, so the finding stays High.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
