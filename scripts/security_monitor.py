@@ -364,6 +364,53 @@ def evaluate_document_parser_socket(socket_path, timeout_seconds=3):
         return issue
 
 
+def evaluate_document_parser_installation(
+    backend_live,
+    service_path,
+    worker_path,
+    *,
+    expected_uid=0,
+    expected_gid=0,
+):
+    """Bind installed parser executables to the manifest-checked backend release."""
+    issue = {
+        'document_parser_integrity': (
+            'The installed document parser differs from the active backend release.'
+        ),
+    }
+    try:
+        backend_live = Path(backend_live)
+        if not stat.S_ISLNK(backend_live.lstat().st_mode):
+            return issue
+        release = backend_live.resolve(strict=True)
+        pairs = (
+            (Path(service_path), release / 'chat' / 'document_parser_service.py'),
+            (Path(worker_path), release / 'chat' / 'document_worker.py'),
+        )
+        for installed, source in pairs:
+            installed_info = installed.lstat()
+            source_info = source.lstat()
+            if (
+                not stat.S_ISREG(installed_info.st_mode)
+                or stat.S_ISLNK(installed_info.st_mode)
+                or installed_info.st_uid != expected_uid
+                or installed_info.st_gid != expected_gid
+                or stat.S_IMODE(installed_info.st_mode) != 0o755
+                or not 1 <= installed_info.st_size <= 1024 * 1024
+                or not stat.S_ISREG(source_info.st_mode)
+                or stat.S_ISLNK(source_info.st_mode)
+                or source_info.st_uid != expected_uid
+                or source_info.st_gid != expected_gid
+                or stat.S_IMODE(source_info.st_mode) != 0o644
+                or source_info.st_size != installed_info.st_size
+                or _hash_file(source) != _hash_file(installed)
+            ):
+                return issue
+        return {}
+    except (OSError, RuntimeError, ValueError):
+        return issue
+
+
 def read_journal():
     result = subprocess.run(
         ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
@@ -398,6 +445,8 @@ def evaluate(
     scanner_database_dir=None,
     scanner_socket=None,
     document_parser_socket=None,
+    document_parser_service=None,
+    document_parser_worker=None,
 ):
     now = now or time.time()
     issues = {}
@@ -410,6 +459,23 @@ def evaluate(
         issues.update(evaluate_clamav_socket(scanner_socket))
     if document_parser_socket is not None:
         issues.update(evaluate_document_parser_socket(document_parser_socket))
+    if document_parser_service is not None or document_parser_worker is not None:
+        if (
+            document_parser_service is None
+            or document_parser_worker is None
+            or backend_live is None
+        ):
+            issues['document_parser_integrity'] = (
+                'The document parser integrity monitor is misconfigured.'
+            )
+        else:
+            issues.update(evaluate_document_parser_installation(
+                backend_live,
+                document_parser_service,
+                document_parser_worker,
+                expected_uid=backend_expected_uid,
+                expected_gid=backend_expected_gid,
+            ))
 
     if frontend_live is not None or frontend_release_root is not None:
         if frontend_live is None or frontend_release_root is None:
@@ -706,6 +772,14 @@ def main():
         '--document-parser-socket',
         default='/run/aichat-document-parser/parser.sock',
     )
+    parser.add_argument(
+        '--document-parser-service',
+        default='/usr/local/libexec/aichat-document-parser',
+    )
+    parser.add_argument(
+        '--document-parser-worker',
+        default='/usr/local/libexec/aichat-document-worker',
+    )
     args = parser.parse_args()
 
     try:
@@ -732,6 +806,8 @@ def main():
             scanner_database_dir=args.scanner_database_dir,
             scanner_socket=args.scanner_socket,
             document_parser_socket=args.document_parser_socket,
+            document_parser_service=args.document_parser_service,
+            document_parser_worker=args.document_parser_worker,
         )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))

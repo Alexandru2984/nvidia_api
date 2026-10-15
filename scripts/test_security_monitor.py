@@ -174,6 +174,74 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertIn('document_parser_health', issues)
         socket_factory.assert_not_called()
 
+    def create_document_parser_installation(self):
+        backend_live, _, _ = self.create_backend_release()
+        chat = backend_live.resolve() / 'chat'
+        service_source = chat / 'document_parser_service.py'
+        worker_source = chat / 'document_worker.py'
+        service_source.write_bytes(b'service fixture\n')
+        worker_source.write_bytes(b'worker fixture\n')
+        service_source.chmod(0o644)
+        worker_source.chmod(0o644)
+        installed_service = self.root / 'aichat-document-parser'
+        installed_worker = self.root / 'aichat-document-worker'
+        installed_service.write_bytes(service_source.read_bytes())
+        installed_worker.write_bytes(worker_source.read_bytes())
+        installed_service.chmod(0o755)
+        installed_worker.chmod(0o755)
+        return backend_live, installed_service, installed_worker
+
+    def test_document_parser_installation_matches_active_release(self):
+        backend_live, installed_service, installed_worker = (
+            self.create_document_parser_installation()
+        )
+        self.assertEqual(
+            monitor.evaluate_document_parser_installation(
+                backend_live,
+                installed_service,
+                installed_worker,
+                expected_uid=os.getuid(),
+                expected_gid=os.getgid(),
+            ),
+            {},
+        )
+
+    def test_document_parser_installation_detects_tampering_and_modes(self):
+        backend_live, installed_service, installed_worker = (
+            self.create_document_parser_installation()
+        )
+        installed_worker.write_bytes(b'tampered worker\n')
+        issues = monitor.evaluate_document_parser_installation(
+            backend_live,
+            installed_service,
+            installed_worker,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+        self.assertIn('document_parser_integrity', issues)
+
+        installed_worker.write_bytes(
+            (backend_live.resolve() / 'chat' / 'document_worker.py').read_bytes(),
+        )
+        installed_worker.chmod(0o775)
+        issues = monitor.evaluate_document_parser_installation(
+            backend_live,
+            installed_service,
+            installed_worker,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+        self.assertIn('document_parser_integrity', issues)
+
+    def test_evaluate_rejects_partial_parser_integrity_configuration(self):
+        issues = monitor.evaluate(
+            self.backups,
+            self.restore_log,
+            '',
+            document_parser_service=self.root / 'missing',
+        )
+        self.assertIn('document_parser_integrity', issues)
+
     def test_detects_stale_or_permissive_backup(self):
         old = time.time() - monitor.BACKUP_MAX_AGE_SECONDS - 60
         os.utime(self.dump, (old, old))
