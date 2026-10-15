@@ -17,6 +17,9 @@ jobs:
       # settings.py reads these at import time; tests swap in sqlite/test
       # values via nvidia_chat.test_settings, so stubs are enough here.
       DJANGO_SECRET_KEY: ci-only-not-a-real-secret
+      TWO_FACTOR_KEYS: '{"ci-v1":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="}'
+      TWO_FACTOR_ACTIVE_KEY_ID: ci-v1
+      TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED: 'false'
       DB_NAME: ci
       DB_USER: ci
       DB_PASSWORD: ci
@@ -48,6 +51,7 @@ jobs:
           bash -n ../scripts/*.sh
           shellcheck ../scripts/*.sh
           python ../scripts/test_security_monitor.py
+          python ../scripts/test_configure_two_factor_keys.py
           python ../scripts/test_archive_release_retention.py
           python ../scripts/test_generate_python_sbom.py
           python ../scripts/generate_python_sbom.py requirements.lock \

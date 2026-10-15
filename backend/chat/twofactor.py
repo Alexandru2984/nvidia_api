@@ -1,7 +1,8 @@
 """TOTP-based 2FA: enroll, verify, disable, and login plug-in.
 
 Hardening notes:
-- The TOTP secret is Fernet-encrypted at rest with a SECRET_KEY-derived key.
+- TOTP and recovery artifacts use independently configured, versioned root keys;
+  rotating Django's signing key cannot silently lock users out.
 - Recovery code consumption runs inside select_for_update so two concurrent
   logins with the same code can't both succeed.
 - Replay protection: every accepted TOTP code marks its 30-second step on the
@@ -11,10 +12,12 @@ Hardening notes:
   factor (recovery codes still honoured so users can recover).
 """
 import base64
+import binascii
 import hashlib
 import hmac
 import io
 import logging
+import re
 import secrets
 import time
 from datetime import timedelta
@@ -45,30 +48,154 @@ LOCKOUT_THRESHOLD = 5
 LOCKOUT_DURATION = timedelta(minutes=10)
 TOTP_STEP_SECONDS = 30
 TOTP_VALID_WINDOW = 1  # accept current step ± 1
+KEY_ENVELOPE_VERSION = 'v1'
+KEY_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
+TOTP_SECRET_RE = re.compile(r'^[A-Z2-7]{32}$')
+RECOVERY_DIGEST_RE = re.compile(r'^[0-9a-f]{64}$')
 
 
-def _fernet():
+class TwoFactorKeyError(ValueError):
+    """Stored 2FA material cannot be safely opened with configured keys."""
+
+
+def _root_key(key_id: str) -> bytes:
+    encoded = settings.TWO_FACTOR_KEYS.get(key_id)
+    if not isinstance(encoded, str):
+        raise TwoFactorKeyError('unknown key identifier')
+    try:
+        decoded = base64.b64decode(encoded.encode('ascii'), altchars=b'-_', validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise TwoFactorKeyError('invalid configured key') from exc
+    if len(decoded) != 32:
+        raise TwoFactorKeyError('invalid configured key length')
+    return decoded
+
+
+def _derived_key(key_id: str, purpose: bytes) -> bytes:
+    return hmac.new(_root_key(key_id), purpose, hashlib.sha256).digest()
+
+
+def _active_key_id() -> str:
+    key_id = settings.TWO_FACTOR_ACTIVE_KEY_ID
+    if not isinstance(key_id, str) or not KEY_ID_RE.fullmatch(key_id):
+        raise TwoFactorKeyError('invalid active key identifier')
+    _root_key(key_id)
+    return key_id
+
+
+def _envelope(key_id: str, payload: str) -> str:
+    return f'{KEY_ENVELOPE_VERSION}${key_id}${payload}'
+
+
+def _parse_envelope(stored: str):
+    if not isinstance(stored, str) or not stored:
+        raise TwoFactorKeyError('empty stored artifact')
+    if '$' not in stored:
+        return None
+    parts = stored.split('$', 2)
+    if (
+        len(parts) != 3
+        or parts[0] != KEY_ENVELOPE_VERSION
+        or not KEY_ID_RE.fullmatch(parts[1])
+        or not parts[2]
+    ):
+        raise TwoFactorKeyError('invalid artifact envelope')
+    return parts[1], parts[2]
+
+
+def _validate_totp_secret(secret: str) -> str:
+    if not isinstance(secret, str) or not TOTP_SECRET_RE.fullmatch(secret):
+        raise TwoFactorKeyError('invalid TOTP secret')
+    return secret
+
+
+def _fernet(key_id: str):
+    key = base64.urlsafe_b64encode(_derived_key(
+        key_id, b'aichat:two-factor:fernet:v1',
+    ))
+    return Fernet(key)
+
+
+def _legacy_fernet():
     key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode('utf-8')).digest())
     return Fernet(key)
 
 
 def _encrypt_secret(plain: str) -> str:
-    return _fernet().encrypt(plain.encode('utf-8')).decode('utf-8')
+    plain = _validate_totp_secret(plain)
+    key_id = _active_key_id()
+    token = _fernet(key_id).encrypt(plain.encode('ascii')).decode('ascii')
+    return _envelope(key_id, token)
 
 
 def _decrypt_secret(stored: str) -> str:
-    """Decrypt the stored secret. Treat anything that isn't a valid Fernet token
-    as a legacy plaintext base32 secret (for older rows pre-migration)."""
+    """Open and validate a TOTP secret, rejecting corruption fail-closed."""
+    parsed = _parse_envelope(stored)
+    if parsed is not None:
+        key_id, token = parsed
+        try:
+            plain = _fernet(key_id).decrypt(token.encode('ascii')).decode('ascii')
+        except (InvalidToken, UnicodeDecodeError, UnicodeEncodeError, ValueError) as exc:
+            raise TwoFactorKeyError('encrypted TOTP secret could not be opened') from exc
+        return _validate_totp_secret(plain)
+
+    if not settings.TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED:
+        raise TwoFactorKeyError('unversioned TOTP secret is disabled')
     try:
-        return _fernet().decrypt(stored.encode('utf-8')).decode('utf-8')
-    except (InvalidToken, ValueError):
-        return stored
+        plain = _legacy_fernet().decrypt(stored.encode('ascii')).decode('ascii')
+    except (InvalidToken, UnicodeDecodeError, UnicodeEncodeError, ValueError):
+        plain = stored
+    return _validate_totp_secret(plain)
 
 
-def _hash_recovery(code: str) -> str:
-    pepper = settings.SECRET_KEY.encode()
-    norm = code.strip().lower().replace('-', '').replace(' ', '')
-    return hmac.new(pepper, norm.encode(), hashlib.sha256).hexdigest()
+def _secret_key_id(stored: str):
+    parsed = _parse_envelope(stored)
+    return parsed[0] if parsed is not None else None
+
+
+def _normalise_recovery_code(code: str) -> str:
+    return code.strip().lower().replace('-', '').replace(' ', '')
+
+
+def _hash_recovery(code: str, *, key_id=None) -> str:
+    key_id = key_id or _active_key_id()
+    pepper = _derived_key(key_id, b'aichat:two-factor:recovery:v1')
+    digest = hmac.new(
+        pepper, _normalise_recovery_code(code).encode('utf-8'), hashlib.sha256,
+    ).hexdigest()
+    return _envelope(key_id, digest)
+
+
+def _legacy_recovery_digest(code: str) -> str:
+    return hmac.new(
+        settings.SECRET_KEY.encode('utf-8'),
+        _normalise_recovery_code(code).encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _matching_recovery_artifact(stored_codes, code: str):
+    if not isinstance(stored_codes, list):
+        raise TwoFactorKeyError('invalid recovery-code collection')
+    legacy_digest = None
+    for stored in stored_codes:
+        parsed = _parse_envelope(stored)
+        if parsed is None:
+            if not settings.TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED:
+                raise TwoFactorKeyError('unversioned recovery code is disabled')
+            if not RECOVERY_DIGEST_RE.fullmatch(stored):
+                raise TwoFactorKeyError('invalid legacy recovery digest')
+            if legacy_digest is None:
+                legacy_digest = _legacy_recovery_digest(code)
+            candidate = legacy_digest
+        else:
+            key_id, digest = parsed
+            if not RECOVERY_DIGEST_RE.fullmatch(digest):
+                raise TwoFactorKeyError('invalid recovery digest')
+            candidate = _hash_recovery(code, key_id=key_id).split('$', 2)[2]
+        if hmac.compare_digest(candidate, parsed[1] if parsed is not None else stored):
+            return stored
+    return None
 
 
 def _new_recovery_codes(n=RECOVERY_CODE_COUNT):
@@ -82,8 +209,15 @@ def _new_recovery_codes(n=RECOVERY_CODE_COUNT):
 
 
 def _enrollment_fingerprint(encrypted_secret: str) -> str:
+    parsed = _parse_envelope(encrypted_secret)
+    if parsed is None:
+        if not settings.TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED:
+            raise TwoFactorKeyError('unversioned enrollment is disabled')
+        pepper = settings.SECRET_KEY.encode('utf-8')
+    else:
+        pepper = _derived_key(parsed[0], b'aichat:two-factor:enrollment:v1')
     return hmac.new(
-        settings.SECRET_KEY.encode(),
+        pepper,
         f'two-factor-enrollment:{encrypted_secret}'.encode(),
         hashlib.sha256,
     ).hexdigest()
@@ -156,10 +290,18 @@ def _record_failure(tf):
     tf.save(update_fields=['failed_attempts', 'locked_until'])
 
 
+def _report_key_error(user_id, operation):
+    security_log.error(
+        'event=two_factor_key_error operation=%s user_id=%s', operation, user_id,
+    )
+
+
 def verify_for_login(user, code: str) -> bool:
     """True if `code` is a valid TOTP or unused recovery code for `user`.
     Recovery codes are consumed atomically; TOTP replays are rejected."""
-    code = (code or '').strip()
+    if not isinstance(code, str):
+        return False
+    code = code.strip()
     if not code:
         return False
 
@@ -173,32 +315,61 @@ def verify_for_login(user, code: str) -> bool:
         if tf is None:
             return True  # 2FA not configured — nothing to verify
 
-        # Locked? Reject without burning the failure counter further.
+        is_totp = code.isdigit() and len(code) == 6
+
+        # Recovery codes remain usable during a TOTP brute-force lockout. Their
+        # longer, hyphenated format cannot be confused with a six-digit TOTP.
+        if not is_totp:
+            try:
+                matched_artifact = _matching_recovery_artifact(tf.recovery_codes or [], code)
+            except TwoFactorKeyError:
+                _report_key_error(user.pk, 'recovery_login')
+                return False
+            if matched_artifact is not None:
+                tf.recovery_codes = [
+                    artifact for artifact in tf.recovery_codes
+                    if artifact != matched_artifact
+                ]
+                tf.last_used_at = timezone.now()
+                tf.failed_attempts = 0
+                tf.locked_until = None
+                tf.save(update_fields=[
+                    'recovery_codes', 'last_used_at', 'failed_attempts', 'locked_until',
+                ])
+                log.info(
+                    '2FA recovery code consumed for user_id=%s; %d remaining',
+                    user.pk, len(tf.recovery_codes),
+                )
+                return True
+            if tf.locked_until and tf.locked_until > timezone.now():
+                return False
+            _record_failure(tf)
+            return False
+
+        # Locked? Reject TOTP without burning the failure counter further.
         if tf.locked_until and tf.locked_until > timezone.now():
             return False
 
-        plain = _decrypt_secret(tf.secret)
+        try:
+            plain = _decrypt_secret(tf.secret)
+        except TwoFactorKeyError:
+            _report_key_error(user.pk, 'totp_login')
+            return False
 
         # TOTP path
         matched = _verify_totp(plain, code, tf.last_totp_step)
         if matched is not None:
+            update_fields = [
+                'last_totp_step', 'last_used_at', 'failed_attempts', 'locked_until',
+            ]
+            if _secret_key_id(tf.secret) != _active_key_id():
+                tf.secret = _encrypt_secret(plain)
+                update_fields.append('secret')
             tf.last_totp_step = matched
             tf.last_used_at = timezone.now()
             tf.failed_attempts = 0
             tf.locked_until = None
-            tf.save(update_fields=['last_totp_step', 'last_used_at', 'failed_attempts', 'locked_until'])
-            return True
-
-        # Recovery code path
-        h = _hash_recovery(code)
-        if h in (tf.recovery_codes or []):
-            tf.recovery_codes = [x for x in tf.recovery_codes if x != h]
-            tf.last_used_at = timezone.now()
-            tf.failed_attempts = 0
-            tf.locked_until = None
-            tf.save(update_fields=['recovery_codes', 'last_used_at', 'failed_attempts', 'locked_until'])
-            log.info('2FA recovery code consumed for user_id=%s; %d remaining',
-                     user.pk, len(tf.recovery_codes))
+            tf.save(update_fields=update_fields)
             return True
 
         _record_failure(tf)
@@ -282,7 +453,8 @@ def verify_enroll(request):
     if getattr(request, 'limited', False):
         return Response({'error': 'Too many requests.'}, status=429)
 
-    code = (request.data.get('code') or '').strip()
+    raw_code = request.data.get('code')
+    code = raw_code.strip() if isinstance(raw_code, str) else ''
     if not code or not code.isdigit() or len(code) != 6:
         return Response({'error': 'Enter the 6-digit code from your authenticator app.'}, status=400)
 
@@ -295,14 +467,26 @@ def verify_enroll(request):
             return Response({'error': 'No pending 2FA setup. Call /enroll first.'}, status=400)
         if tf.enabled:
             return Response({'error': '2FA already enabled.'}, status=409)
-        if (
-            not _has_recent_enrollment_auth(request, tf.secret)
-            or recent_auth_seconds_remaining(request) <= 0
-        ):
+        try:
+            recent_enrollment_auth = _has_recent_enrollment_auth(request, tf.secret)
+        except TwoFactorKeyError:
+            request.session.pop(ENROLLMENT_AUTH_SESSION_KEY, None)
+            _report_key_error(request.user.pk, 'verify_enrollment')
+            return Response(
+                {'error': 'Two-factor setup is temporarily unavailable.'}, status=503,
+            )
+        if not recent_enrollment_auth or recent_auth_seconds_remaining(request) <= 0:
             request.session.pop(ENROLLMENT_AUTH_SESSION_KEY, None)
             return Response({'error': 'Password confirmation expired. Start 2FA setup again.'}, status=403)
 
-        plain = _decrypt_secret(tf.secret)
+        try:
+            plain = _decrypt_secret(tf.secret)
+        except TwoFactorKeyError:
+            request.session.pop(ENROLLMENT_AUTH_SESSION_KEY, None)
+            _report_key_error(request.user.pk, 'verify_enrollment')
+            return Response(
+                {'error': 'Two-factor setup is temporarily unavailable.'}, status=503,
+            )
         matched = _verify_totp(plain, code, tf.last_totp_step)
         if matched is None:
             return Response({'error': 'Wrong code. Make sure your device clock is accurate.'}, status=400)

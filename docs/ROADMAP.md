@@ -44,8 +44,12 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Recoverability:** the repository includes an isolated database restore drill;
   schedule and monitor it. Encrypt backups with a separately held key, keep a
   tested off-site copy, alert on job failure, and document RPO/RTO.
-- **Key lifecycle:** version encryption keys for TOTP/recovery artifacts so the
-  Django signing key can rotate without silent loss; document forced re-enrollment.
+- **Versioned 2FA key lifecycle is shipped:** purpose-separated TOTP encryption,
+  recovery HMACs and enrollment fingerprints use an independent bounded keyring;
+  stored envelopes record their key ID, corrupt/unknown artifacts fail closed and
+  alert, TOTP secrets rotate transactionally or lazily, and an audit gate prevents
+  premature retirement while recovery codes still reference an old key. Move the
+  root keys to systemd credentials or a KMS/HSM during the next secret rotation.
 - **Incident readiness:** execute the runbook and close exercise findings before
   changing the audit verdict to green.
 

@@ -2,7 +2,12 @@
 Django settings for nvidia_chat project.
 """
 
+import base64
+import binascii
+import hashlib
+import json
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -34,6 +39,63 @@ if not SECRET_KEY:
     else:
         raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DEBUG is off.')
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h.strip()]
+
+
+_TWO_FACTOR_KEY_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
+
+
+def _two_factor_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('duplicate key identifier')
+        result[key] = value
+    return result
+
+
+def _load_two_factor_keyring():
+    raw = os.environ.get('TWO_FACTOR_KEYS', '').strip()
+    active = os.environ.get('TWO_FACTOR_ACTIVE_KEY_ID', '').strip()
+    if not raw:
+        if not DEBUG:
+            raise ImproperlyConfigured('TWO_FACTOR_KEYS must be set when DEBUG is off.')
+        # Development-only convenience. Production must always supply an
+        # independently generated root key so rotating Django signing material
+        # cannot make TOTP or recovery artifacts unusable.
+        derived = hashlib.sha256(
+            b'aichat-development-two-factor-key\0' + SECRET_KEY.encode('utf-8'),
+        ).digest()
+        return {'development': base64.urlsafe_b64encode(derived).decode('ascii')}, 'development'
+    try:
+        parsed = json.loads(raw, object_pairs_hook=_two_factor_json_object)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ImproperlyConfigured('TWO_FACTOR_KEYS must be a valid JSON object.') from exc
+    if not isinstance(parsed, dict) or not 1 <= len(parsed) <= 8:
+        raise ImproperlyConfigured('TWO_FACTOR_KEYS must contain between 1 and 8 keys.')
+    for key_id, encoded in parsed.items():
+        if not isinstance(key_id, str) or not _TWO_FACTOR_KEY_ID_RE.fullmatch(key_id):
+            raise ImproperlyConfigured('TWO_FACTOR_KEYS contains an invalid key identifier.')
+        if not isinstance(encoded, str) or len(encoded) != 44:
+            raise ImproperlyConfigured('Every TWO_FACTOR_KEYS value must be a base64url key.')
+        try:
+            decoded = base64.b64decode(encoded.encode('ascii'), altchars=b'-_', validate=True)
+        except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+            raise ImproperlyConfigured('Every TWO_FACTOR_KEYS value must be a base64url key.') from exc
+        if len(decoded) != 32 or base64.urlsafe_b64encode(decoded).decode('ascii') != encoded:
+            raise ImproperlyConfigured('Every TWO_FACTOR_KEYS value must encode exactly 32 bytes.')
+    if not active or active not in parsed:
+        raise ImproperlyConfigured('TWO_FACTOR_ACTIVE_KEY_ID must select a configured 2FA key.')
+    return parsed, active
+
+
+TWO_FACTOR_KEYS, TWO_FACTOR_ACTIVE_KEY_ID = _load_two_factor_keyring()
+TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED = (
+    os.environ.get('TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED', str(DEBUG)).strip().lower() == 'true'
+)
+if os.environ.get('TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED', str(DEBUG)).strip().lower() not in {
+    'true', 'false',
+}:
+    raise ImproperlyConfigured('TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED must be true or false.')
 
 INSTALLED_APPS = [
     'django.contrib.admin',

@@ -581,6 +581,7 @@ def evaluate(
     parser_unavailable = journal.count('event=attachment_parser_unavailable')
     parser_failures = journal.count('event=document_parser_failure')
     provider_protocol_rejections = journal.count('event=provider_protocol_rejected')
+    two_factor_key_errors = journal.count('event=two_factor_key_error')
     model_status_invalid = journal.count('event=model_status_invalid')
     model_probe_degraded = journal.count('event=model_probe_degraded')
     model_probe_authorization = journal.count('event=model_probe_authorization_failed')
@@ -653,6 +654,10 @@ def evaluate(
         issues['provider_protocol_rejected'] = (
             f'{provider_protocol_rejections} malformed or redirected provider responses '
             'were rejected in six minutes.'
+        )
+    if two_factor_key_errors:
+        issues['two_factor_key_error'] = (
+            f'{two_factor_key_errors} stored two-factor artifacts could not be opened safely.'
         )
     if model_status_invalid:
         issues['model_status_invalid'] = 'The runtime model-status file failed validation.'

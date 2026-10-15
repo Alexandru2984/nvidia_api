@@ -65,6 +65,9 @@ The Vite development server proxies `/api` and `/admin` to
 DJANGO_SECRET_KEY=...
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=aichat.micutu.com,localhost,127.0.0.1
+TWO_FACTOR_KEYS={"prod-2026-10":"<independently-generated-base64url-32-byte-key>"}
+TWO_FACTOR_ACTIVE_KEY_ID=prod-2026-10
+TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED=False
 
 DB_NAME=nvidia_db
 DB_USER=nvidia_user
@@ -508,6 +511,27 @@ updates remain owned by the deployment administrator; production dependency
 installation runs as the secret-blind `nobody` builder and becomes root-owned
 before activation.
 
+Bootstrap the independent 2FA keyring before the first production deployment
+that contains 2FA key versioning. The helper changes only the three managed
+settings, replaces `.env` atomically, preserves its exact owner/group/mode, and
+never prints key material:
+
+```bash
+sudo python3 scripts/configure_two_factor_keys.py \
+  --env-file /home/micu/nvidia/backend/.env --key-id prod-2026-10
+sudo -u aichat env AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend \
+  /opt/aichat-python-current/bin/python /opt/aichat-backend-current/manage.py \
+  audit_two_factor_keys --require-active
+```
+
+For a planned 2FA-key rotation, use the same helper with a new identifier and
+`--rotate`, restart/deploy the backend, then run `rotate_two_factor_keys`. TOTP
+secrets are re-encrypted transactionally; recovery hashes retain their recorded
+old key ID until each code is consumed or the user regenerates the set. Keep the
+retired key configured until `audit_two_factor_keys --require-active` passes.
+`TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED` exists only for an explicitly supervised
+legacy migration and stays `False` in production.
+
 Take a recoverable copy of each live configuration before replacing it. After
 deployment, check service logs, authentication/CSRF, a private attachment download,
 `/.well-known/security.txt`, and rollback. See the
@@ -538,6 +562,11 @@ and [roadmap](docs/ROADMAP.md).
   privileged change or integrity failure alerts within the five-minute monitor
   cycle. Both audit stores retain 365 days by default via
   `ADMIN_AUDIT_RETENTION_DAYS`.
+- TOTP secrets and recovery-code hashes use purpose-separated keys inside
+  versioned envelopes. Their root keyring is independent of
+  `DJANGO_SECRET_KEY`; missing, retired-too-early, malformed, or corrupted
+  artifacts fail closed and emit `two_factor_key_error` for the five-minute
+  security monitor. Recovery codes remain usable during a TOTP lockout.
 - `DJANGO_SECRET_KEY` protects nonnumeric audit references and integrity tags.
   Rotate it only with a reviewed re-tagging migration; otherwise existing audit
   events intentionally fail integrity validation.

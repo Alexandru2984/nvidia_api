@@ -1,4 +1,5 @@
 """Regression tests for Audit #3 findings."""
+from io import StringIO
 import threading
 from unittest.mock import patch
 
@@ -6,6 +7,8 @@ import pyotp
 import pytest
 from django.contrib.sessions.models import Session
 from django.core import mail
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from rest_framework.test import APIClient
 
 from chat.models import PasswordReset, TwoFactor
@@ -15,6 +18,8 @@ from chat.twofactor import (
     _decrypt_secret,
     _encrypt_secret,
     _hash_recovery,
+    _matching_recovery_artifact,
+    TwoFactorKeyError,
 )
 
 
@@ -44,6 +49,7 @@ class TestSecretEncryption:
         stored = TwoFactor.objects.get(user=user).secret
         # The DB row must NOT match the plaintext base32 secret.
         assert stored != plain
+        assert stored.startswith('v1$test-v1$')
         # And must round-trip through the helper.
         assert _decrypt_secret(stored) == plain
 
@@ -56,6 +62,58 @@ class TestSecretEncryption:
         for _ in range(3):
             s = pyotp.random_base32()
             assert _decrypt_secret(_encrypt_secret(s)) == s
+
+    def test_versioned_secret_survives_django_signing_key_rotation(self, settings):
+        plain = pyotp.random_base32()
+        stored = _encrypt_secret(plain)
+        settings.SECRET_KEY = 'rotated-django-signing-key'
+        assert _decrypt_secret(stored) == plain
+
+    def test_configured_old_key_decrypts_and_new_writes_use_active_key(self, settings):
+        plain = pyotp.random_base32()
+        old = _encrypt_secret(plain)
+        settings.TWO_FACTOR_ACTIVE_KEY_ID = 'test-v2'
+        assert _decrypt_secret(old) == plain
+        assert _encrypt_secret(plain).startswith('v1$test-v2$')
+
+    def test_corrupt_or_unknown_ciphertext_fails_closed(self):
+        with pytest.raises(TwoFactorKeyError):
+            _decrypt_secret('this-is-not-a-base32-secret-or-fernet-token')
+        with pytest.raises(TwoFactorKeyError):
+            _decrypt_secret('v1$missing$not-a-token')
+
+    def test_legacy_plaintext_requires_explicit_compatibility(self, settings):
+        settings.TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED = False
+        with pytest.raises(TwoFactorKeyError):
+            _decrypt_secret(pyotp.random_base32())
+
+    def test_recovery_hash_survives_django_signing_key_rotation(self, settings):
+        stored = _hash_recovery('aaaa1111-bbbb2222')
+        assert stored.startswith('v1$test-v1$')
+        settings.SECRET_KEY = 'rotated-django-signing-key'
+        assert _matching_recovery_artifact([stored], 'aaaa1111-bbbb2222') == stored
+
+
+@pytest.mark.django_db
+class TestTwoFactorKeyCommands:
+    def test_audit_and_rotation_move_secret_to_active_key(self, user, settings):
+        plain = pyotp.random_base32()
+        factor = TwoFactor.objects.create(user=user, secret=_encrypt_secret(plain))
+        output = StringIO()
+        call_command('audit_two_factor_keys', '--require-active', stdout=output)
+        assert '2FA key audit passed' in output.getvalue()
+
+        settings.TWO_FACTOR_ACTIVE_KEY_ID = 'test-v2'
+        call_command('rotate_two_factor_keys', stdout=StringIO())
+        factor.refresh_from_db()
+        assert factor.secret.startswith('v1$test-v2$')
+        assert _decrypt_secret(factor.secret) == plain
+        call_command('audit_two_factor_keys', '--require-active', stdout=StringIO())
+
+    def test_audit_rejects_corrupt_stored_secret(self, user):
+        TwoFactor.objects.create(user=user, secret='corrupt')
+        with pytest.raises(CommandError, match='failed validation'):
+            call_command('audit_two_factor_keys', stdout=StringIO(), stderr=StringIO())
 
 
 @pytest.mark.django_db

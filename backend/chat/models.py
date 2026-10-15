@@ -71,11 +71,12 @@ class TwoFactor(models.Model):
         related_name='two_factor',
         on_delete=models.CASCADE,
     )
-    # Secret is now Fernet-encrypted at rest (key derived from SECRET_KEY).
-    # Old plaintext rows are auto-migrated on first read.
+    # Versioned Fernet envelope; the root key is independent of SECRET_KEY.
+    # Explicitly enabled legacy rows are rewrapped after a successful TOTP use.
     secret = models.CharField(max_length=256)
     enabled = models.BooleanField(default=False)
-    recovery_codes = models.JSONField(default=list)  # list of HMAC-SHA256 hex digests
+    # Versioned key-id envelopes containing HMAC-SHA256 digests.
+    recovery_codes = models.JSONField(default=list)
     enrolled_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     # Replay protection: highest TOTP step (epoch//30) we've already accepted.

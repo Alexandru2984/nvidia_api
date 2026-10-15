@@ -81,13 +81,21 @@ environment release manifest, ownership or permission failure.
 Patch the root cause before restoring normal traffic. Rotate affected credentials
 from a known-clean device in dependency order: host/Cloudflare/GitHub control
 plane, database and mail credentials, NVIDIA key, Django sessions, then application
-secrets. Treat `DJANGO_SECRET_KEY` rotation as a planned migration: it invalidates
-signed sessions and currently affects protection/derivation of authentication
-artifacts including TOTP material. Verify consequences before rotation and require
-2FA re-enrollment when decryption or integrity cannot be assured. Existing admin
-audit HMACs and pseudonymous nonnumeric object references also depend on this key;
-re-tag them through a reviewed migration before rotation or preserve the old key
-for evidence validation.
+secrets. `DJANGO_SECRET_KEY` rotation invalidates signed sessions, invitations and
+other signing/integrity artifacts, but versioned TOTP/recovery protection uses the
+independent `TWO_FACTOR_KEYS` keyring. Existing admin-audit HMACs and pseudonymous
+nonnumeric object references still depend on the Django key; re-tag them through a
+reviewed migration or preserve the old key for evidence validation.
+
+Rotate a suspected 2FA root key by adding a new key with
+`configure_two_factor_keys.py --rotate`, selecting it as active, restarting the
+backend, and running `manage.py rotate_two_factor_keys`. Do not remove an old key
+until `manage.py audit_two_factor_keys --require-active` passes; recovery hashes
+cannot be transformed and must first be consumed or regenerated. Any
+`two_factor_key_error` is a high-signal integrity/availability incident. Preserve
+the database and configuration evidence, revoke sessions, and require re-enrollment
+only when the affected TOTP material cannot be decrypted with a trusted retained
+key. Never enable legacy `SECRET_KEY` compatibility as an unreviewed workaround.
 
 ## 5. Notify
 

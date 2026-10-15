@@ -5,9 +5,10 @@ import pyotp
 import pytest
 from django.contrib.sessions.models import Session
 from django.core.cache import cache
+from django.utils import timezone
 
 from chat.models import TwoFactor
-from chat.twofactor import _hash_recovery
+from chat.twofactor import LOCKOUT_DURATION, LOCKOUT_THRESHOLD, _hash_recovery
 
 PASSWORD = 'Hunter2pass'
 
@@ -186,6 +187,36 @@ class TestLoginWith2FA:
             'username': user.username, 'password': 'Hunter2pass', 'code': plaintext,
         }, format='json')
         assert r2.status_code == 401
+
+    def test_recovery_code_remains_usable_during_totp_lockout(self, auth_client, client, user):
+        self._enable(auth_client)
+        recovery = 'aaaa1111-bbbb2222'
+        tf = TwoFactor.objects.get(user=user)
+        tf.recovery_codes = [_hash_recovery(recovery)]
+        tf.locked_until = timezone.now() + LOCKOUT_DURATION
+        tf.failed_attempts = LOCKOUT_THRESHOLD
+        tf.save(update_fields=['recovery_codes', 'locked_until', 'failed_attempts'])
+        auth_client.logout()
+
+        response = client.post('/api/auth/login/', {
+            'username': user.username, 'password': PASSWORD, 'code': recovery,
+        }, format='json')
+        assert response.status_code == 200
+        tf.refresh_from_db()
+        assert tf.recovery_codes == []
+        assert tf.locked_until is None
+        assert tf.failed_attempts == 0
+
+    def test_unopenable_totp_secret_fails_closed_and_emits_event(
+        self, client, user, caplog,
+    ):
+        TwoFactor.objects.create(user=user, secret='corrupt', enabled=True)
+        caplog.set_level('ERROR', logger='security')
+        response = client.post('/api/auth/login/', {
+            'username': user.username, 'password': PASSWORD, 'code': '123456',
+        }, format='json')
+        assert response.status_code == 401
+        assert any('event=two_factor_key_error' in record.message for record in caplog.records)
 
     def test_login_for_user_without_2fa_unchanged(self, client, user):
         # Pre-existing path still works for non-2FA users.

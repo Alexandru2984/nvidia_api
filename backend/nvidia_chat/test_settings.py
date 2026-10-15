@@ -1,4 +1,5 @@
 """Test settings: SQLite in-memory, in-process cache, tmp media, no external IO."""
+import base64
 import tempfile
 
 from .settings import *
@@ -32,6 +33,12 @@ EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 
 # Predictable for HMAC tests. Don't reuse this anywhere.
 SECRET_KEY = 'test-secret-key-do-not-use-in-prod'
+TWO_FACTOR_KEYS = {
+    'test-v1': base64.urlsafe_b64encode(b'\x01' * 32).decode('ascii'),
+    'test-v2': base64.urlsafe_b64encode(b'\x02' * 32).decode('ascii'),
+}
+TWO_FACTOR_ACTIVE_KEY_ID = 'test-v1'
+TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED = True
 REGISTRATION_MODE = 'open'
 
 # Avoid SMTP timeouts during tests
