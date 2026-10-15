@@ -1055,6 +1055,48 @@ is required before describing those controls as complete.
   health returned 200, anonymous models returned 403, arbitrary media returned
   404, and no warning-or-higher backend journal entries appeared after activation.
 
+### Provider data-flow disclosure rollout — 2026-10-15
+
+- Repository state `33240aae4b2dedfba4c95147694215c146ce1509` added a
+  versioned, owner-bound acknowledgement before chat, regeneration or image
+  content can leave the application for NVIDIA. The record contains only the user
+  relationship, disclosure version and timestamp. A stale, absent or malformed
+  version fails with `428` before generation leases, budget reservations, message
+  writes or provider calls; anonymous and CSRF-less acceptance attempts return
+  `403`.
+- Repository state `3cf1de7b0602f80226ad21ee0b785c954ca0dbf0` binds the
+  keyboard-accessible responsive dialog's
+  version to its compiled text. The dialog names prompts, relevant history,
+  selected files and image settings, links NVIDIA's official privacy policy and
+  service terms, and retains an equal cancel path. Its version is compiled with
+  that exact text; a tab carrying a stale bundle preserves its draft or branch but
+  cannot accept a newer server version and must reload the current UI. This control
+  is transparency evidence only; it does not establish the
+  operator's GDPR legal basis, NVIDIA retention/training terms, DPA/region, or
+  production entitlement.
+- All 451 backend and 37 Playwright tests passed, including 320 px first-use and
+  stale-tab retries. Django checks and migration drift, frontend lint/build and
+  `npm audit` passed with zero reported npm vulnerabilities. Pre-migration backup
+  `/home/micu/backups/nvidia_db/nvidia_db_20261015_033647_394304357.sql.gz`
+  is mode `0600`, gzip-valid and SHA-256
+  `7f6da4d7872a1f0da308f1cf687ed532898488a44ca3d56b1f6c1f06e8ff6c5f`.
+- Migration `chat.0024_providerdisclosureacceptance` applied successfully.
+  Production activated backend release
+  `/opt/aichat-backend-releases/release-20261015T003658_515283587` and frontend
+  release `/var/www/aichat-releases/release-20261015T004138_786733853`, retaining
+  their immediate predecessors. Public and origin root/health returned `200`,
+  anonymous private and disclosure routes returned `403`, arbitrary media
+  returned `404`, the backend remained at `NRestarts=0`, and no warning-or-higher
+  backend journal entries appeared after activation.
+- Rollout observation found the monitor state readable as JSON but owned by root
+  after an earlier manual root execution, so the `micu` service had failed closed.
+  Ownership was restored to `0600 micu:micu` and the service recovered. Repository
+  state `326c7e2a5f85dba41baff2d420349d911ffdbfd1` now rejects
+  non-regular, non-`0600`, or different-UID state before replacement; all 21
+  monitor tests pass and the installed root-owned executable matches the committed
+  SHA-256 exactly. The next timer-initiated run at 03:43 EEST completed with exit
+  status zero and scheduled the following five-minute run.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed
@@ -1071,6 +1113,8 @@ remain open.
 - [GDPR consolidated text](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
 - [ICO personal data breach guidance](https://ico.org.uk/for-organisations/report-a-breach/personal-data-breach/personal-data-breaches-a-guide/)
 - [NVIDIA NIM product and licensing FAQ](https://docs.api.nvidia.com/nim/docs/product)
+- [NVIDIA privacy policy](https://www.nvidia.com/en-us/about-nvidia/privacy-policy/)
+- [NVIDIA developer terms](https://developer.nvidia.com/legal/terms)
 - [NVIDIA vision-language model support](https://docs.nvidia.com/nim/vision-language-models/2.0.10-variant/introduction.html)
 - [NVIDIA hosted LLM API catalog](https://docs.api.nvidia.com/nim/reference/llm-apis)
 - [NVIDIA Nemotron 3.5 Lightning model card](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard)
