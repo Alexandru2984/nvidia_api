@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location(
     'security_monitor', Path(__file__).with_name('security_monitor.py'),
@@ -90,6 +91,19 @@ class SecurityMonitorTests(unittest.TestCase):
         monitor.save_state(state_path, expected)
         self.assertEqual(monitor.load_state(state_path), expected)
         self.assertEqual(state_path.stat().st_mode & 0o777, 0o600)
+
+    def test_state_rejects_unsafe_mode_or_different_owner(self):
+        state_path = self.root / 'state' / 'state.json'
+        monitor.save_state(state_path, {'active': [], 'last_sent': {}})
+
+        state_path.chmod(0o640)
+        with self.assertRaisesRegex(RuntimeError, 'unsafe ownership or permissions'):
+            monitor.load_state(state_path)
+
+        state_path.chmod(0o600)
+        with mock.patch.object(monitor.os, 'geteuid', return_value=os.geteuid() + 1):
+            with self.assertRaisesRegex(RuntimeError, 'unsafe ownership or permissions'):
+                monitor.load_state(state_path)
 
     def test_credentials_parser_accepts_quotes(self):
         env_file = self.root / 'monitor.env'

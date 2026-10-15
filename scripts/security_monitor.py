@@ -510,14 +510,21 @@ def send_telegram(credentials_path, text):
 
 def load_state(path):
     try:
-        if path.is_symlink():
-            raise RuntimeError('monitor state must not be a symlink')
+        info = path.lstat()
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != os.geteuid()
+        ):
+            raise RuntimeError('monitor state has unsafe ownership or permissions')
         data = json.loads(path.read_text(encoding='utf-8'))
         if not isinstance(data, dict):
             raise TypeError
         return data
     except FileNotFoundError:
         return {'active': [], 'last_sent': {}}
+    except RuntimeError:
+        raise
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         raise RuntimeError('monitor state is invalid') from None
 
