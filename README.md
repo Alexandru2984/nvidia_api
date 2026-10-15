@@ -345,8 +345,8 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   integrity, all three active root-owned release manifests, executable-release
   retention, backup/restore freshness, ClamAV health/signature freshness, scanner
   failures, malware rejections, parser socket health, parser failures and installed
-  parser executable integrity against the manifest-verified backend release every
-  five minutes. It uses the host's
+  parser executable integrity against the manifest-verified backend release, plus
+  redirected/malformed provider response rejections every five minutes. It uses the host's
   existing Telegram channel, keeps cooldown state under
   `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
 

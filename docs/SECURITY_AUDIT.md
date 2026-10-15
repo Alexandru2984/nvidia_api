@@ -1206,6 +1206,17 @@ is required before describing those controls as complete.
   are active with `NRestarts=0`; the integrity monitor completed with no active
   issue. Public/origin health returned `200`, anonymous models returned `403`,
   and arbitrary media returned `404`.
+- Follow-up state `a373c869d010413ac123809f22f19bf12692818c` emits only
+  fixed `kind` and `reason` values when chat/image responses violate redirect,
+  content-type, framing, size, UTF-8, shape, poll-ID, terminal-status or completion
+  rules. No model, user, prompt, URL, response content or request identifier enters
+  the event. The five-minute monitor alerts on any occurrence; 503 backend and 46
+  operations tests pass. Production active
+  `/opt/aichat-backend-releases/release-20261015T131413_413201885` and rollback
+  `/opt/aichat-backend-releases/release-20261015T131359_064408972` both use this
+  commit and have valid manifests. The installed monitor SHA-256 is
+  `e44b33315fe0ad64bf54cae38c05da9c5ad436f0bc72396b998baaddcd699e34`;
+  its post-rollout state had no active issue.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
