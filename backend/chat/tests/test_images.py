@@ -1,5 +1,6 @@
 """Tests for /api/images/generate/ — dimension validation and the NVCF flow."""
 import base64
+import json
 from unittest import mock
 
 import pytest
@@ -16,8 +17,12 @@ PNG_1PX = base64.b64decode(
 def _resp(status_code=200, json_data=None, headers=None, text=''):
     r = mock.Mock()
     r.status_code = status_code
-    r.headers = headers or {}
+    content = json.dumps(json_data).encode() if json_data is not None else b''
+    r.headers = dict(headers or {})
+    if content:
+        r.headers.setdefault('Content-Length', str(len(content)))
     r.text = text
+    r.iter_content.return_value = [content] if content else []
     if json_data is not None:
         r.json.return_value = json_data
     else:
@@ -75,6 +80,9 @@ class TestGenerateImage:
         # request carried the NVCF poll header
         _, kwargs = m_post.call_args
         assert 'NVCF-POLL-SECONDS' in kwargs['headers']
+        assert kwargs['stream'] is True
+        assert kwargs['allow_redirects'] is False
+        m_post.return_value.close.assert_called_once_with()
 
     @mock.patch('chat.views.requests.get')
     @mock.patch('chat.views.requests.post')
@@ -89,6 +97,8 @@ class TestGenerateImage:
         assert r.status_code == 201, r.content
         assert m_get.call_count == 2
         assert 'req-123' in m_get.call_args[0][0]
+        assert m_get.call_args.kwargs['allow_redirects'] is False
+        assert m_post.return_value.close.called
 
     @mock.patch('chat.views.requests.post')
     def test_nvcf_errored_maps_to_clean_502(self, m_post, auth_client):
@@ -139,6 +149,34 @@ class TestGenerateImage:
         m_post.return_value = _resp(202, headers={'NVCF-REQID': '../admin'})
         r = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
         assert r.status_code == 502
+
+    @mock.patch('chat.views.requests.post')
+    def test_oversized_provider_json_is_rejected_without_reading_body(
+        self, m_post, auth_client,
+    ):
+        response = _resp(200)
+        response.headers = {'Content-Length': str(16 * 1024 * 1024 + 1)}
+        m_post.return_value = response
+
+        result = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert result.status_code == 502
+        response.iter_content.assert_not_called()
+        response.close.assert_called_once_with()
+
+    @mock.patch('chat.views.IMAGE_PROVIDER_MAX_RESPONSE_BYTES', 8)
+    @mock.patch('chat.views.requests.post')
+    def test_chunked_provider_json_is_bounded_while_streaming(
+        self, m_post, auth_client,
+    ):
+        response = _resp(200)
+        response.iter_content.return_value = [b'{"image"', b':"too large"}']
+        m_post.return_value = response
+
+        result = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert result.status_code == 502
+        response.close.assert_called_once_with()
 
     @mock.patch('chat.views.requests.post')
     def test_upstream_400_maps_to_clean_502(self, m_post, auth_client):

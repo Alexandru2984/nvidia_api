@@ -4,6 +4,7 @@ Django settings for nvidia_chat project.
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -354,10 +355,52 @@ REST_FRAMEWORK = {
     ],
 }
 
+def _nvidia_endpoint(name, default, hostname, path):
+    value = os.environ.get(name, default).strip()
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        parsed = None
+        port = None
+    valid = (
+        parsed is not None
+        and parsed.scheme == 'https'
+        and parsed.netloc in {hostname, f'{hostname}:443'}
+        and parsed.hostname == hostname
+        and port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path == path
+        and not parsed.query
+        and not parsed.fragment
+    )
+    if not valid:
+        raise ImproperlyConfigured(
+            f'{name} must be the approved NVIDIA HTTPS endpoint {hostname}{path}.',
+        )
+    return value
+
+
 NVIDIA_API_KEY = os.environ['NVIDIA_API_KEY']
-NVIDIA_API_URL = os.environ.get('NVIDIA_API_URL', 'https://integrate.api.nvidia.com/v1/chat/completions')
-NVIDIA_GENAI_BASE = os.environ.get('NVIDIA_GENAI_BASE', 'https://ai.api.nvidia.com/v1/genai')
-NVIDIA_GENAI_STATUS_BASE = os.environ.get('NVIDIA_GENAI_STATUS_BASE', 'https://ai.api.nvidia.com/v1/status')
+NVIDIA_API_URL = _nvidia_endpoint(
+    'NVIDIA_API_URL',
+    'https://integrate.api.nvidia.com/v1/chat/completions',
+    'integrate.api.nvidia.com',
+    '/v1/chat/completions',
+)
+NVIDIA_GENAI_BASE = _nvidia_endpoint(
+    'NVIDIA_GENAI_BASE',
+    'https://ai.api.nvidia.com/v1/genai',
+    'ai.api.nvidia.com',
+    '/v1/genai',
+)
+NVIDIA_GENAI_STATUS_BASE = _nvidia_endpoint(
+    'NVIDIA_GENAI_STATUS_BASE',
+    'https://ai.api.nvidia.com/v1/status',
+    'ai.api.nvidia.com',
+    '/v1/status',
+)
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 

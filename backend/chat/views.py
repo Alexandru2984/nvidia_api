@@ -55,7 +55,12 @@ from .attachments import (
 )
 from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
 from .model_status import get_status, unavailable_model_ids
-from .nvidia_client import chat_completion_headers, chat_completion_payload
+from .nvidia_client import (
+    ProviderStreamError,
+    chat_completion_headers,
+    chat_completion_payload,
+    iter_sse_data,
+)
 from .models import (
     Attachment,
     AttachmentUploadAttempt,
@@ -1749,12 +1754,20 @@ def download_attachment(request, pk):
 
 def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
     """Yield (kind, value) tuples: ('chunk', str), ('usage', dict), ('error', str)."""
+    deadline = time.monotonic() + 480
     payload = chat_completion_payload(
         model_id, messages, max_tokens=max_tokens, temperature=temperature,
     )
     headers = chat_completion_headers(settings.NVIDIA_API_KEY)
     try:
-        with requests.post(settings.NVIDIA_API_URL, json=payload, headers=headers, timeout=180, stream=True) as resp:
+        with requests.post(
+            settings.NVIDIA_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=(10, 120),
+            stream=True,
+            allow_redirects=False,
+        ) as resp:
             if resp.status_code >= 400:
                 log.warning('NVIDIA chat API returned HTTP %s', resp.status_code)
                 # A rejected request did not start generation, so release the
@@ -1768,14 +1781,9 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                 yield ('error', 'NVIDIA API returned an invalid stream. Try again later.')
                 return
             saw_done = False
-            for line in resp.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                if isinstance(line, bytes):
-                    line = line.decode('utf-8', errors='replace')
-                if not line.startswith('data:'):
-                    continue
-                data = line[5:].strip()
+            for data in iter_sse_data(resp):
+                if time.monotonic() > deadline:
+                    raise ProviderStreamError('provider stream exceeded its wall-clock limit')
                 if data == '[DONE]':
                     saw_done = True
                     break
@@ -1789,17 +1797,32 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                     log.warning('NVIDIA chat API returned a streaming error event')
                     yield ('error', 'NVIDIA API stream failed. Try again later.')
                     return
-                choices = obj.get('choices') or []
+                choices = obj.get('choices', [])
+                if not isinstance(choices, list):
+                    raise ProviderStreamError('provider choices were not a list')
                 if choices:
+                    if not isinstance(choices[0], dict):
+                        raise ProviderStreamError('provider choice was not an object')
                     delta = choices[0].get('delta') or {}
+                    if not isinstance(delta, dict):
+                        raise ProviderStreamError('provider delta was not an object')
                     chunk = delta.get('content')
+                    if chunk is not None and not isinstance(chunk, str):
+                        raise ProviderStreamError('provider content was not text')
                     if chunk:
                         yield ('chunk', chunk)
-                if obj.get('usage'):
-                    yield ('usage', obj['usage'])
+                usage = obj.get('usage')
+                if usage is not None:
+                    if not isinstance(usage, dict):
+                        raise ProviderStreamError('provider usage was not an object')
+                    if usage:
+                        yield ('usage', usage)
             if not saw_done:
                 log.warning('NVIDIA chat API stream ended without a completion marker')
                 yield ('error', 'NVIDIA API stream ended unexpectedly. Try again later.')
+    except ProviderStreamError:
+        log.warning('NVIDIA chat API stream exceeded bounds or violated framing')
+        yield ('error', 'NVIDIA API returned an invalid stream. Try again later.')
     except requests.RequestException:
         log.warning('NVIDIA chat API request failed', exc_info=True)
         yield ('error', 'NVIDIA API request failed. Try again later.')
@@ -2896,6 +2919,28 @@ def list_image_models(request):
 # polling. nginx cuts /api/ at 180s, so stay well under that.
 IMAGE_GEN_BUDGET_SECONDS = 120
 NVCF_POLL_SECONDS = '30'
+IMAGE_PROVIDER_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+def _bounded_provider_json(response):
+    raw_length = response.headers.get('Content-Length')
+    if raw_length not in (None, ''):
+        try:
+            declared_length = int(raw_length)
+        except (TypeError, ValueError):
+            raise ValueError('invalid provider content length') from None
+        if not 0 <= declared_length <= IMAGE_PROVIDER_MAX_RESPONSE_BYTES:
+            raise ValueError('provider response exceeds byte limit')
+    content = bytearray()
+    for chunk in response.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        if not isinstance(chunk, bytes):
+            raise ValueError('provider response returned invalid bytes')
+        content.extend(chunk)
+        if len(content) > IMAGE_PROVIDER_MAX_RESPONSE_BYTES:
+            raise ValueError('provider response exceeds byte limit')
+    return json.loads(content)
 
 
 def _nvcf_generate(url, payload):
@@ -2921,13 +2966,28 @@ def _nvcf_generate(url, payload):
     )
     deadline = time.monotonic() + IMAGE_GEN_BUDGET_SECONDS
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=45)
+        resp = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=(10, 45),
+            stream=True,
+            allow_redirects=False,
+        )
         while resp.status_code == 202:
             reqid = resp.headers.get('NVCF-REQID')
             if not reqid or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', reqid) or time.monotonic() > deadline:
                 log.warning('NVIDIA genai polling gave up (reqid=%s)', reqid)
+                resp.close()
                 return None, unavailable
-            resp = requests.get(f'{settings.NVIDIA_GENAI_STATUS_BASE}/{reqid}', headers=headers, timeout=45)
+            resp.close()
+            resp = requests.get(
+                f'{settings.NVIDIA_GENAI_STATUS_BASE}/{reqid}',
+                headers=headers,
+                timeout=(10, 45),
+                stream=True,
+                allow_redirects=False,
+            )
     except requests.RequestException:
         log.warning('NVIDIA genai request failed', exc_info=True)
         return None, Response({'error': 'NVIDIA image API request failed. Try again later.'},
@@ -2936,16 +2996,20 @@ def _nvcf_generate(url, payload):
     if resp.status_code == 504 or resp.headers.get('Nvcf-Status') == 'errored':
         log.warning('NVIDIA genai function errored (status=%s, nvcf-status=%s)',
                     resp.status_code, resp.headers.get('Nvcf-Status'))
+        resp.close()
         return None, unavailable
-    if resp.status_code >= 400:
+    if resp.status_code != 200:
         log.warning('NVIDIA genai returned HTTP %s', resp.status_code)
+        resp.close()
         return None, Response({'error': f'NVIDIA image API error ({resp.status_code}). Try again later.'},
                               status=status.HTTP_502_BAD_GATEWAY)
     try:
-        return resp.json(), None
-    except ValueError:
+        return _bounded_provider_json(resp), None
+    except (UnicodeError, ValueError, json.JSONDecodeError):
         return None, Response({'error': 'NVIDIA image API returned a non-JSON response'},
                               status=status.HTTP_502_BAD_GATEWAY)
+    finally:
+        resp.close()
 
 
 @api_view(['POST'])

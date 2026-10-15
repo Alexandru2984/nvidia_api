@@ -24,7 +24,12 @@ from chat.model_status import (
     write_status,
 )
 from chat.models_catalog import MODEL_IDS
-from chat.nvidia_client import chat_completion_headers, chat_completion_payload
+from chat.nvidia_client import (
+    ProviderStreamError,
+    chat_completion_headers,
+    chat_completion_payload,
+    iter_sse_data,
+)
 
 
 DEFINITIVE_UNAVAILABLE_OUTCOMES = frozenset({'retired', 'rejected'})
@@ -100,6 +105,7 @@ class Command(BaseCommand):
                 headers=headers,
                 timeout=timeout,
                 stream=True,
+                allow_redirects=False,
             )
             latency_ms = min(round((time.monotonic() - started) * 1000), 120_000)
             if response.status_code == 200:
@@ -138,25 +144,38 @@ class Command(BaseCommand):
         saw_event = False
         saw_usage = False
         saw_done = False
-        for line in response.iter_lines(decode_unicode=True):
-            if isinstance(line, bytes):
-                line = line.decode('utf-8', errors='replace')
-            if not line or not line.startswith('data:'):
-                continue
-            data = line[5:].strip()
-            if data == '[DONE]':
-                saw_done = True
-                break
-            try:
-                event = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict) or 'error' in event:
-                return 'protocol_error'
-            if 'choices' in event:
-                saw_event = True
-            if isinstance(event.get('usage'), dict):
-                saw_usage = True
+        try:
+            for data in iter_sse_data(response):
+                if data == '[DONE]':
+                    saw_done = True
+                    break
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict) or 'error' in event:
+                    return 'protocol_error'
+                if 'choices' in event:
+                    choices = event['choices']
+                    if not isinstance(choices, list):
+                        return 'protocol_error'
+                    for choice in choices:
+                        if not isinstance(choice, dict):
+                            return 'protocol_error'
+                        delta = choice.get('delta')
+                        if delta is not None and not isinstance(delta, dict):
+                            return 'protocol_error'
+                        if isinstance(delta, dict):
+                            content = delta.get('content')
+                            if content is not None and not isinstance(content, str):
+                                return 'protocol_error'
+                    saw_event = True
+                if 'usage' in event:
+                    if not isinstance(event['usage'], dict):
+                        return 'protocol_error'
+                    saw_usage = True
+        except ProviderStreamError:
+            return 'protocol_error'
         return 'available' if saw_event and saw_usage and saw_done else 'protocol_error'
 
     def handle(self, *args, **opts):

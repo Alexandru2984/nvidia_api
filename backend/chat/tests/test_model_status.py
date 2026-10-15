@@ -37,11 +37,11 @@ def healthy_probe_response(status_code=200):
     response = mock.Mock()
     response.status_code = status_code
     response.headers = {'Content-Type': 'text/event-stream; charset=utf-8'}
-    response.iter_lines.return_value = [
+    response.iter_content.return_value = [b'\n'.join([
         b'data: {"choices":[{"delta":{"content":"OK"}}]}',
         b'data: {"choices":[],"usage":{"total_tokens":2}}',
         b'data: [DONE]',
-    ]
+    ]) + b'\n']
     return response
 
 
@@ -332,6 +332,7 @@ class TestProbeCommand:
         assert result['outcome'] == 'available'
         request = m_post.call_args
         assert request.kwargs['stream'] is True
+        assert request.kwargs['allow_redirects'] is False
         assert request.kwargs['headers']['Accept'] == 'text/event-stream'
         assert request.kwargs['json'] == {
             'model': DEFAULT_MODEL_ID,
@@ -356,7 +357,7 @@ class TestProbeCommand:
     ):
         response = healthy_probe_response()
         response.headers = {'Content-Type': content_type}
-        response.iter_lines.return_value = lines
+        response.iter_content.return_value = [b'\n'.join(lines) + b'\n']
         m_post.return_value = response
 
         _, result = Command()._probe(DEFAULT_MODEL_ID, 45)

@@ -8,12 +8,17 @@ from django.utils import timezone
 
 from chat.models import Attachment, Conversation, Message
 from chat.models_catalog import DEFAULT_MODEL_ID, MODEL_IDS, VISION_MODEL_IDS
+from chat.nvidia_client import SSE_MAX_LINE_BYTES
 from chat.views import _stream_nvidia
 
 
 def _consume_sse(response):
     """Drain a StreamingHttpResponse and return the decoded body."""
     return b''.join(response.streaming_content).decode()
+
+
+def _sse_chunks(lines):
+    return [b'\n'.join(lines) + (b'\n' if lines else b'')]
 
 
 @pytest.mark.django_db
@@ -436,11 +441,11 @@ class TestNvidiaStreamParser:
     def test_decodes_byte_sse_and_requests_terminal_usage(self, mock_post):
         response = MagicMock(status_code=200)
         response.headers = {'Content-Type': 'text/event-stream; charset=utf-8'}
-        response.iter_lines.return_value = [
+        response.iter_content.return_value = _sse_chunks([
             b'data: {"choices":[{"delta":{"content":"hello"}}]}',
             b'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}',
             b'data: [DONE]',
-        ]
+        ])
         mock_post.return_value.__enter__.return_value = response
 
         events = list(_stream_nvidia('test/model', [{'role': 'user', 'content': 'hi'}]))
@@ -451,6 +456,8 @@ class TestNvidiaStreamParser:
         ]
         payload = mock_post.call_args.kwargs['json']
         assert payload['stream_options'] == {'include_usage': True}
+        assert mock_post.call_args.kwargs['allow_redirects'] is False
+        assert mock_post.call_args.kwargs['stream'] is True
 
     @pytest.mark.parametrize(('content_type', 'lines', 'expected_error'), [
         ('application/json', [], 'NVIDIA API returned an invalid stream. Try again later.'),
@@ -471,13 +478,47 @@ class TestNvidiaStreamParser:
     ):
         response = MagicMock(status_code=200)
         response.headers = {'Content-Type': content_type}
-        response.iter_lines.return_value = lines
+        response.iter_content.return_value = _sse_chunks(lines)
         mock_post.return_value.__enter__.return_value = response
 
         events = list(_stream_nvidia('test/model', [{'role': 'user', 'content': 'hi'}]))
 
         assert events[-1] == ('error', expected_error)
         assert 'provider detail' not in repr(events)
+
+    @patch('chat.views.requests.post')
+    def test_rejects_oversized_stream_line_before_json_parsing(self, mock_post):
+        response = MagicMock(status_code=200)
+        response.headers = {'Content-Type': 'text/event-stream'}
+        response.iter_content.return_value = [b'data: ' + b'x' * (SSE_MAX_LINE_BYTES + 1)]
+        mock_post.return_value.__enter__.return_value = response
+
+        events = list(_stream_nvidia('test/model', []))
+
+        assert events == [('error', 'NVIDIA API returned an invalid stream. Try again later.')]
+
+    @pytest.mark.parametrize('event', [
+        {'choices': {'delta': {'content': 'wrong container'}}},
+        {'choices': ['wrong choice']},
+        {'choices': [{'delta': 'wrong delta'}]},
+        {'choices': [{'delta': {'content': {'not': 'text'}}}]},
+        {'choices': [], 'usage': 'not an object'},
+    ])
+    @patch('chat.views.requests.post')
+    def test_rejects_malformed_stream_shapes(self, mock_post, event):
+        import json
+
+        response = MagicMock(status_code=200)
+        response.headers = {'Content-Type': 'text/event-stream'}
+        response.iter_content.return_value = _sse_chunks([
+            b'data: ' + json.dumps(event).encode(),
+            b'data: [DONE]',
+        ])
+        mock_post.return_value.__enter__.return_value = response
+
+        events = list(_stream_nvidia('test/model', []))
+
+        assert events == [('error', 'NVIDIA API returned an invalid stream. Try again later.')]
 
     @patch('chat.views.requests.post')
     def test_rejected_request_emits_zero_usage_to_release_reservation(self, mock_post):
