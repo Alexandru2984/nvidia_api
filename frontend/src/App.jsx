@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
 import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
+import ProviderDisclosure from './ProviderDisclosure'
 const Settings = lazy(() => import('./Settings'))
 const MarkdownBody = lazy(() => import('./MarkdownBody'))
 
@@ -878,6 +879,9 @@ export default function App() {
   const [excludedAttachmentIds, setExcludedAttachmentIds] = useState([])
   const [attachmentNotice, setAttachmentNotice] = useState(null)
   const [previewAttachment, setPreviewAttachment] = useState(null)
+  const [providerDisclosureOpen, setProviderDisclosureOpen] = useState(false)
+  const [providerDisclosureBusy, setProviderDisclosureBusy] = useState(false)
+  const [providerDisclosureError, setProviderDisclosureError] = useState(null)
   const [uploadJobs, setUploadJobs] = useState([])
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
@@ -907,6 +911,8 @@ export default function App() {
   const uploadJobsRef = useRef(uploadJobs)
   const uploadSequenceRef = useRef(0)
   const previewReturnFocusRef = useRef(null)
+  const providerDisclosureActionRef = useRef(null)
+  const providerDisclosureReturnFocusRef = useRef(null)
   const abortRef = useRef(null)
   const sidebarRef = useRef(null)
   const menuRef = useRef(null)
@@ -1410,10 +1416,73 @@ export default function App() {
     requestAnimationFrame(() => returnFocus?.isConnected && returnFocus.focus())
   }
 
-  async function handleGenerate(e) {
+  function requestProviderDisclosure(action) {
+    providerDisclosureActionRef.current = action
+    providerDisclosureReturnFocusRef.current = document.activeElement
+    setProviderDisclosureError(null)
+    setProviderDisclosureOpen(true)
+  }
+
+  function recoverProviderDisclosure(status, body, action) {
+    if (status !== 428 || body?.code !== 'provider_disclosure_required') return false
+    if (body.provider_disclosure) {
+      setUser((current) => ({
+        ...current,
+        provider_disclosure: body.provider_disclosure,
+      }))
+    }
+    requestProviderDisclosure(action)
+    return true
+  }
+
+  function closeProviderDisclosure() {
+    if (providerDisclosureBusy) return
+    const returnFocus = providerDisclosureReturnFocusRef.current
+    providerDisclosureActionRef.current = null
+    providerDisclosureReturnFocusRef.current = null
+    setProviderDisclosureError(null)
+    setProviderDisclosureOpen(false)
+    requestAnimationFrame(() => returnFocus?.isConnected && returnFocus.focus())
+  }
+
+  async function acceptProviderDisclosure() {
+    if (providerDisclosureBusy) return
+    setProviderDisclosureBusy(true)
+    setProviderDisclosureError(null)
+    try {
+      const result = await api.acceptProviderDisclosure(
+        user?.provider_disclosure?.required_version,
+      )
+      setUser((current) => ({
+        ...current,
+        provider_disclosure: result.provider_disclosure,
+      }))
+      const action = providerDisclosureActionRef.current
+      providerDisclosureActionRef.current = null
+      providerDisclosureReturnFocusRef.current = null
+      setProviderDisclosureOpen(false)
+      if (action) requestAnimationFrame(action)
+    } catch (acceptError) {
+      if (acceptError.body?.provider_disclosure) {
+        setUser((current) => ({
+          ...current,
+          provider_disclosure: acceptError.body.provider_disclosure,
+        }))
+      }
+      setProviderDisclosureError(acceptError.message)
+    } finally {
+      setProviderDisclosureBusy(false)
+    }
+  }
+
+  async function handleGenerate(e, disclosureConfirmed = false) {
     e?.preventDefault?.()
     const prompt = imagePrompt.trim()
     if (!prompt || imageBusy) return
+    if (!disclosureConfirmed && !user?.provider_disclosure?.accepted) {
+      requestProviderDisclosure(() => handleGenerate(null, true))
+      return
+    }
     setImageBusy(true)
     setError(null)
     try {
@@ -1424,7 +1493,11 @@ export default function App() {
       })
       setImageGallery((prev) => [r.attachment, ...prev])
     } catch (err) {
-      setError(err.message)
+      if (!recoverProviderDisclosure(
+        err.status,
+        err.body,
+        () => handleGenerate(null, true),
+      )) setError(err.message)
     } finally {
       setImageBusy(false)
     }
@@ -1486,11 +1559,15 @@ export default function App() {
     }
   }
 
-  async function handleSend(e) {
+  async function handleSend(e, disclosureConfirmed = false) {
     e?.preventDefault?.()
     const text = draft.trim()
     if (sending || attachmentsBlocked || activeModelUnavailable) return
     if (!text && includedPendingAttachments.length === 0) return
+    if (!disclosureConfirmed && !user?.provider_disclosure?.accepted) {
+      requestProviderDisclosure(() => handleSend(null, true))
+      return
+    }
 
     let convo = active
     if (!convo) {
@@ -1564,8 +1641,12 @@ export default function App() {
           return sortConversations([final.conversation, ...others])
         })
       },
-      onError: (msg) => {
-        setError(msg)
+      onError: (msg, status, body) => {
+        const disclosureRequired = (
+          status === 428 && body?.code === 'provider_disclosure_required'
+        )
+        if (disclosureRequired) setDraft(text)
+        else setError(msg)
         setPendingAttachments((attachments) => {
           const existingIds = new Set(attachments.map((attachment) => attachment.id))
           return [...attachments, ...sendingAttachments.filter((attachment) => !existingIds.has(attachment.id))]
@@ -1576,6 +1657,9 @@ export default function App() {
             (m) => m.id !== tmpUserId && m.id !== streamingId,
           ),
         }))
+        if (disclosureRequired) {
+          recoverProviderDisclosure(status, body, () => handleSend(null, true))
+        }
       },
       onAbort: async () => {
         // Server persists the partial reply on disconnect; give it a beat,
@@ -1705,10 +1789,15 @@ export default function App() {
     } catch (e) { setError(e.message) }
   }
 
-  async function handleRegenerate(msgId) {
+  async function handleRegenerate(msgId, disclosureConfirmed = false) {
     if (!active || sending || activeModelUnavailable) return
+    if (!disclosureConfirmed && !user?.provider_disclosure?.accepted) {
+      requestProviderDisclosure(() => handleRegenerate(msgId, true))
+      return
+    }
     setSending(true)
     setError(null)
+    const originalConversation = active
     // Optimistic UI: drop messages from `msgId` onward (or just the last assistant
     // for an assistant target). Server is authoritative; refetch convo on done.
     let placeholder = null
@@ -1744,12 +1833,15 @@ export default function App() {
             ))
           } catch {}
         },
-        onError: (msg) => {
-          setError(msg)
-          setActive((c) => ({
-            ...c,
-            messages: c.messages.filter((m) => m.id !== 'pending-regen'),
-          }))
+        onError: (msg, status, body) => {
+          setActive((current) => (
+            current?.id === originalConversation.id ? originalConversation : current
+          ))
+          if (!recoverProviderDisclosure(
+            status,
+            body,
+            () => handleRegenerate(msgId, true),
+          )) setError(msg)
         },
         onAbort: async () => {
           await new Promise((r) => setTimeout(r, 400))
@@ -1788,6 +1880,9 @@ export default function App() {
   }
 
   async function handleLogout() {
+    providerDisclosureActionRef.current = null
+    providerDisclosureReturnFocusRef.current = null
+    setProviderDisclosureOpen(false)
     await clearAttachmentWork()
     try {
       await api.logout()
@@ -2488,6 +2583,14 @@ export default function App() {
         )}
         {previewAttachment && (
           <DocumentPreview attachment={previewAttachment} onClose={closeDocumentPreview} />
+        )}
+        {providerDisclosureOpen && (
+          <ProviderDisclosure
+            busy={providerDisclosureBusy}
+            error={providerDisclosureError}
+            onAccept={acceptProviderDisclosure}
+            onClose={closeProviderDisclosure}
+          />
         )}
         </>
         )}

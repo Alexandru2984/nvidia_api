@@ -125,6 +125,30 @@ class AuthenticatedSession(models.Model):
         return f'AuthenticatedSession(user={self.user_id}, login={self.login_at:%Y-%m-%d %H:%M})'
 
 
+class ProviderDisclosureAcceptance(models.Model):
+    """Versioned evidence that a user saw the external-provider disclosure."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name='provider_disclosure_acceptance',
+        on_delete=models.CASCADE,
+        primary_key=True,
+    )
+    version = models.PositiveSmallIntegerField()
+    accepted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(version__gte=1),
+                name='chat_provider_disclosure_version_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f'ProviderDisclosureAcceptance(user={self.user_id}, version={self.version})'
+
+
 class Conversation(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

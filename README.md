@@ -129,7 +129,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 
 | Method | Path | Body | Auth | Notes |
 |---|---|---|---|---|
-| GET | `/auth/me/` | — | open | Sets `csrftoken` cookie. Returns `username` plus `registration_mode`. |
+| GET | `/auth/me/` | — | open | Sets `csrftoken` cookie. Returns `username`, `registration_mode`, and the current provider-disclosure state for authenticated users. |
 | POST | `/auth/register/` | `{username, email, password, invite_code?}` | open | Creates an inactive user and emails an OTP. Invite mode requires an unused code; valid duplicate identifiers remain opaque and do not consume it. |
 | POST | `/auth/verify/` | `{email, code}` | open | 6-digit code; failures do not disclose account/code state; logs the user in on success. |
 | POST | `/auth/resend/` | `{email}` | open | Silent 60s cooldown with a generic response for unknown, throttled, or mail-failure cases. |
@@ -143,6 +143,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles without decoding the global session table; revocation requires recent strong authentication. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
+| POST | `/provider-disclosure/` | `{version}` | session | Records the current versioned NVIDIA data-flow acknowledgement; stale or non-integer versions fail closed. |
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
 | POST | `/conversations/` | `{model_id?, title?}` | session | Enforces the durable per-user conversation limit atomically. |
@@ -168,6 +169,15 @@ state cannot cross accounts in a shared browser. An upload canceled after the
 server has already committed can remain as an owner-scoped, unlinked attachment and
 is covered by the normal attachment library/deletion flow and scheduled orphan
 cleanup.
+
+Before the first chat, regeneration, or image-generation request, the responsive
+UI explains exactly which selected prompt, conversation context, files, and image
+settings leave the self-hosted application for NVIDIA. Acceptance is versioned
+server-side and records only the user relationship, version, and timestamp. The
+backend returns `428 provider_disclosure_required` before acquiring generation
+leases, reserving budget, writing messages, or contacting NVIDIA when the current
+version has not been accepted. This is a transparency acknowledgement, not a
+claim that it alone establishes a GDPR legal basis or NVIDIA production entitlement.
 
 Chat, regeneration, and image calls reserve daily PostgreSQL-backed counters
 before contacting NVIDIA. Limits apply per user and globally across all gunicorn

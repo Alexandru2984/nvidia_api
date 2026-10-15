@@ -3,8 +3,9 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from chat.models import Conversation
+from chat.models import Conversation, ProviderDisclosureAcceptance
 from chat.models_catalog import DEFAULT_MODEL_ID
+from chat.provider_disclosure import CURRENT_PROVIDER_DISCLOSURE_VERSION
 
 
 @pytest.fixture
@@ -30,6 +31,10 @@ def client():
 
 @pytest.fixture
 def auth_client(client, user):
+    ProviderDisclosureAcceptance.objects.create(
+        user=user,
+        version=CURRENT_PROVIDER_DISCLOSURE_VERSION,
+    )
     client.force_login(user)
     return client
 
@@ -37,6 +42,10 @@ def auth_client(client, user):
 @pytest.fixture
 def other_client(client, other_user):
     c = APIClient()
+    ProviderDisclosureAcceptance.objects.create(
+        user=other_user,
+        version=CURRENT_PROVIDER_DISCLOSURE_VERSION,
+    )
     c.force_login(other_user)
     return c
 

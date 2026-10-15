@@ -7,7 +7,9 @@ async function mockAPI(
     state: 'verified', checked_at: '2026-10-06T00:19:57Z', inconclusive_models: 0,
     unverified_models: 0, catalog_models: 2, available_models: 2, unavailable_models: 0,
   },
+  providerDisclosureAccepted = true,
 ) {
+  let disclosureAccepted = providerDisclosureAccepted
   let conversation = {
     id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
     is_pinned: false, archived_at: null,
@@ -59,10 +61,22 @@ async function mockAPI(
     if (/^\/api\/attachments\/(900|910)\/$/.test(path) && route.request().method() === 'DELETE') {
       return route.fulfill({ status: 204, body: '' })
     }
+    if (path === '/api/provider-disclosure/' && route.request().method() === 'POST') {
+      disclosureAccepted = true
+      const { version } = route.request().postDataJSON()
+      return route.fulfill({ status: 200, json: { provider_disclosure: {
+        required_version: version, accepted: true, accepted_at: '2026-10-15T01:00:00Z',
+      } } })
+    }
     const data = {
       '/api/auth/me/': {
         username: signedIn ? 'alice' : null,
         registration_mode: registrationMode,
+        ...(signedIn ? { provider_disclosure: {
+          required_version: 1,
+          accepted: disclosureAccepted,
+          accepted_at: disclosureAccepted ? '2026-10-05T10:00:00Z' : null,
+        } } : {}),
       },
       '/api/models/': {
         models: [
@@ -142,6 +156,119 @@ test('application shell contains no cross-origin scripts', async ({ page }) => {
   await mockAPI(page)
   await page.goto('/')
   await expect(page.locator('script[src^="http://"], script[src^="https://"]')).toHaveCount(0)
+})
+
+test('provider disclosure gates the first request and remains usable on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page, true, 'test/model', 'open', undefined, false)
+  let providerRequests = 0
+  await page.route('**/api/conversations/1/messages/', (route) => {
+    providerRequests += 1
+    const userMessage = {
+      id: 3, role: 'user', content: 'private prompt', attachments: [],
+      created_at: '2026-10-15T01:00:01Z',
+    }
+    const assistantMessage = {
+      id: 4, role: 'assistant', content: 'safe response', attachments: [],
+      created_at: '2026-10-15T01:00:02Z',
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `data: ${JSON.stringify({
+        done: true,
+        user_message: userMessage,
+        assistant_message: assistantMessage,
+        conversation: {
+          id: 1, title: 'A useful conversation', model_id: 'test/model',
+          message_count: 4, is_pinned: false, archived_at: null,
+          created_at: '2026-10-05T12:00:00Z', updated_at: '2026-10-15T01:00:02Z',
+        },
+      })}\n\n`,
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('private prompt')
+  const send = page.getByTitle('Send')
+  await send.click()
+
+  const dialog = page.getByRole('dialog', { name: 'Before your first AI request' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('Only documents and images marked as included')
+  await expect(dialog.getByRole('link', { name: 'privacy policy' })).toHaveAttribute(
+    'href', 'https://www.nvidia.com/en-us/about-nvidia/privacy-policy/',
+  )
+  expect(providerRequests).toBe(0)
+  await expectNoPageOverflow(page)
+  await page.screenshot({ path: 'test-results/provider-disclosure-320.png' })
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(send).toBeFocused()
+  await send.click()
+  await dialog.getByRole('button', { name: 'I understand — continue' }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => providerRequests).toBe(1)
+  await expect(page.getByText('safe response')).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('stale disclosure state is refreshed without losing the draft', async ({ page }) => {
+  await mockAPI(page)
+  let providerRequests = 0
+  await page.route('**/api/conversations/1/messages/', (route) => {
+    providerRequests += 1
+    if (providerRequests === 1) {
+      return route.fulfill({
+        status: 428,
+        json: {
+          error: 'Review how your content is sent to NVIDIA before generating.',
+          code: 'provider_disclosure_required',
+          provider_disclosure: {
+            required_version: 2, accepted: false, accepted_at: null,
+          },
+        },
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `data: ${JSON.stringify({
+        done: true,
+        user_message: {
+          id: 3, role: 'user', content: 'preserve this draft', attachments: [],
+          created_at: '2026-10-15T01:00:01Z',
+        },
+        assistant_message: {
+          id: 4, role: 'assistant', content: 'retried safely', attachments: [],
+          created_at: '2026-10-15T01:00:02Z',
+        },
+        conversation: {
+          id: 1, title: 'A useful conversation', model_id: 'test/model',
+          message_count: 4, is_pinned: false, archived_at: null,
+          created_at: '2026-10-05T12:00:00Z', updated_at: '2026-10-15T01:00:02Z',
+        },
+      })}\n\n`,
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'A useful conversation', exact: false }).first().click()
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+  await composer.fill('preserve this draft')
+  await page.getByTitle('Send').click()
+
+  const dialog = page.getByRole('dialog', { name: 'Before your first AI request' })
+  await expect(dialog).toBeVisible()
+  await expect(composer).toHaveValue('preserve this draft')
+  await dialog.getByRole('button', { name: 'I understand — continue' }).click()
+
+  await expect.poll(() => providerRequests).toBe(2)
+  await expect(page.getByText('retried safely')).toBeVisible()
 })
 
 test('conversation settings enforce the selected model generation contract', async ({ page }) => {

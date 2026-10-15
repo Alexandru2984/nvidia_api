@@ -11,6 +11,7 @@ from .models import (
     DailyAIUsage,
     GlobalAIUsage,
     Message,
+    ProviderDisclosureAcceptance,
     RegistrationInvite,
 )
 
@@ -96,6 +97,15 @@ class ReadOnlyAuditAdmin(PrivacyAuditAdminMixin, admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(ProviderDisclosureAcceptance)
+class ProviderDisclosureAcceptanceAdmin(ReadOnlyAuditAdmin):
+    list_display = ('user', 'version', 'accepted_at')
+    list_filter = ('version', 'accepted_at')
+    search_fields = ('user__username', 'user__email')
+    date_hierarchy = 'accepted_at'
+    readonly_fields = ('user', 'version', 'accepted_at')
 
 
 @admin.register(LogEntry)

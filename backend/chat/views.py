@@ -56,6 +56,7 @@ from .models import (
     EmailVerification,
     Message,
     PasswordReset,
+    ProviderDisclosureAcceptance,
     RegistrationInvite,
 )
 from .models_catalog import (
@@ -69,6 +70,11 @@ from .models_catalog import (
     attachment_capability_issue,
     model_capabilities,
     model_generation_limits,
+)
+from .provider_disclosure import (
+    CURRENT_PROVIDER_DISCLOSURE_VERSION,
+    has_current_provider_disclosure,
+    provider_disclosure_state,
 )
 from .registration import hash_invite_code
 from .recent_auth import confirm_recent_auth, mark_recent_auth
@@ -148,10 +154,72 @@ def _reserve_provider_call(request, kind, prompt_characters=0, token_reservation
 @permission_classes([AllowAny])
 @ensure_csrf_cookie
 def auth_me(request):
-    return Response({
+    payload = {
         'username': request.user.username if request.user.is_authenticated else None,
         'registration_mode': settings.REGISTRATION_MODE,
-    })
+    }
+    if request.user.is_authenticated:
+        payload['provider_disclosure'] = provider_disclosure_state(request.user)
+    return Response(payload)
+
+
+def _authenticated_user_payload(user):
+    return {
+        'username': user.username,
+        'provider_disclosure': provider_disclosure_state(user),
+    }
+
+
+def _provider_disclosure_required_response(request):
+    if has_current_provider_disclosure(request.user):
+        return None
+    return Response({
+        'error': 'Review how your content is sent to NVIDIA before generating.',
+        'code': 'provider_disclosure_required',
+        'provider_disclosure': provider_disclosure_state(request.user),
+    }, status=status.HTTP_428_PRECONDITION_REQUIRED)
+
+
+@api_view(['POST'])
+@ratelimit(key='user', rate='10/h', block=False)
+def accept_provider_disclosure(request):
+    if (r := _rate_limited(request)): return r
+    version = request.data.get('version')
+    if (
+        not isinstance(version, int)
+        or isinstance(version, bool)
+        or version != CURRENT_PROVIDER_DISCLOSURE_VERSION
+    ):
+        return Response({
+            'error': 'Refresh the page and review the current provider disclosure.',
+            'code': 'provider_disclosure_version_mismatch',
+            'provider_disclosure': provider_disclosure_state(request.user),
+        }, status=status.HTTP_409_CONFLICT)
+
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().only('pk').get(
+            pk=request.user.pk,
+        )
+        acceptance = ProviderDisclosureAcceptance.objects.select_for_update().filter(
+            user=request.user,
+        ).first()
+        changed = acceptance is None or acceptance.version != version
+        if acceptance is None:
+            ProviderDisclosureAcceptance.objects.create(
+                user=request.user,
+                version=version,
+            )
+        elif changed:
+            acceptance.version = version
+            acceptance.accepted_at = timezone.now()
+            acceptance.save(update_fields=['version', 'accepted_at'])
+    if changed:
+        security_log.info(
+            'event=provider_disclosure_accepted user_id=%s version=%s',
+            request.user.pk,
+            version,
+        )
+    return Response({'provider_disclosure': provider_disclosure_state(request.user)})
 
 
 @api_view(['POST'])
@@ -183,7 +251,7 @@ def auth_login(request):
         mark_staff_2fa_verified(request, user)
     stamp_session(request)
     mark_recent_auth(request)
-    return Response({'username': user.username})
+    return Response(_authenticated_user_payload(user))
 
 
 @api_view(['POST'])
@@ -460,7 +528,7 @@ def auth_verify(request):
     django_login(request, user)
     stamp_session(request)
     security_log.warning('event=registration_verified user_id=%s', user.pk)
-    return Response({'verified': True, 'username': user.username})
+    return Response({'verified': True, **_authenticated_user_payload(user)})
 
 
 @api_view(['POST'])
@@ -660,7 +728,11 @@ def auth_reset(request):
     django_login(request, user)
     stamp_session(request)
     mark_recent_auth(request)
-    return Response({'reset': True, 'username': user.username, 'sessions_revoked': revoked})
+    return Response({
+        'reset': True,
+        'sessions_revoked': revoked,
+        **_authenticated_user_payload(user),
+    })
 
 
 @api_view(['POST'])
@@ -2201,6 +2273,9 @@ def send_message(request, pk):
             ),
         )
 
+    if (response := _provider_disclosure_required_response(request)) is not None:
+        return response
+
     lease_token, conflict = _acquire_generation_lease(
         convo.id,
         message_reservation=2,
@@ -2485,6 +2560,9 @@ def regenerate_message(request, pk):
 
     if convo.model_id not in MODEL_IDS or convo.model_id in unavailable_model_ids():
         return _unavailable_model_response()
+
+    if (response := _provider_disclosure_required_response(request)) is not None:
+        return response
 
     # Regenerating a trailing user message adds one row. Replacing an existing
     # branch does not grow storage, so it must remain possible at the quota.
@@ -2832,6 +2910,9 @@ def generate_image(request):
         return Response({'error': f'steps must be 1..{spec["max_steps"]} for {spec["name"]}'}, status=400)
     if not (0 <= seed <= 4_294_967_295):
         return Response({'error': 'seed must be between 0 and 4294967295'}, status=400)
+
+    if (response := _provider_disclosure_required_response(request)) is not None:
+        return response
 
     # Coarse pre-check before paying for an NVIDIA call. Atomic check happens after.
     used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0

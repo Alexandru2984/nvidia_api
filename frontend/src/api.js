@@ -31,14 +31,16 @@ async function request(path, opts = {}) {
   }
   if (!res.ok) {
     let detail
+    let body = null
     try {
-      const j = await res.clone().json()
-      detail = j.error || j.detail || JSON.stringify(j)
+      body = await res.clone().json()
+      detail = body.error || body.detail || JSON.stringify(body)
     } catch {
       detail = await res.text()
     }
     const err = new Error(detail || `HTTP ${res.status}`)
     err.status = res.status
+    err.body = body
     throw err
   }
   if (res.status === 204) return null
@@ -54,6 +56,10 @@ export function mediaUrl(url) {
 
 export const api = {
   me: () => request('/auth/me/'),
+  acceptProviderDisclosure: (version) =>
+    request('/provider-disclosure/', {
+      method: 'POST', body: JSON.stringify({ version }),
+    }),
   login: (username, password, code) =>
     request('/auth/login/', { method: 'POST', body: JSON.stringify({ username, password, ...(code ? { code } : {}) }) }),
   logout: () => request('/auth/logout/', { method: 'POST' }),
@@ -113,8 +119,9 @@ export const api = {
       })
       if (!res.ok) {
         let detail = `HTTP ${res.status}`
-        try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
-        handlers.onError?.(detail, res.status)
+        let body = null
+        try { body = await res.json(); detail = body.error || body.detail || detail } catch {}
+        handlers.onError?.(detail, res.status, body)
         return
       }
       const reader = res.body.getReader()
@@ -218,8 +225,9 @@ export const api = {
       })
       if (!res.ok) {
         let detail = `HTTP ${res.status}`
-        try { const j = await res.json(); detail = j.error || j.detail || detail } catch {}
-        handlers.onError?.(detail, res.status); return
+        let body = null
+        try { body = await res.json(); detail = body.error || body.detail || detail } catch {}
+        handlers.onError?.(detail, res.status, body); return
       }
       const reader = res.body.getReader()
       const decoder = new TextDecoder()

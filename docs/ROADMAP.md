@@ -142,8 +142,13 @@ timed evidence.
   scheduled deletion, and visible deletion status.
 - Image job history/gallery with cancel/retry/delete and preserved generation
   parameters.
-- Romanian and English localization, timezone-aware timestamps, and clearer data
-  sharing consent immediately before a provider request.
+- **Versioned provider disclosure is shipped:** before the first chat,
+  regeneration, or image request, an accessible mobile dialog identifies the
+  prompt, selected context/files and settings sent to NVIDIA. Minimal server-side
+  acceptance is versioned, and every provider path independently fails with `428`
+  before writes, reservations or egress when it is absent. This is explicitly an
+  acknowledgement, not a claim of legal consent or production entitlement.
+- Romanian and English localization and timezone-aware timestamps.
 - Keyboard command palette, draft persistence, message copy/edit, code-block
   actions, and accessible confirmations/toasts.
 

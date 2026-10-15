@@ -1401,6 +1401,24 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   white-space: pre-wrap;
 }
 .document-preview footer span { color: var(--text-dim); font-size: 11px; }
+.provider-disclosure { width: min(620px, 100%); }
+.provider-disclosure .document-preview-body { min-height: 0; }
+.provider-disclosure .document-preview-body > p {
+  margin: 0 0 14px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.provider-disclosure .document-preview-body > p:first-child { color: var(--text); }
+.provider-disclosure ul {
+  margin: 0 0 14px;
+  padding-left: 22px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.provider-disclosure-links a { color: var(--accent); }
+.provider-disclosure footer { justify-content: flex-end; }
 
 .image-mode {
   flex: 1;
