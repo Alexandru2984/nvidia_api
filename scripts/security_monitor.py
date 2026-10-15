@@ -7,9 +7,11 @@ IP addresses, usernames, prompts, credentials, or attachment names.
 from __future__ import annotations
 
 import argparse
+import grp
 import hashlib
 import json
 import os
+import pwd
 import re
 import socket
 import stat
@@ -364,6 +366,35 @@ def evaluate_document_parser_socket(socket_path, timeout_seconds=3):
         return issue
 
 
+def evaluate_backend_origin_socket(socket_path, *, expected_uid, expected_gid):
+    """Require the web origin to be a permissioned Unix socket."""
+    issue = {
+        'backend_origin_socket': (
+            'The backend origin socket is missing or has unsafe ownership or permissions.'
+        ),
+    }
+    try:
+        path = Path(socket_path)
+        parent_info = path.parent.lstat()
+        info = path.lstat()
+        if (
+            not stat.S_ISDIR(parent_info.st_mode)
+            or stat.S_ISLNK(parent_info.st_mode)
+            or parent_info.st_uid != expected_uid
+            or parent_info.st_gid != expected_gid
+            or stat.S_IMODE(parent_info.st_mode) != 0o750
+            or not stat.S_ISSOCK(info.st_mode)
+            or stat.S_ISLNK(info.st_mode)
+            or info.st_uid != expected_uid
+            or info.st_gid != expected_gid
+            or stat.S_IMODE(info.st_mode) != 0o660
+        ):
+            return issue
+        return {}
+    except (OSError, ValueError):
+        return issue
+
+
 def evaluate_document_parser_installation(
     backend_live,
     service_path,
@@ -438,6 +469,9 @@ def evaluate(
     backend_release_root=None,
     backend_expected_uid=0,
     backend_expected_gid=0,
+    backend_socket=None,
+    backend_socket_expected_uid=0,
+    backend_socket_expected_gid=0,
     python_environment_live=None,
     python_environment_release_root=None,
     python_environment_expected_uid=0,
@@ -476,6 +510,13 @@ def evaluate(
                 expected_uid=backend_expected_uid,
                 expected_gid=backend_expected_gid,
             ))
+
+    if backend_socket is not None:
+        issues.update(evaluate_backend_origin_socket(
+            backend_socket,
+            expected_uid=backend_socket_expected_uid,
+            expected_gid=backend_socket_expected_gid,
+        ))
 
     if frontend_live is not None or frontend_release_root is not None:
         if frontend_live is None or frontend_release_root is None:
@@ -775,6 +816,7 @@ def main():
     parser.add_argument('--frontend-release-root', default='/var/www/aichat-releases')
     parser.add_argument('--backend-live', default='/opt/aichat-backend-current')
     parser.add_argument('--backend-release-root', default='/opt/aichat-backend-releases')
+    parser.add_argument('--backend-socket', default='/run/aichat-backend/gunicorn.sock')
     parser.add_argument('--python-environment-live', default='/opt/aichat-python-current')
     parser.add_argument('--python-environment-release-root', default='/opt/aichat-python-envs')
     parser.add_argument('--scanner-database-dir', default='/var/lib/clamav')
@@ -812,6 +854,9 @@ def main():
             frontend_release_root=args.frontend_release_root,
             backend_live=args.backend_live,
             backend_release_root=args.backend_release_root,
+            backend_socket=args.backend_socket,
+            backend_socket_expected_uid=pwd.getpwnam('aichat').pw_uid,
+            backend_socket_expected_gid=grp.getgrnam('aichat-origin').gr_gid,
             python_environment_live=args.python_environment_live,
             python_environment_release_root=args.python_environment_release_root,
             scanner_database_dir=args.scanner_database_dir,

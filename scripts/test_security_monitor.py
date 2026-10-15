@@ -1,6 +1,7 @@
 import importlib.util
 import hashlib
 import os
+import socket
 import stat
 import tempfile
 import time
@@ -150,6 +151,30 @@ class SecurityMonitorTests(unittest.TestCase):
                 'malware_scanner_health',
                 monitor.evaluate_clamav_socket(socket_path),
             )
+
+    def test_backend_origin_socket_requires_private_exact_shape(self):
+        runtime = self.root / 'backend-runtime'
+        runtime.mkdir(mode=0o750)
+        path = runtime / 'gunicorn.sock'
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            server.bind(str(path))
+            path.chmod(0o660)
+            self.assertEqual(
+                monitor.evaluate_backend_origin_socket(
+                    path, expected_uid=os.geteuid(), expected_gid=os.getegid(),
+                ),
+                {},
+            )
+            path.chmod(0o666)
+            self.assertIn(
+                'backend_origin_socket',
+                monitor.evaluate_backend_origin_socket(
+                    path, expected_uid=os.geteuid(), expected_gid=os.getegid(),
+                ),
+            )
+        finally:
+            server.close()
 
     def test_document_parser_socket_requires_exact_private_health_response(self):
         socket_path = self.root / 'parser.sock'
