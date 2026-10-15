@@ -233,6 +233,12 @@ estimate. NVIDIA documents production NIM pricing around licensing/GPU capacity,
 so monetary enforcement must use the owner's actual contract or infrastructure
 cost rather than an assumed per-token price.
 
+Provider egress is pinned to the three documented NVIDIA HTTPS hosts/paths in
+settings; userinfo, alternate ports/hosts/paths, query strings and fragments fail
+startup validation. Chat/probe SSE and image JSON responses are streamed under
+hard byte/line/time bounds, require validated shapes, never follow redirects, and
+close every image polling response. Provider errors remain generic to clients.
+
 ## Model catalog
 
 `chat/models_catalog.py` is the allowlisted set of documented NVIDIA NIM chat

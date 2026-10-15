@@ -71,7 +71,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels with a release-embedded CycloneDX SBOM, full-commit-SHA CI Actions, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain signed provenance evidence |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
-| A-10 | Medium | Model history or repeated calls could multiply payload and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
+| A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
 | A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable, invite rejection/consumption and verified signup, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets depend on `SECRET_KEY`-derived protection | Access and file permissions restrict the key | Use key versioning/KMS-backed encryption before routine key rotation |
@@ -1178,6 +1178,34 @@ is required before describing those controls as complete.
   `861a4892c3c819a94b0e70fc390a6ab5ac72e7d75b0d017ec5119f0e17c4c2b0`, and
   its post-update run succeeded with no active issue. Large asynchronous documents
   and evidence quarantine remain future work before any limit increase.
+
+### NVIDIA provider-egress bounds rollout — 2026-10-15
+
+- Repository state `d15cdef3939b41a687dbcd01dcd4c08fa3b78102` closes
+  unbounded upstream response and redirect behavior. Production startup now
+  accepts only the exact approved NVIDIA HTTPS host/path pairs for chat, image
+  generation and image status. Alternate schemes, hosts, suffix tricks, userinfo,
+  ports, paths, query strings, fragments and malformed ports fail closed before
+  the service starts.
+- Chat and model-probe SSE is consumed incrementally with a 4 MiB aggregate and
+  1 MiB line ceiling, strict UTF-8, validated object/list/delta/content/usage
+  shapes, bounded read time and a 480-second chat wall limit. Image generation
+  and polling stream JSON under a 16 MiB decoded response ceiling, validate
+  declared and actual size, reject every non-`200` terminal response, close each
+  polling response and continue to validate/decode the PNG under the existing
+  10 MiB storage boundary. No provider request follows redirects.
+- All 502 backend and 46 operations tests passed, including chunked responses
+  without `Content-Length`, oversized line/body, invalid UTF-8, malformed event
+  shapes, redirect flags and endpoint-confusion cases. Python compilation,
+  Django/migration checks, ShellCheck and both scanner/parser deploy preflights
+  passed; no schema or frontend change was required.
+- Production activated
+  `/opt/aichat-backend-releases/release-20261015T131046_140672450`; immediate
+  rollback `/opt/aichat-backend-releases/release-20261015T131029_920737700` uses
+  the same provider-bounded commit and both manifests verify. Backend and parser
+  are active with `NRestarts=0`; the integrity monitor completed with no active
+  issue. Public/origin health returned `200`, anonymous models returned `403`,
+  and arbitrary media returned `404`.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

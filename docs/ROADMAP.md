@@ -69,7 +69,9 @@ timed evidence.
   decisions across two transient provider runs, hides them on the third consecutive
   failure, restores them on success, blocks newly added IDs until their first successful
   probe, and alerts degraded or authorization-failed probes without leaking provider
-  error details.
+  error details. Provider egress is pinned to approved NVIDIA HTTPS endpoints;
+  redirects are disabled and streamed SSE/image responses have aggregate, line,
+  shape and wall-clock bounds.
   The October 2026 catalog tracks 20 current documented endpoints; its deployed
   full-stream probe currently exposes 13, including six verified image-capable
   models. Model-specific temperature/output-token contracts are enforced by API,
