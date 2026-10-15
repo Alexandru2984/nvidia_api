@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-export default function ProviderDisclosure({ busy, error, onAccept, onClose }) {
+export const PROVIDER_DISCLOSURE_VERSION = 1
+
+export default function ProviderDisclosure({
+  busy,
+  error,
+  requiresReload,
+  onAccept,
+  onClose,
+}) {
   const dialogRef = useRef(null)
   const acceptRef = useRef(null)
   const closeRef = useRef(onClose)
@@ -75,12 +83,18 @@ export default function ProviderDisclosure({ busy, error, onAccept, onClose }) {
               applicable service terms
             </a>.
           </p>
+          {requiresReload && (
+            <div className="error-banner" role="alert">
+              This disclosure has changed. Reload the page to review its current text before
+              continuing.
+            </div>
+          )}
           {error && <div className="error-banner" role="alert">{error}</div>}
         </div>
         <footer>
           <button type="button" onClick={onClose} disabled={busy}>Cancel</button>
           <button ref={acceptRef} type="button" className="primary" onClick={onAccept} disabled={busy}>
-            {busy ? 'Recording…' : 'I understand — continue'}
+            {requiresReload ? 'Reload to review' : (busy ? 'Recording…' : 'I understand — continue')}
           </button>
         </footer>
       </section>

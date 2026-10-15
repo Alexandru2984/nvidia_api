@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
 import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
-import ProviderDisclosure from './ProviderDisclosure'
+import ProviderDisclosure, { PROVIDER_DISCLOSURE_VERSION } from './ProviderDisclosure'
 const Settings = lazy(() => import('./Settings'))
 const MarkdownBody = lazy(() => import('./MarkdownBody'))
 
@@ -882,6 +882,7 @@ export default function App() {
   const [providerDisclosureOpen, setProviderDisclosureOpen] = useState(false)
   const [providerDisclosureBusy, setProviderDisclosureBusy] = useState(false)
   const [providerDisclosureError, setProviderDisclosureError] = useState(null)
+  const [providerDisclosureRequiresReload, setProviderDisclosureRequiresReload] = useState(false)
   const [uploadJobs, setUploadJobs] = useState([])
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
@@ -1416,9 +1417,14 @@ export default function App() {
     requestAnimationFrame(() => returnFocus?.isConnected && returnFocus.focus())
   }
 
-  function requestProviderDisclosure(action) {
-    providerDisclosureActionRef.current = action
+  function requestProviderDisclosure(
+    action,
+    requiredVersion = user?.provider_disclosure?.required_version,
+  ) {
+    const requiresReload = requiredVersion !== PROVIDER_DISCLOSURE_VERSION
+    providerDisclosureActionRef.current = requiresReload ? null : action
     providerDisclosureReturnFocusRef.current = document.activeElement
+    setProviderDisclosureRequiresReload(requiresReload)
     setProviderDisclosureError(null)
     setProviderDisclosureOpen(true)
   }
@@ -1431,7 +1437,7 @@ export default function App() {
         provider_disclosure: body.provider_disclosure,
       }))
     }
-    requestProviderDisclosure(action)
+    requestProviderDisclosure(action, body.provider_disclosure?.required_version)
     return true
   }
 
@@ -1440,6 +1446,7 @@ export default function App() {
     const returnFocus = providerDisclosureReturnFocusRef.current
     providerDisclosureActionRef.current = null
     providerDisclosureReturnFocusRef.current = null
+    setProviderDisclosureRequiresReload(false)
     setProviderDisclosureError(null)
     setProviderDisclosureOpen(false)
     requestAnimationFrame(() => returnFocus?.isConnected && returnFocus.focus())
@@ -1447,12 +1454,14 @@ export default function App() {
 
   async function acceptProviderDisclosure() {
     if (providerDisclosureBusy) return
+    if (providerDisclosureRequiresReload) {
+      window.location.reload()
+      return
+    }
     setProviderDisclosureBusy(true)
     setProviderDisclosureError(null)
     try {
-      const result = await api.acceptProviderDisclosure(
-        user?.provider_disclosure?.required_version,
-      )
+      const result = await api.acceptProviderDisclosure(PROVIDER_DISCLOSURE_VERSION)
       setUser((current) => ({
         ...current,
         provider_disclosure: result.provider_disclosure,
@@ -1464,10 +1473,17 @@ export default function App() {
       if (action) requestAnimationFrame(action)
     } catch (acceptError) {
       if (acceptError.body?.provider_disclosure) {
+        const disclosure = acceptError.body.provider_disclosure
         setUser((current) => ({
           ...current,
-          provider_disclosure: acceptError.body.provider_disclosure,
+          provider_disclosure: disclosure,
         }))
+        if (disclosure.required_version !== PROVIDER_DISCLOSURE_VERSION) {
+          providerDisclosureActionRef.current = null
+          setProviderDisclosureRequiresReload(true)
+          setProviderDisclosureError(null)
+          return
+        }
       }
       setProviderDisclosureError(acceptError.message)
     } finally {
@@ -1882,6 +1898,7 @@ export default function App() {
   async function handleLogout() {
     providerDisclosureActionRef.current = null
     providerDisclosureReturnFocusRef.current = null
+    setProviderDisclosureRequiresReload(false)
     setProviderDisclosureOpen(false)
     await clearAttachmentWork()
     try {
@@ -2588,6 +2605,7 @@ export default function App() {
           <ProviderDisclosure
             busy={providerDisclosureBusy}
             error={providerDisclosureError}
+            requiresReload={providerDisclosureRequiresReload}
             onAccept={acceptProviderDisclosure}
             onClose={closeProviderDisclosure}
           />

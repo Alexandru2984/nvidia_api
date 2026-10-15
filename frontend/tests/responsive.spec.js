@@ -217,7 +217,7 @@ test('provider disclosure gates the first request and remains usable on mobile',
   await expectNoPageOverflow(page)
 })
 
-test('stale disclosure state is refreshed without losing the draft', async ({ page }) => {
+test('stale disclosure text cannot accept a newer server version', async ({ page }) => {
   await mockAPI(page)
   let providerRequests = 0
   await page.route('**/api/conversations/1/messages/', (route) => {
@@ -234,26 +234,7 @@ test('stale disclosure state is refreshed without losing the draft', async ({ pa
         },
       })
     }
-    return route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      body: `data: ${JSON.stringify({
-        done: true,
-        user_message: {
-          id: 3, role: 'user', content: 'preserve this draft', attachments: [],
-          created_at: '2026-10-15T01:00:01Z',
-        },
-        assistant_message: {
-          id: 4, role: 'assistant', content: 'retried safely', attachments: [],
-          created_at: '2026-10-15T01:00:02Z',
-        },
-        conversation: {
-          id: 1, title: 'A useful conversation', model_id: 'test/model',
-          message_count: 4, is_pinned: false, archived_at: null,
-          created_at: '2026-10-05T12:00:00Z', updated_at: '2026-10-15T01:00:02Z',
-        },
-      })}\n\n`,
-    })
+    return route.abort()
   })
 
   await page.goto('/')
@@ -265,10 +246,12 @@ test('stale disclosure state is refreshed without losing the draft', async ({ pa
   const dialog = page.getByRole('dialog', { name: 'Before your first AI request' })
   await expect(dialog).toBeVisible()
   await expect(composer).toHaveValue('preserve this draft')
-  await dialog.getByRole('button', { name: 'I understand — continue' }).click()
-
-  await expect.poll(() => providerRequests).toBe(2)
-  await expect(page.getByText('retried safely')).toBeVisible()
+  await expect(dialog).toContainText(
+    'This disclosure has changed. Reload the page to review its current text',
+  )
+  await expect(dialog.getByRole('button', { name: 'Reload to review' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'I understand — continue' })).toHaveCount(0)
+  expect(providerRequests).toBe(1)
 })
 
 test('conversation settings enforce the selected model generation contract', async ({ page }) => {
