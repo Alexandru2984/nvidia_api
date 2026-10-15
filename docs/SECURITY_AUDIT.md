@@ -1287,6 +1287,53 @@ is required before describing those controls as complete.
   appeared after final activation. The cloudflared-to-nginx trust path remains a
   separate residual control.
 
+### Versioned privileged-audit key rollout — 2026-10-15
+
+- Repository state `b8bb1478c7b2a643a82e6d055706da02e1149140` removes
+  privileged-audit dependence on `DJANGO_SECRET_KEY`. Nonnumeric object
+  references and integrity tags use separate purpose-derived HMAC keys from an
+  independently generated, eight-entry-bounded keyring. New tags carry their
+  allowlisted version and key ID; malformed envelopes, unknown/corrupt roots and
+  invalid rows fail closed.
+- Production contained zero `AdminAuditEvent` and zero Django `LogEntry` rows
+  before migration, so `prod-2026-10` was activated with legacy Django-key
+  compatibility disabled and no historical evidence required re-tagging. The
+  full inventory passes with zero invalid or inactive dependencies. Future
+  rotation is transactional and first validates every locked row, preventing a
+  tampered event from being blessed by a new key.
+- The gzip-validated rollback dump is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261015_222737_034803086.sql.gz`
+  (`0600 micu:micu`, SHA-256
+  `04d902fb8b31e0bd09e52d3ab389e0e73cf6df41c15175f52de986b622f683cc`).
+  Migration `0025` only widened `integrity_tag` from 64 to 104 characters and is
+  applied. All 520 backend, 31 monitor and 5 atomic-keyring tests passed;
+  Django/migration checks, Bash syntax, ShellCheck and diff validation passed.
+- Production active release
+  `/opt/aichat-backend-releases/release-20261015T192813_865090023` and immediate
+  rollback `/opt/aichat-backend-releases/release-20261015T192754_224613062`
+  contain the same compatible commit and have valid manifests. A live rollback
+  drill switched in two seconds and restored the exact active release in one
+  second. The restored process imports from that release; backend and parser are
+  active at `NRestarts=0`, and no warning-or-higher backend event appeared.
+- Public and origin health returned `200`, anonymous models and `/.env` returned
+  `403`, and arbitrary media returned `404`. Port 8501 remains closed; the live
+  Gunicorn socket remains a real `0660 aichat:aichat-origin` socket. The installed
+  five-minute monitor matches repository SHA-256
+  `66f710b5e235902ac0d48bb31f4c34c12b440a0aa075857d33c05989ba315745`
+  and completed successfully with no active issue; the backend sandbox remains
+  `2.9 OK`.
+- The scoped CISO exercise ranks tampering and repudiation of the retained
+  365-day privileged metadata above availability loss; prompts, attachments and
+  provider data are not added to this flow. Invalid evidence is detected within
+  the monitor's under-six-minute target and the runbook preserves the row/root,
+  disables affected staff and revokes sessions before recovery. User-linked
+  audit evidence still requires privacy/legal assessment and the GDPR 72-hour
+  notification analysis when a breach qualifies. No new vendor was introduced.
+  There is no separate incident-loss history, so the program's illustrative
+  EUR 2,500/year baseline ALE remains the planning estimate rather than a new
+  accounting claim. External immutable retention and the full timed incident
+  tabletop remain open.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

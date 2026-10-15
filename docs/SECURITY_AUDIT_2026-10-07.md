@@ -162,6 +162,15 @@ secret values are reproduced here.
   CPU/memory/time/task bounds. Parser outage and protocol ambiguity fail closed
   before storage and are monitored. Novel parser defects remain possible, but
   their credential/network/aggregate-concurrency blast radius is now bounded.
+- 2026-10-15: privileged-audit integrity was decoupled from Django signing state
+  in commit `b8bb147` and production. Purpose-separated nonnumeric references and
+  versioned event tags now use an independent bounded keyring; malformed,
+  unknown, corrupt and retired-too-early artifacts fail closed. Inventory and
+  transactional rotation commands verify every retained event, and rotation
+  refuses to re-sign a tampered row. Production had zero legacy audit rows, so
+  the independent `prod-2026-10` root was activated with legacy compatibility
+  disabled. A database backup, schema migration, duplicate compatible releases
+  and a live rollback/restore drill all passed.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -533,6 +542,9 @@ production-entitlement decisions, and provide export/deletion status.
 - Password reset/verification codes are keyed hashes with expiry, attempt limits,
   transactional consumption and anti-enumeration response bodies. Password resets
   revoke sessions and do not bypass enabled 2FA.
+- Privileged audit events use an independent, purpose-separated, versioned root
+  keyring. Full-row inventory fails closed on any invalid tag or inactive-key
+  dependency, and transactional rotation validates every row before re-signing.
 - The backend runs as non-login `aichat`, binds only to a permissioned Unix socket, has no Linux
   capabilities, and scores 2.9 `OK` in `systemd-analyze security`. Its PostgreSQL
   role is neither superuser nor role/database creator and lacks database CREATE.
