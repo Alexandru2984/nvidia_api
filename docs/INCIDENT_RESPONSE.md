@@ -82,10 +82,11 @@ Patch the root cause before restoring normal traffic. Rotate affected credential
 from a known-clean device in dependency order: host/Cloudflare/GitHub control
 plane, database and mail credentials, NVIDIA key, Django sessions, then application
 secrets. `DJANGO_SECRET_KEY` rotation invalidates signed sessions, invitations and
-other signing/integrity artifacts, but versioned TOTP/recovery protection uses the
-independent `TWO_FACTOR_KEYS` keyring. Existing admin-audit HMACs and pseudonymous
-nonnumeric object references still depend on the Django key; re-tag them through a
-reviewed migration or preserve the old key for evidence validation.
+other Django signing artifacts, but versioned TOTP/recovery protection uses the
+independent `TWO_FACTOR_KEYS` keyring and privileged-audit evidence uses the
+separate `ADMIN_AUDIT_KEYS` keyring. Rotating the Django key therefore does not
+invalidate retained admin-audit HMACs or change pseudonymous nonnumeric object
+references.
 
 Rotate a suspected 2FA root key by adding a new key with
 `configure_two_factor_keys.py --rotate`, selecting it as active, restarting the
@@ -96,6 +97,17 @@ cannot be transformed and must first be consumed or regenerated. Any
 the database and configuration evidence, revoke sessions, and require re-enrollment
 only when the affected TOTP material cannot be decrypted with a trusted retained
 key. Never enable legacy `SECRET_KEY` compatibility as an unreviewed workaround.
+
+Rotate a suspected privileged-audit root key by preserving a database/config
+copy, adding a new root with `configure_two_factor_keys.py --scope admin-audit
+--rotate`, deploying it as active, and running `manage.py
+rotate_admin_audit_keys`. The command locks and verifies every retained event
+before replacing any tag; a single invalid row aborts and rolls back the complete
+re-tag. Preserve that row and the old root as incident evidence, investigate the
+integrity failure, and never make it valid by editing or deleting it. Remove an
+old audit root only after `manage.py audit_admin_audit_keys --require-active`
+passes. Never enable legacy Django-key compatibility merely to silence a failed
+inventory.
 
 ## 5. Notify
 

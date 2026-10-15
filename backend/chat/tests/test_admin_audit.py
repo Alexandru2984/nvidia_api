@@ -6,9 +6,14 @@ from django.contrib import admin
 from django.contrib.admin.models import ADDITION, CHANGE, LogEntry
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import RequestFactory
 
-from chat.admin_audit import PrivacyAuditAdminMixin, audit_event_is_valid
+from chat.admin_audit import (
+    PrivacyAuditAdminMixin,
+    audit_event_is_valid,
+    object_reference,
+)
 from chat.models import AdminAuditEvent, Conversation
 
 pytestmark = pytest.mark.django_db
@@ -47,6 +52,7 @@ def test_admin_log_is_sanitized_mirrored_and_security_logged(user, convo, caplog
     assert event.model_label == 'chat.conversation'
     assert event.object_ref == str(convo.pk)
     assert event.changed_fields == ['Title', 'System prompt']
+    assert event.integrity_tag.startswith('v1$audit-v1$')
     assert audit_event_is_valid(event)
     combined_logs = '\n'.join(record.getMessage() for record in caplog.records)
     assert 'event=admin_change' in combined_logs
@@ -69,6 +75,26 @@ def test_nonnumeric_object_identifier_is_hmac_referenced(user):
     event = AdminAuditEvent.objects.get(admin_log_id=entry.pk)
     assert event.object_ref.startswith('ref:')
     assert 'personal-address' not in event.object_ref
+
+
+def test_audit_artifacts_survive_django_signing_key_rotation(user, convo, settings):
+    first_reference = object_reference('stable-private-identifier')
+    entry = _log_change(user, convo)
+    event = AdminAuditEvent.objects.get(admin_log_id=entry.pk)
+
+    settings.SECRET_KEY = 'rotated-django-signing-key'
+    assert object_reference('stable-private-identifier') == first_reference
+    assert audit_event_is_valid(event)
+
+
+def test_unknown_or_corrupt_audit_key_fails_closed(user, convo):
+    entry = _log_change(user, convo)
+    event = AdminAuditEvent.objects.get(admin_log_id=entry.pk)
+    AdminAuditEvent.objects.filter(pk=event.pk).update(
+        integrity_tag='v1$missing$' + ('0' * 64),
+    )
+    event.refresh_from_db()
+    assert not audit_event_is_valid(event)
 
 
 def test_bulk_deletion_path_creates_one_audit_event_per_object(user):
@@ -105,6 +131,36 @@ def test_integrity_failure_is_detected_by_maintenance(user, convo, caplog):
 
     assert any('event=admin_audit_integrity_failed' in record.getMessage()
                for record in caplog.records)
+
+
+def test_key_inventory_and_rotation(user, convo, settings):
+    entry = _log_change(user, convo)
+    event = AdminAuditEvent.objects.get(admin_log_id=entry.pk)
+    call_command('audit_admin_audit_keys', '--require-active', stdout=StringIO())
+
+    settings.ADMIN_AUDIT_ACTIVE_KEY_ID = 'audit-v2'
+    with pytest.raises(CommandError, match='inactive key'):
+        call_command(
+            'audit_admin_audit_keys', '--require-active',
+            stdout=StringIO(), stderr=StringIO(),
+        )
+    call_command('rotate_admin_audit_keys', stdout=StringIO())
+    event.refresh_from_db()
+    assert event.integrity_tag.startswith('v1$audit-v2$')
+    assert audit_event_is_valid(event)
+    call_command('audit_admin_audit_keys', '--require-active', stdout=StringIO())
+
+
+def test_rotation_refuses_to_bless_tampered_event(user, convo, settings):
+    entry = _log_change(user, convo)
+    event = AdminAuditEvent.objects.get(admin_log_id=entry.pk)
+    AdminAuditEvent.objects.filter(pk=event.pk).update(changed_fields=['tampered'])
+    settings.ADMIN_AUDIT_ACTIVE_KEY_ID = 'audit-v2'
+
+    with pytest.raises(CommandError, match='integrity validation failed'):
+        call_command('rotate_admin_audit_keys', stdout=StringIO(), stderr=StringIO())
+    event.refresh_from_db()
+    assert event.integrity_tag.startswith('v1$audit-v1$')
 
 
 def test_every_registered_admin_is_privacy_audited():

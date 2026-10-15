@@ -1,4 +1,6 @@
 """Privacy-safe, tamper-evident auditing for privileged Django admin changes."""
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -15,6 +17,57 @@ from .models import AdminAuditEvent
 security_log = logging.getLogger('security')
 ACTION_NAMES = {ADDITION: 'add', CHANGE: 'change', DELETION: 'delete'}
 SAFE_FIELD_RE = re.compile(r'[^A-Za-z0-9_. -]+')
+KEY_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
+INTEGRITY_DIGEST_RE = re.compile(r'^[0-9a-f]{64}$')
+ENVELOPE_VERSION = 'v1'
+
+
+class AdminAuditKeyError(ValueError):
+    """An admin-audit artifact cannot be verified with configured keys."""
+
+
+def _root_key(key_id):
+    encoded = settings.ADMIN_AUDIT_KEYS.get(key_id)
+    if not isinstance(encoded, str):
+        raise AdminAuditKeyError('unknown admin-audit key')
+    try:
+        decoded = base64.b64decode(encoded.encode('ascii'), altchars=b'-_', validate=True)
+    except (UnicodeError, binascii.Error, ValueError) as exc:
+        raise AdminAuditKeyError('invalid configured admin-audit key') from exc
+    if len(decoded) != 32:
+        raise AdminAuditKeyError('invalid configured admin-audit key length')
+    return decoded
+
+
+def _derived_key(key_id, purpose):
+    return hmac.new(_root_key(key_id), purpose, hashlib.sha256).digest()
+
+
+def _active_key_id():
+    key_id = settings.ADMIN_AUDIT_ACTIVE_KEY_ID
+    if not isinstance(key_id, str) or not KEY_ID_RE.fullmatch(key_id):
+        raise AdminAuditKeyError('invalid active admin-audit key identifier')
+    _root_key(key_id)
+    return key_id
+
+
+def _parse_integrity_tag(stored):
+    if not isinstance(stored, str) or not stored:
+        raise AdminAuditKeyError('empty admin-audit integrity tag')
+    if '$' not in stored:
+        if not INTEGRITY_DIGEST_RE.fullmatch(stored):
+            raise AdminAuditKeyError('invalid legacy admin-audit tag')
+        return None, stored
+    parts = stored.split('$', 2)
+    if (
+        len(parts) != 3
+        or parts[0] != ENVELOPE_VERSION
+        or not KEY_ID_RE.fullmatch(parts[1])
+        or not INTEGRITY_DIGEST_RE.fullmatch(parts[2])
+    ):
+        raise AdminAuditKeyError('invalid admin-audit tag envelope')
+    _root_key(parts[1])
+    return parts[1], parts[2]
 
 
 def _safe_field_name(value):
@@ -73,13 +126,15 @@ def object_reference(object_id):
     if re.fullmatch(r'[0-9]{1,20}', raw):
         return raw
     digest = hmac.new(
-        settings.SECRET_KEY.encode(), f'admin-object-v1:{raw}'.encode(), hashlib.sha256,
+        _derived_key(_active_key_id(), b'aichat:admin-audit:object-reference:v1'),
+        raw.encode('utf-8'),
+        hashlib.sha256,
     ).hexdigest()[:20]
     return f'ref:{digest}'
 
 
-def audit_integrity_tag(*, admin_log_id, actor_user_id, action, model_label, object_ref, fields):
-    payload = json.dumps({
+def _audit_payload(*, admin_log_id, actor_user_id, action, model_label, object_ref, fields):
+    return json.dumps({
         'action': action,
         'actor_user_id': actor_user_id,
         'admin_log_id': admin_log_id,
@@ -87,21 +142,71 @@ def audit_integrity_tag(*, admin_log_id, actor_user_id, action, model_label, obj
         'model_label': model_label,
         'object_ref': object_ref,
     }, sort_keys=True, separators=(',', ':')).encode()
+
+
+def audit_integrity_tag(
+    *, admin_log_id, actor_user_id, action, model_label, object_ref, fields, key_id=None,
+):
+    key_id = key_id or _active_key_id()
+    payload = _audit_payload(
+        admin_log_id=admin_log_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        model_label=model_label,
+        object_ref=object_ref,
+        fields=fields,
+    )
+    digest = hmac.new(
+        _derived_key(key_id, b'aichat:admin-audit:integrity:v1'),
+        payload,
+        hashlib.sha256,
+    ).hexdigest()
+    return f'{ENVELOPE_VERSION}${key_id}${digest}'
+
+
+def _legacy_audit_integrity_tag(
+    *, admin_log_id, actor_user_id, action, model_label, object_ref, fields,
+):
+    payload = _audit_payload(
+        admin_log_id=admin_log_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        model_label=model_label,
+        object_ref=object_ref,
+        fields=fields,
+    )
     return hmac.new(
-        settings.SECRET_KEY.encode(), b'admin-audit-v1:' + payload, hashlib.sha256,
+        settings.SECRET_KEY.encode('utf-8'),
+        b'admin-audit-v1:' + payload,
+        hashlib.sha256,
     ).hexdigest()
 
 
+def audit_event_key_id(event):
+    key_id, _ = _parse_integrity_tag(event.integrity_tag)
+    return key_id
+
+
 def audit_event_is_valid(event):
-    expected = audit_integrity_tag(
-        admin_log_id=event.admin_log_id,
-        actor_user_id=event.actor_user_id,
-        action=event.action,
-        model_label=event.model_label,
-        object_ref=event.object_ref,
-        fields=event.changed_fields,
-    )
-    return hmac.compare_digest(event.integrity_tag, expected)
+    values = {
+        'admin_log_id': event.admin_log_id,
+        'actor_user_id': event.actor_user_id,
+        'action': event.action,
+        'model_label': event.model_label,
+        'object_ref': event.object_ref,
+        'fields': event.changed_fields,
+    }
+    try:
+        key_id, digest = _parse_integrity_tag(event.integrity_tag)
+        if key_id is None:
+            if not settings.ADMIN_AUDIT_LEGACY_SECRET_KEY_ENABLED:
+                return False
+            expected = _legacy_audit_integrity_tag(**values)
+        else:
+            expected = audit_integrity_tag(**values, key_id=key_id).split('$', 2)[2]
+        return hmac.compare_digest(digest, expected)
+    except (AdminAuditKeyError, TypeError, ValueError):
+        return False
 
 
 @receiver(pre_save, sender=LogEntry, dispatch_uid='chat_sanitize_admin_log_entry')

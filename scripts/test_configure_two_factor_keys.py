@@ -59,6 +59,16 @@ class ConfigureTwoFactorKeysTests(unittest.TestCase):
         with self.assertRaises(config.ConfigurationError):
             config.configure(self.env, 'second', rotate=False)
 
+    def test_admin_audit_scope_is_independent(self):
+        config.configure(self.env, 'two-factor', rotate=False)
+        two_factor_keyring = self.values()['TWO_FACTOR_KEYS']
+        config.configure(self.env, 'audit', rotate=False, scope='admin-audit')
+        values = self.values()
+        self.assertEqual(values['TWO_FACTOR_KEYS'], two_factor_keyring)
+        self.assertEqual(values['ADMIN_AUDIT_ACTIVE_KEY_ID'], 'audit')
+        self.assertEqual(values['ADMIN_AUDIT_LEGACY_SECRET_KEY_ENABLED'], 'false')
+        self.assertEqual(set(json.loads(values['ADMIN_AUDIT_KEYS'])), {'audit'})
+
     def test_refuses_unsafe_permissions_and_symlinks(self):
         self.env.chmod(0o644)
         with self.assertRaises(config.ConfigurationError):

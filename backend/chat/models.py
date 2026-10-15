@@ -284,7 +284,7 @@ class AdminAuditEvent(models.Model):
     model_label = models.CharField(max_length=150, db_index=True)
     object_ref = models.CharField(max_length=64)
     changed_fields = models.JSONField(default=list)
-    integrity_tag = models.CharField(max_length=64)
+    integrity_tag = models.CharField(max_length=104)
 
     class Meta:
         ordering = ['-occurred_at']

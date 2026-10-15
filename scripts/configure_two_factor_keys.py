@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Atomically bootstrap or extend the private 2FA keyring in a dotenv file.
+"""Atomically bootstrap or extend a private application keyring in dotenv.
 
 The command never prints key material or copies the rest of the environment to
 stdout. Retired keys are intentionally retained; the Django audit command must
@@ -20,11 +20,19 @@ from pathlib import Path
 
 KEY_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
 ASSIGNMENT_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)=')
-MANAGED = (
-    'TWO_FACTOR_KEYS',
-    'TWO_FACTOR_ACTIVE_KEY_ID',
-    'TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED',
-)
+SCOPES = {
+    'two-factor': (
+        'TWO_FACTOR_KEYS',
+        'TWO_FACTOR_ACTIVE_KEY_ID',
+        'TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED',
+    ),
+    'admin-audit': (
+        'ADMIN_AUDIT_KEYS',
+        'ADMIN_AUDIT_ACTIVE_KEY_ID',
+        'ADMIN_AUDIT_LEGACY_SECRET_KEY_ENABLED',
+    ),
+}
+MANAGED = tuple(name for names in SCOPES.values() for name in names)
 MAX_ENV_BYTES = 1024 * 1024
 
 
@@ -62,20 +70,20 @@ def _validated_keyring(raw: str):
     try:
         keyring = json.loads(raw)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise ConfigurationError('existing TWO_FACTOR_KEYS is not valid JSON') from exc
+        raise ConfigurationError('existing keyring is not valid JSON') from exc
     if not isinstance(keyring, dict) or not 1 <= len(keyring) <= 8:
-        raise ConfigurationError('existing 2FA keyring has an invalid size')
+        raise ConfigurationError('existing keyring has an invalid size')
     for key_id, value in keyring.items():
         if not isinstance(key_id, str) or not KEY_ID_RE.fullmatch(key_id):
-            raise ConfigurationError('existing 2FA keyring has an invalid identifier')
+            raise ConfigurationError('existing keyring has an invalid identifier')
         if not isinstance(value, str):
-            raise ConfigurationError('existing 2FA keyring has invalid key material')
+            raise ConfigurationError('existing keyring has invalid key material')
         try:
             decoded = base64.b64decode(value.encode('ascii'), altchars=b'-_', validate=True)
         except (UnicodeError, binascii.Error, ValueError) as exc:
-            raise ConfigurationError('existing 2FA keyring has invalid key material') from exc
+            raise ConfigurationError('existing keyring has invalid key material') from exc
         if len(decoded) != 32 or base64.urlsafe_b64encode(decoded).decode('ascii') != value:
-            raise ConfigurationError('existing 2FA keyring has invalid key material')
+            raise ConfigurationError('existing keyring has invalid key material')
     return keyring
 
 
@@ -127,31 +135,35 @@ def _atomic_replace(path: Path, info, content: str):
                 pass
 
 
-def configure(path: Path, key_id: str, *, rotate: bool):
+def configure(path: Path, key_id: str, *, rotate: bool, scope='two-factor'):
     if not KEY_ID_RE.fullmatch(key_id):
         raise ConfigurationError('key identifier must match [A-Za-z0-9_-]{1,32}')
+    try:
+        keys_name, active_name, legacy_name = SCOPES[scope]
+    except KeyError as exc:
+        raise ConfigurationError('unknown keyring scope') from exc
     info, text, values = _read_environment(path)
-    present = set(values)
+    present = set(values).intersection({keys_name, active_name, legacy_name})
     if rotate:
-        if {'TWO_FACTOR_KEYS', 'TWO_FACTOR_ACTIVE_KEY_ID'} - present:
-            raise ConfigurationError('rotation requires an existing 2FA keyring')
-        keyring = _validated_keyring(values['TWO_FACTOR_KEYS'])
+        if {keys_name, active_name} - present:
+            raise ConfigurationError('rotation requires an existing keyring')
+        keyring = _validated_keyring(values[keys_name])
         if key_id in keyring:
             raise ConfigurationError('new key identifier already exists')
         if len(keyring) >= 8:
             raise ConfigurationError('keyring is full; audit and retire an unused key first')
     else:
         if present:
-            raise ConfigurationError('2FA key settings already exist; use --rotate')
+            raise ConfigurationError('keyring settings already exist; use --rotate')
         keyring = {}
 
     keyring[key_id] = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('ascii')
     replacements = {
-        'TWO_FACTOR_KEYS': json.dumps(keyring, separators=(',', ':'), sort_keys=True),
-        'TWO_FACTOR_ACTIVE_KEY_ID': key_id,
+        keys_name: json.dumps(keyring, separators=(',', ':'), sort_keys=True),
+        active_name: key_id,
     }
-    if 'TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED' not in values:
-        replacements['TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED'] = 'false'
+    if legacy_name not in values:
+        replacements[legacy_name] = 'false'
     _atomic_replace(path, info, _replace_settings(text, replacements))
 
 
@@ -159,14 +171,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--env-file', required=True, type=Path)
     parser.add_argument('--key-id', required=True)
+    parser.add_argument('--scope', choices=sorted(SCOPES), default='two-factor')
     parser.add_argument('--rotate', action='store_true')
     args = parser.parse_args()
     try:
-        configure(args.env_file, args.key_id, rotate=args.rotate)
+        configure(args.env_file, args.key_id, rotate=args.rotate, scope=args.scope)
     except (ConfigurationError, OSError) as exc:
         parser.error(str(exc))
     action = 'Rotated' if args.rotate else 'Bootstrapped'
-    print(f'{action} the 2FA keyring; active_key_id={args.key_id}. No key material was printed.')
+    print(
+        f'{action} the {args.scope} keyring; active_key_id={args.key_id}. '
+        'No key material was printed.'
+    )
 
 
 if __name__ == '__main__':

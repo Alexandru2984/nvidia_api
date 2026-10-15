@@ -52,6 +52,12 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   alert, TOTP secrets rotate transactionally or lazily, and an audit gate prevents
   premature retirement while recovery codes still reference an old key. Move the
   root keys to systemd credentials or a KMS/HSM during the next secret rotation.
+- **Versioned privileged-audit key lifecycle is shipped:** pseudonymous
+  nonnumeric object references and integrity tags use separate purpose-derived
+  keys from an independent bounded keyring. Stored tags name their key, corrupt
+  or unknown evidence fails closed, transactional rotation refuses to bless a
+  tampered row, and the inventory gate prevents premature retirement. Move these
+  root keys to systemd credentials or a KMS/HSM with the other application keys.
 - **Incident readiness:** execute the runbook and close exercise findings before
   changing the audit verdict to green.
 

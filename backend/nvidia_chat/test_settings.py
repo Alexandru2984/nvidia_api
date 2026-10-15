@@ -39,6 +39,12 @@ TWO_FACTOR_KEYS = {
 }
 TWO_FACTOR_ACTIVE_KEY_ID = 'test-v1'
 TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED = True
+ADMIN_AUDIT_KEYS = {
+    'audit-v1': base64.urlsafe_b64encode(b'\x03' * 32).decode('ascii'),
+    'audit-v2': base64.urlsafe_b64encode(b'\x04' * 32).decode('ascii'),
+}
+ADMIN_AUDIT_ACTIVE_KEY_ID = 'audit-v1'
+ADMIN_AUDIT_LEGACY_SECRET_KEY_ENABLED = True
 REGISTRATION_MODE = 'open'
 
 # Avoid SMTP timeouts during tests

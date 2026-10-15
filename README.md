@@ -68,6 +68,9 @@ DJANGO_ALLOWED_HOSTS=aichat.micutu.com,localhost,127.0.0.1
 TWO_FACTOR_KEYS={"prod-2026-10":"<independently-generated-base64url-32-byte-key>"}
 TWO_FACTOR_ACTIVE_KEY_ID=prod-2026-10
 TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED=False
+ADMIN_AUDIT_KEYS={"prod-2026-10":"<different-independently-generated-base64url-32-byte-key>"}
+ADMIN_AUDIT_ACTIVE_KEY_ID=prod-2026-10
+ADMIN_AUDIT_LEGACY_SECRET_KEY_ENABLED=False
 
 DB_NAME=nvidia_db
 DB_USER=nvidia_user
@@ -532,6 +535,27 @@ retired key configured until `audit_two_factor_keys --require-active` passes.
 `TWO_FACTOR_LEGACY_SECRET_KEY_ENABLED` exists only for an explicitly supervised
 legacy migration and stays `False` in production.
 
+Bootstrap the independent privileged-audit keyring with a different generated
+root key before deploying audit-key versioning, then prove that every retained
+event validates with the active key:
+
+```bash
+sudo python3 scripts/configure_two_factor_keys.py \
+  --scope admin-audit --env-file /home/micu/nvidia/backend/.env \
+  --key-id prod-2026-10
+sudo -u aichat env AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend \
+  /opt/aichat-python-current/bin/python /opt/aichat-backend-current/manage.py \
+  audit_admin_audit_keys --require-active
+```
+
+For a planned audit-key rotation, add a new root with the same helper plus
+`--scope admin-audit --rotate`, deploy/restart so it becomes active, run
+`rotate_admin_audit_keys`, and rerun the inventory with `--require-active` before
+removing the retired root. Rotation verifies every event before re-signing and
+rolls the entire operation back if any retained row is corrupt or unverifiable.
+`ADMIN_AUDIT_LEGACY_SECRET_KEY_ENABLED` is a supervised migration bridge only and
+stays `False` in production.
+
 Take a recoverable copy of each live configuration before replacing it. After
 deployment, check service logs, authentication/CSRF, a private attachment download,
 `/.well-known/security.txt`, and rollback. See the
@@ -567,9 +591,11 @@ and [roadmap](docs/ROADMAP.md).
   `DJANGO_SECRET_KEY`; missing, retired-too-early, malformed, or corrupted
   artifacts fail closed and emit `two_factor_key_error` for the five-minute
   security monitor. Recovery codes remain usable during a TOTP lockout.
-- `DJANGO_SECRET_KEY` protects nonnumeric audit references and integrity tags.
-  Rotate it only with a reviewed re-tagging migration; otherwise existing audit
-  events intentionally fail integrity validation.
+- Nonnumeric admin object references and integrity tags use separate,
+  purpose-derived keys inside versioned envelopes. Their bounded root keyring is
+  independent of both `DJANGO_SECRET_KEY` and the 2FA keyring; unknown, malformed,
+  corrupt, or retired-too-early artifacts fail closed. Numeric database IDs
+  remain unchanged for incident correlation.
 
 ## Things to know about the email provider
 
