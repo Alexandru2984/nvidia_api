@@ -27,7 +27,7 @@ if (( EUID != 0 )); then
   echo 'ERROR: security-monitor installation must run as root' >&2
   exit 1
 fi
-for command in getfacl setfacl systemctl systemd-sysusers install runuser git getent python3; do
+for command in getfacl setfacl systemctl systemd-sysusers install runuser git getent python3 cmp; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
@@ -145,6 +145,7 @@ trap 'rollback "$?"' ERR
 trap 'rollback 130' INT TERM
 
 systemctl stop aichat-security-monitor.timer aichat-security-monitor.service
+install -d -o root -g root -m 0755 -- /etc/sysusers.d
 install -o root -g root -m 0644 -- "$SOURCE_SYSUSERS" "$TARGET_SYSUSERS"
 systemd-sysusers "$TARGET_SYSUSERS"
 monitor_uid="$(id -u "$MONITOR_USER")"
