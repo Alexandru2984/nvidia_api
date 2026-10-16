@@ -34,9 +34,24 @@ if [[ -z "$DB_NAME" || -z "$DB_USER" ]]; then
 fi
 [[ "$DB_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo 'ERROR: Unsafe database name' >&2; exit 1; }
 
-mkdir -p "$OUT_DIR"
-[[ ! -L "$OUT_DIR" ]] || { echo 'ERROR: Backup directory must not be a symlink' >&2; exit 1; }
-chmod 700 "$OUT_DIR"
+if [[ ! -e "$OUT_DIR" && ! -L "$OUT_DIR" ]]; then
+  mkdir -p -m 0700 -- "$OUT_DIR"
+fi
+[[ -d "$OUT_DIR" && ! -L "$OUT_DIR" ]] || {
+  echo 'ERROR: Backup directory must be a real directory' >&2
+  exit 1
+}
+directory_uid="$(stat -c '%u' -- "$OUT_DIR")"
+directory_mode="$(stat -c '%a' -- "$OUT_DIR")"
+[[ "$directory_uid" == "$(id -u)" ]] || {
+  echo 'ERROR: Backup directory is not owned by the backup identity' >&2
+  exit 1
+}
+directory_mode_value=$((8#$directory_mode))
+if (( (directory_mode_value & 0700) != 0700 || (directory_mode_value & 0027) != 0 )); then
+  echo 'ERROR: Backup directory permissions are unsafe' >&2
+  exit 1
+fi
 exec 9>"$OUT_DIR/.backup.lock"
 flock -n 9 || { echo 'ERROR: Another backup is running' >&2; exit 1; }
 STAMP="$(date +%Y%m%d_%H%M%S_%N)"
