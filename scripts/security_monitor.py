@@ -725,6 +725,9 @@ def evaluate(
         'event=generation_idempotency_conflict'
     )
     generation_interruptions = journal.count('event=generation_request_interrupted')
+    maintenance_failures = journal.count(
+        'aichat-maintenance.service: Failed with result'
+    )
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -822,6 +825,10 @@ def evaluate(
         issues['generation_interrupted'] = (
             f'{generation_interruptions} generation requests lost their durable lease '
             'in six minutes.'
+        )
+    if maintenance_failures:
+        issues['maintenance_failed'] = (
+            'The daily expired-data and chat-retention maintenance job failed.'
         )
     if invite_consumed:
         issues['registration_invite_consumed'] = (

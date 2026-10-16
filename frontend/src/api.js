@@ -274,6 +274,11 @@ export const api = {
 
   // Account
   accountUsage: () => request('/account/usage/'),
+  chatRetention: () => request('/account/chat-retention/'),
+  updateChatRetention: (archived_days) =>
+    request('/account/chat-retention/', {
+      method: 'PATCH', body: JSON.stringify({ archived_days }),
+    }),
   reauthenticate: (password, code) =>
     request('/auth/reauthenticate/', {
       method: 'POST', body: JSON.stringify({ password, ...(code ? { code } : {}) }),

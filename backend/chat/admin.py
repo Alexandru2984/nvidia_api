@@ -7,6 +7,7 @@ from django.contrib.auth.models import Group
 from .admin_audit import PrivacyAuditAdminMixin
 from .models import (
     AdminAuditEvent,
+    ChatHistoryRetention,
     Conversation,
     DailyAIUsage,
     GlobalAIUsage,
@@ -73,6 +74,13 @@ class ReadOnlyUsageAdmin(PrivacyAuditAdminMixin, admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         return [field.name for field in self.model._meta.fields]
+
+
+@admin.register(ChatHistoryRetention)
+class ChatHistoryRetentionAdmin(ReadOnlyUsageAdmin):
+    list_display = ('user', 'archived_days', 'updated_at')
+    list_filter = ('archived_days',)
+    search_fields = ('user__username', 'user__email')
 
 
 @admin.register(DailyAIUsage)

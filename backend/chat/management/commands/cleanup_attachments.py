@@ -1,4 +1,4 @@
-"""Daily cleanup for expired uploads, auth metadata, audits, and generation leases.
+"""Daily cleanup for expired uploads, auth metadata, chat retention, and leases.
 
 Scheduled in production by `aichat-maintenance.timer`.
 """
@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.admin.models import LogEntry
+from django.contrib.auth import get_user_model
 from django.contrib.sessions.models import Session
 from django.core.management.base import BaseCommand
 from django.db import models, transaction
@@ -16,6 +17,9 @@ from chat.models import (
     AdminAuditEvent,
     Attachment,
     AttachmentUploadAttempt,
+    ChatHistoryRetention,
+    ChatStorageGate,
+    Conversation,
     ConversationGenerationLease,
     EmailVerification,
     GenerationRequest,
@@ -26,7 +30,7 @@ from chat.models import (
 
 
 class Command(BaseCommand):
-    help = 'Delete expired uploads, auth metadata, audit rows, and generation leases.'
+    help = 'Delete expired uploads, auth metadata, retained chats, audits, and leases.'
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true', help='Show what would be deleted, but do not delete.')
@@ -78,6 +82,29 @@ class Command(BaseCommand):
             models.Q(expire_date__lte=now)
             | models.Q(chat_authentication__absolute_expires_at__lte=now)
         ).distinct()
+        retention_filter = models.Q(pk__isnull=True)
+        for retention_days in ChatHistoryRetention.DELETE_DAYS:
+            retention_cutoff = now - timedelta(days=retention_days)
+            retention_filter |= models.Q(
+                user__chat_history_retention__archived_days=retention_days,
+                archived_at__lt=retention_cutoff,
+                updated_at__lt=retention_cutoff,
+            )
+        retention_qs = Conversation.objects.filter(
+            retention_filter,
+            generation_lease__isnull=True,
+        )
+        retention_count = retention_qs.count()
+        retention_message_usage = Message.objects.filter(
+            conversation__in=retention_qs,
+        ).aggregate(
+            count=models.Count('id'),
+            bytes=models.Sum('content_bytes'),
+        )
+        retention_candidates = list(
+            retention_qs.order_by('updated_at', 'id').values_list('pk', 'user_id')
+            [:settings.CHAT_RETENTION_DELETE_BATCH_SIZE]
+        )
         ev_count = ev_qs.count()
         pr_count = pr_qs.count()
         invite_count = invite_qs.count()
@@ -122,6 +149,12 @@ class Command(BaseCommand):
                 f'  - {expired_generation_request_count} expired generation request records'
             )
             self.stdout.write(f'  - {session_count} expired sessions')
+            self.stdout.write(
+                f'  - {retention_count} retention-eligible archived conversations '
+                f'({retention_message_usage["count"] or 0} messages, '
+                f'{(retention_message_usage["bytes"] or 0) / 1024 / 1024:.1f} MiB; '
+                f'batch limit {settings.CHAT_RETENTION_DELETE_BATCH_SIZE})'
+            )
             self.stdout.write(
                 f'  - audit integrity: {invalid_audits} invalid, {missing_audits} missing'
             )
@@ -171,6 +204,56 @@ class Command(BaseCommand):
         expired_generation_request_qs.delete()
         session_qs.delete()
 
+        retained_conversations_deleted = 0
+        retained_messages_deleted = 0
+        retained_bytes_deleted = 0
+        User = get_user_model()
+        for conversation_id, user_id in retention_candidates:
+            with transaction.atomic():
+                # Match generation's global gate -> owner -> conversation order.
+                # A newly acquired lease or changed owner policy wins safely.
+                ChatStorageGate.objects.select_for_update().get(pk=1)
+                locked_user = User.objects.select_for_update().only('pk').filter(
+                    pk=user_id,
+                ).first()
+                if locked_user is None:
+                    continue
+                retention = ChatHistoryRetention.objects.filter(
+                    user_id=user_id,
+                ).only('archived_days').first()
+                if retention is None or retention.archived_days not in (
+                    ChatHistoryRetention.DELETE_DAYS
+                ):
+                    continue
+                retention_cutoff = now - timedelta(days=retention.archived_days)
+                conversation = Conversation.objects.select_for_update().filter(
+                    pk=conversation_id,
+                    user_id=user_id,
+                    archived_at__lt=retention_cutoff,
+                    updated_at__lt=retention_cutoff,
+                    generation_lease__isnull=True,
+                ).first()
+                if conversation is None:
+                    continue
+                message_usage = Message.objects.filter(
+                    conversation=conversation,
+                ).aggregate(
+                    count=models.Count('id'),
+                    bytes=models.Sum('content_bytes'),
+                )
+                conversation.delete()
+                retained_conversations_deleted += 1
+                retained_messages_deleted += message_usage['count'] or 0
+                retained_bytes_deleted += message_usage['bytes'] or 0
+
+        if retained_conversations_deleted:
+            security_log.info(
+                'event=chat_history_retention_deleted conversations=%s messages=%s bytes=%s',
+                retained_conversations_deleted,
+                retained_messages_deleted,
+                retained_bytes_deleted,
+            )
+
         self.stdout.write(self.style.SUCCESS(
             f'Deleted {att_count} orphan attachments ({att_bytes / 1024 / 1024:.1f} MB), '
             f'{ev_count} expired email verifications, {pr_count} expired password resets, '
@@ -180,5 +263,7 @@ class Command(BaseCommand):
             f'{generation_lease_count} expired generation leases, '
             f'{stale_generation_request_count} interrupted generation requests, '
             f'{expired_generation_request_count} expired generation request records, '
-            f'{session_count} expired sessions.'
+            f'{session_count} expired sessions, '
+            f'{retained_conversations_deleted} retained archived conversations '
+            f'({retained_messages_deleted} messages, {retained_bytes_deleted} bytes).'
         ))

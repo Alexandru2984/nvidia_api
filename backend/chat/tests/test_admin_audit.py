@@ -14,7 +14,7 @@ from chat.admin_audit import (
     audit_event_is_valid,
     object_reference,
 )
-from chat.models import AdminAuditEvent, Conversation, Message
+from chat.models import AdminAuditEvent, ChatHistoryRetention, Conversation, Message
 
 pytestmark = pytest.mark.django_db
 
@@ -177,6 +177,19 @@ def test_message_admin_cannot_bypass_storage_reservations(user):
     request = RequestFactory().get('/admin/chat/message/')
     request.user = user
     model_admin = admin.site._registry[Message]
+
+    assert model_admin.has_view_permission(request)
+    assert not model_admin.has_add_permission(request)
+    assert not model_admin.has_change_permission(request)
+    assert not model_admin.has_delete_permission(request)
+
+
+def test_chat_retention_admin_is_read_only(user):
+    user.is_staff = True
+    user.is_superuser = True
+    request = RequestFactory().get('/admin/chat/chathistoryretention/')
+    request.user = user
+    model_admin = admin.site._registry[ChatHistoryRetention]
 
     assert model_admin.has_view_permission(request)
     assert not model_admin.has_add_permission(request)

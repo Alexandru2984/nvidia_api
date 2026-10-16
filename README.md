@@ -85,6 +85,7 @@ AI_USER_DAILY_CHAT_LIMIT=100
 AI_USER_DAILY_IMAGE_LIMIT=10
 AI_GLOBAL_DAILY_CHAT_LIMIT=500
 AI_GLOBAL_DAILY_IMAGE_LIMIT=50
+CHAT_RETENTION_DELETE_BATCH_SIZE=100
 CHAT_MAX_CONVERSATIONS_PER_USER=500
 CHAT_MAX_MESSAGES_PER_USER=10000
 CHAT_MAX_MESSAGES_PER_CONVERSATION=2000
@@ -152,6 +153,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles without decoding the global session table; revocation requires recent strong authentication. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
+| GET/PATCH | `/account/chat-retention/` | `{archived_days}` | session | Owner-scoped opt-in lifecycle. Accepts 0 (keep until manually deleted), 30, 90, 180, or 365 days; only inactive archived conversations qualify. |
 | POST | `/provider-disclosure/` | `{version}` | session | Records the current versioned NVIDIA data-flow acknowledgement; stale or non-integer versions fail closed. |
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
@@ -234,8 +236,12 @@ maximum net growth. Assistant output is capped at 64,000 characters, Markdown
 exports are streamed under a conservative 25 MiB ceiling, and quota blocks are
 security-monitored. The responsive Storage panel exposes current counts, text
 bytes and owner-visible limits without disclosing global tenant usage. Daily
-maintenance deletes expired database sessions; session inventory/revocation and
-attachment/export egress have explicit rate limits.
+maintenance deletes expired database sessions and processes at most
+`CHAT_RETENTION_DELETE_BATCH_SIZE` owner-opted-in archived conversations. It
+revalidates policy, age and absence of a generation lease under the normal lock
+order before cascading their messages and linked files. Active chats and accounts
+without an explicit policy are kept until manual deletion. Session inventory/
+revocation and attachment/export egress have explicit rate limits.
 
 Authenticated sessions keep Django's 14-day sliding cookie but are also bounded
 by a fixed 30-day lifetime from login. Rotations preserve that original deadline,

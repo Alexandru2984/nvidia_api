@@ -64,6 +64,7 @@ from .nvidia_client import (
 from .models import (
     Attachment,
     AttachmentUploadAttempt,
+    ChatHistoryRetention,
     ChatStorageGate,
     Conversation,
     ConversationGenerationLease,
@@ -1374,6 +1375,57 @@ def account_usage(request):
         ),
         'ai_today': user_usage_snapshot(request.user),
     })
+
+
+def _chat_retention_payload(retention):
+    archived_days = (
+        retention.archived_days
+        if retention is not None
+        else ChatHistoryRetention.KEEP_FOREVER
+    )
+    return {
+        'archived_days': archived_days,
+        'choices': [
+            {'days': days, 'label': label}
+            for days, label in ChatHistoryRetention.DAY_CHOICES
+        ],
+        'scope': 'archived_inactive_conversations',
+    }
+
+
+@api_view(['GET', 'PATCH'])
+@ratelimit(key='user', method='GET', rate='60/m', block=False)
+@ratelimit(key='user', method='PATCH', rate='10/h', block=False)
+def account_chat_retention(request):
+    if (r := _rate_limited(request)): return r
+    retention = ChatHistoryRetention.objects.filter(user=request.user).first()
+    if request.method == 'GET':
+        return Response(_chat_retention_payload(retention))
+
+    archived_days = request.data.get('archived_days')
+    allowed_days = {days for days, _label in ChatHistoryRetention.DAY_CHOICES}
+    if (
+        not isinstance(archived_days, int)
+        or isinstance(archived_days, bool)
+        or archived_days not in allowed_days
+    ):
+        return Response({
+            'error': 'archived_days must be one of 0, 30, 90, 180, or 365.',
+            'code': 'invalid_chat_retention',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().only('pk').get(pk=request.user.pk)
+        retention, _created = ChatHistoryRetention.objects.update_or_create(
+            user=request.user,
+            defaults={'archived_days': archived_days},
+        )
+    security_log.info(
+        'event=chat_retention_changed user_id=%s archived_days=%s',
+        request.user.pk,
+        archived_days,
+    )
+    return Response(_chat_retention_payload(retention))
 
 
 def _attachment_capability_response(request, model_id, issue, response_status=400):

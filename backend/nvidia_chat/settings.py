@@ -362,6 +362,13 @@ if not 1 <= GENERATION_REQUEST_RETENTION_DAYS <= 90:
     raise ImproperlyConfigured(
         'GENERATION_REQUEST_RETENTION_DAYS must be between 1 and 90.',
     )
+CHAT_RETENTION_DELETE_BATCH_SIZE = _nonnegative_int_env(
+    'CHAT_RETENTION_DELETE_BATCH_SIZE', 100,
+)
+if not 1 <= CHAT_RETENTION_DELETE_BATCH_SIZE <= 1000:
+    raise ImproperlyConfigured(
+        'CHAT_RETENTION_DELETE_BATCH_SIZE must be between 1 and 1000.',
+    )
 
 CHAT_MAX_CONVERSATIONS_PER_USER = _nonnegative_int_env(
     'CHAT_MAX_CONVERSATIONS_PER_USER', 500,

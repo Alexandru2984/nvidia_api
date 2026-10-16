@@ -167,6 +167,43 @@ class ChatStorageGate(models.Model):
         return 'ChatStorageGate(singleton)'
 
 
+class ChatHistoryRetention(models.Model):
+    """Owner-selected lifecycle for inactive archived conversations."""
+
+    KEEP_FOREVER = 0
+    DELETE_DAYS = (30, 90, 180, 365)
+    DAY_CHOICES = [
+        (KEEP_FOREVER, 'Keep until I delete'),
+        (30, 'Delete after 30 days'),
+        (90, 'Delete after 90 days'),
+        (180, 'Delete after 180 days'),
+        (365, 'Delete after 365 days'),
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name='chat_history_retention',
+        on_delete=models.CASCADE,
+        primary_key=True,
+    )
+    archived_days = models.PositiveSmallIntegerField(
+        choices=DAY_CHOICES,
+        default=KEEP_FOREVER,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(archived_days__in=[0, 30, 90, 180, 365]),
+                name='chat_history_retention_days_valid',
+            ),
+        ]
+
+    def __str__(self):
+        return f'ChatHistoryRetention(user={self.user_id}, days={self.archived_days})'
+
+
 class Conversation(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

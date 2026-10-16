@@ -66,6 +66,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=protected_config_changed']
             + ['event=generation_idempotency_conflict'] * 3
             + ['event=generation_request_interrupted']
+            + ["aichat-maintenance.service: Failed with result 'exit-code'."]
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
@@ -85,6 +86,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'model_probe_authorization',
              'protected_config_changed',
              'generation_idempotency_conflict', 'generation_interrupted',
+             'maintenance_failed',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
 

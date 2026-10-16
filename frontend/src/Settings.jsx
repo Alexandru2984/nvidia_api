@@ -449,17 +449,22 @@ function DangerPanel({ onLoggedOut }) {
 
 function StoragePanel() {
   const [usage, setUsage] = useState(null)
+  const [retention, setRetention] = useState(null)
   const [files, setFiles] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const [nextCursor, setNextCursor] = useState(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [retentionBusy, setRetentionBusy] = useState(false)
   useEffect(() => {
     let cancelled = false
-    Promise.all([api.accountUsage(), api.listAttachments()]).then(([stats, attachments]) => {
+    Promise.all([
+      api.accountUsage(), api.listAttachments(), api.chatRetention(),
+    ]).then(([stats, attachments, retentionPolicy]) => {
       if (cancelled) return
       const page = normalizeAttachmentPage(attachments)
       setUsage(stats); setFiles(page.results); setNextCursor(page.nextCursor)
+      setRetention(retentionPolicy)
     }).catch((e) => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
   }, [])
@@ -488,6 +493,22 @@ function StoragePanel() {
       setNextCursor(page.nextCursor)
     } catch (e) { setError(e.message) }
     finally { setLoadingMore(false) }
+  }
+
+  async function changeRetention(event) {
+    const archivedDays = Number(event.target.value)
+    if (archivedDays > 0 && !confirm(
+      `Permanently delete archived conversations after ${archivedDays} days of inactivity? `
+      + 'Messages and linked files will also be deleted. There is no undo.',
+    )) {
+      event.target.value = String(retention.archived_days)
+      return
+    }
+    setRetentionBusy(true); setError(null)
+    try {
+      setRetention(await api.updateChatRetention(archivedDays))
+    } catch (e) { setError(e.message) }
+    finally { setRetentionBusy(false) }
   }
 
   return <section className="settings-section">
@@ -528,6 +549,26 @@ function StoragePanel() {
             Up to {formatBytes(usage.message_bytes_limit_per_conversation)} per conversation.
           </small>
         </label>}
+      </div>}
+      {retention && <div className="retention-card">
+        <h3>Archived chat retention</h3>
+        <p className="muted">
+          Active conversations are never deleted automatically. This policy applies only to
+          archived conversations that have not changed during the selected period.
+        </p>
+        <label className="settings-field">
+          <span>Automatic deletion</span>
+          <select value={retention.archived_days} onChange={changeRetention}
+            disabled={retentionBusy} aria-label="Archived chat retention">
+            {retention.choices.map((choice) => (
+              <option key={choice.days} value={choice.days}>{choice.label}</option>
+            ))}
+          </select>
+        </label>
+        {retention.archived_days > 0 && <p className="retention-warning" role="status">
+          Archived messages and linked files are permanently deleted after
+          {' '}{retention.archived_days} inactive days. Restore a chat before then to keep it.
+        </p>}
       </div>}
       {usage.ai_today && <div className="ai-usage-card">
         <h3>Today's AI usage</h3>
