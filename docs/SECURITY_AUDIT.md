@@ -1380,6 +1380,37 @@ is required before describing those controls as complete.
   baseline ALE is unchanged; off-host immutable evidence and independent
   monitoring of monitor failure remain residual controls.
 
+### Protected-configuration change detection — 2026-10-16
+
+- Repository state `24a0303bc3d7a7453da475c768d604ad7873ea13`
+  adds a root-managed `aichat-config-watch.path` boundary around 12 exact NVIDIA
+  targets: application and Telegram dotenv files, the nginx vhost, backend/job/
+  monitor systemd units, the monitor sysusers definition and installed monitor
+  executable. The path unit is enabled, active and waiting in production.
+- A change starts a network-denied `aichat-monitor` oneshot that writes only the
+  fixed `event=protected_config_changed` journal message. It does not read or
+  forward the changed path or content. The five-minute monitor now reads that
+  unit's journal and raises a fixed alert within its six-minute correlation
+  window; the incident runbook requires preserving the timestamp and comparing
+  installed files to committed sources without copying secret contents.
+- The atomic monitor installer now stops the watcher before planned monitor
+  upgrades, snapshots both watcher units and restores their prior enabled/active
+  state on failure. This avoids self-generated deployment alerts while retaining
+  the already exercised executable/unit/ACL/state rollback path.
+- All 36 monitor tests, Python compilation, Bash syntax, ShellCheck and systemd
+  verification passed. Installed watcher service/path and monitor executable
+  exactly match the repository. Bootstrap produced zero protected-config events;
+  a subsequent monitor run under `aichat-monitor` returned status zero with no
+  active issue or warning-level event. The watcher emitter scores `2.2 OK`, the
+  monitor remains `2.9 OK`, and public application health remains `200`.
+- The scoped CISO review ranks tampering and repudiation above availability.
+  The emitted data is one fixed event plus journal time—no credential, path,
+  prompt, attachment or user identifier. Blast radius is local evidence and the
+  time needed to investigate a changed control. No vendor or new personal-data
+  flow was added; GDPR 72-hour assessment still applies if investigation finds a
+  qualifying breach. Root can disable or erase this local signal, so off-host
+  immutable retention and independent monitor-failure detection remain open.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

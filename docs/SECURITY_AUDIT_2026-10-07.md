@@ -171,6 +171,12 @@ secret values are reproduced here.
   the independent `prod-2026-10` root was activated with legacy compatibility
   disabled. A database backup, schema migration, duplicate compatible releases
   and a live rollback/restore drill all passed.
+- 2026-10-16: S-13 local protected-configuration detection was expanded in
+  commit `24a0303` and production. A root-managed systemd path unit watches the
+  NVIDIA dotenv, nginx vhost, application/monitor units, monitor identity and
+  installed monitor executable. Any change emits only the fixed
+  `protected_config_changed` event for the five-minute alert path. The watcher
+  is enabled and waiting with 12 exact targets; no bootstrap event was emitted.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -476,8 +482,8 @@ non-login identity rather than the interactive administrator, receives the
 Telegram configuration as an ephemeral systemd credential, cannot read database
 dumps or its source credential, and has exact monitored ACL access only to backup
 metadata and the privacy-minimized restore status. The remaining high-value
-signals are off-host retention, sudo/process identity, secret/config changes and
-provider/mail cost anomalies.
+signals are off-host retention, sudo/process identity and provider/mail cost
+anomalies.
 
 ### S-14 — Low — dependency provenance remains incomplete
 
