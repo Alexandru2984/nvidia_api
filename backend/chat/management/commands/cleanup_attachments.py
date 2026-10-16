@@ -231,9 +231,17 @@ class Command(BaseCommand):
                     user_id=user_id,
                     archived_at__lt=retention_cutoff,
                     updated_at__lt=retention_cutoff,
-                    generation_lease__isnull=True,
                 ).first()
                 if conversation is None:
+                    continue
+                # Keep the nullable reverse one-to-one out of the locked
+                # conversation query. PostgreSQL rejects FOR UPDATE when it
+                # applies to the nullable side of the resulting outer join.
+                # The global gate above prevents a generation from acquiring
+                # a new lease between this check and the delete.
+                if ConversationGenerationLease.objects.filter(
+                    conversation_id=conversation.pk,
+                ).exists():
                     continue
                 message_usage = Message.objects.filter(
                     conversation=conversation,

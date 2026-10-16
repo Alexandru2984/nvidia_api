@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from chat.models import (
@@ -196,6 +197,25 @@ class TestChatRetentionCleanup:
 
         assert Conversation.objects.filter(pk=conversation.pk).exists()
         assert ConversationGenerationLease.objects.filter(conversation=conversation).exists()
+
+    def test_locked_conversation_query_has_no_nullable_lease_join(self, user):
+        ChatHistoryRetention.objects.create(user=user, archived_days=30)
+        conversation = _conversation(user, 'postgres lock regression')
+        _archive_at(conversation, timezone.now() - timedelta(days=31))
+
+        with CaptureQueriesContext(connection) as queries:
+            call_command('cleanup_attachments', stdout=StringIO())
+
+        locked_conversation_queries = [
+            item['sql']
+            for item in queries.captured_queries
+            if 'FROM "chat_conversation"' in item['sql']
+            and f'"chat_conversation"."id" = {conversation.pk}' in item['sql']
+            and 'LIMIT 1' in item['sql']
+        ]
+        assert locked_conversation_queries
+        assert all('JOIN' not in query for query in locked_conversation_queries)
+        assert not Conversation.objects.filter(pk=conversation.pk).exists()
 
     def test_cleanup_is_bounded_to_configured_batch(self, user, settings):
         settings.CHAT_RETENTION_DELETE_BATCH_SIZE = 1
