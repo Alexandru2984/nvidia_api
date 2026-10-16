@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location(
@@ -337,6 +338,34 @@ class SecurityMonitorTests(unittest.TestCase):
         link.symlink_to(env_file)
         with self.assertRaisesRegex(RuntimeError, 'credentials are unsafe'):
             monitor.parse_monitor_credentials(link)
+
+    def test_credentials_parser_accepts_only_exact_systemd_acl(self):
+        credential_dir = self.root / 'credentials'
+        credential_dir.mkdir()
+        env_file = credential_dir / 'telegram.env'
+        env_file.write_text('BOT_TOKEN=token\nCHAT_ID=1\n', encoding='utf-8')
+        root_systemd_info = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o440,
+            st_uid=0,
+            st_gid=0,
+            st_size=env_file.stat().st_size,
+        )
+        with (
+            mock.patch.dict(os.environ, {'CREDENTIALS_DIRECTORY': str(credential_dir)}),
+            mock.patch.object(Path, 'lstat', return_value=root_systemd_info),
+            mock.patch.object(monitor, '_has_exact_acl', return_value=True),
+        ):
+            self.assertEqual(
+                monitor.parse_monitor_credentials(env_file),
+                {'BOT_TOKEN': 'token', 'CHAT_ID': '1'},
+            )
+        with (
+            mock.patch.dict(os.environ, {'CREDENTIALS_DIRECTORY': str(credential_dir)}),
+            mock.patch.object(Path, 'lstat', return_value=root_systemd_info),
+            mock.patch.object(monitor, '_has_exact_acl', return_value=False),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'credentials are unsafe'):
+                monitor.parse_monitor_credentials(env_file)
 
     def test_dedicated_monitor_backup_acl_geometry(self):
         self.backups.chmod(0o750)

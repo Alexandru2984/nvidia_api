@@ -820,10 +820,27 @@ def parse_monitor_credentials(path):
         info = path.lstat()
     except OSError as exc:
         raise RuntimeError('monitor notification credentials are unavailable') from exc
+    mode = stat.S_IMODE(info.st_mode)
+    ordinary_private_file = mode & 0o077 == 0 and info.st_uid in {0, os.geteuid()}
+    credentials_directory = os.environ.get('CREDENTIALS_DIRECTORY', '')
+    systemd_credential = (
+        bool(credentials_directory)
+        and Path(credentials_directory).is_absolute()
+        and path.parent == Path(credentials_directory)
+        and mode == 0o440
+        and info.st_uid == 0
+        and info.st_gid == 0
+        and _has_exact_acl(path, {
+            'user::r--',
+            f'user:{os.geteuid()}:r--',
+            'group::---',
+            'mask::r--',
+            'other::---',
+        })
+    )
     if (
         not stat.S_ISREG(info.st_mode)
-        or stat.S_IMODE(info.st_mode) & 0o077
-        or info.st_uid not in {0, os.geteuid()}
+        or not (ordinary_private_file or systemd_credential)
         or not 1 <= info.st_size <= 64 * 1024
     ):
         raise RuntimeError('monitor notification credentials are unsafe')
