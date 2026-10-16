@@ -470,7 +470,12 @@ quota blocks. Database-generated UTF-8 byte counts and a singleton transaction
 gate now additionally enforce 16 MiB/conversation, 64 MiB/user and 1 GiB/service
 message-text limits, including live generation reservations. The responsive
 account panel exposes owner-scoped object and byte consumption without disclosing
-global tenant usage. Residual work is a linked-history retention/deletion policy.
+global tenant usage. Owners can now keep archived chats indefinitely or select a
+30/90/180/365-day lifecycle. Bounded daily cleanup rechecks the owner policy and
+age under the same global/owner/conversation lock order, excludes every active
+generation lease, and cascade-deletes linked messages and attachment files.
+Maintenance failure is monitored. Residual work is an operator-wide legal/default
+schedule and an explicit usage-metadata lifecycle.
 The deployed owner-indexed session registry avoids decoding the global session
 table and enforces both a fixed 30-day lifetime and a 20-session account cap.
 
@@ -627,11 +632,12 @@ production-entitlement decisions, and provide export/deletion status.
 
 1. Replace loopback TCP/backend trust with permissioned/authenticated origin
    paths.
-2. Add linked-history retention. Global/per-owner chat-byte quotas, recent-auth
-   policy, request idempotency/durable job state, absolute session deadlines, the
-   indexed owner/session registry, per-user object quotas, bounded/throttled
-   egress, expired-session cleanup, the per-conversation generation lease and
-   attachment claim lock are deployed.
+2. Owner-configurable linked-history retention is deployed for inactive archived
+   chats, together with global/per-owner chat-byte quotas, recent-auth policy,
+   request idempotency/durable job state, absolute session deadlines, the indexed
+   owner/session registry, per-user object quotas, bounded/throttled egress,
+   expired-session cleanup, the per-conversation generation lease and attachment
+   claim lock. Define the operator-wide legal/default and usage-metadata schedule.
 4. Produce and retain signed wheel provenance and tabletop both backend rollback
    paths. Application code and the minimal runtime Python environment already use
    separate root-owned, manifest-verified atomic releases with automatic rollback,

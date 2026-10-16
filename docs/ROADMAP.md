@@ -39,7 +39,8 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   backend error bursts, backup/restore freshness, malware detections, local
   scanner outages and ClamAV-signature freshness, isolated-parser health and
   parser/upload failure correlation, including installed parser drift from the
-  manifest-verified backend release, and malformed/redirected provider responses.
+  manifest-verified backend release, malformed/redirected provider responses,
+  and failed scheduled maintenance.
   The monitor runs under a dedicated non-login identity, receives its Telegram
   configuration through a systemd credential, can read restore status but not
   database dumps, and validates those exact ACL boundaries on every run. A
@@ -136,8 +137,11 @@ timed evidence.
   only after responsive reauthentication. Database-derived UTF-8 byte accounting
   now enforces transactional per-conversation, per-user and service-wide saved-
   message ceilings, including live worst-case generation reservations and net-
-  growth regeneration. Add configurable linked-history retention before
-  materially raising account volume.
+  growth regeneration. Owner-selected archived-history retention is now shipped:
+  inactive archived conversations can be kept indefinitely or deleted after 30,
+  90, 180, or 365 days by bounded daily maintenance, while active generations
+  and active chats remain excluded. Define the operator-wide legal/default
+  schedule and usage-metadata retention before materially raising account volume.
 - **Immutable backend application delivery is shipped:** production imports only
   a committed, root-owned, manifest-verified release selected through one atomic
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs
@@ -173,8 +177,8 @@ timed evidence.
   compact mode, and reduced-motion mode.
 - Token/request/storage dashboard with daily/monthly budgets and downloadable
   personal usage history.
-- Full account export (JSON plus attachment manifest), configurable retention,
-  scheduled deletion, and visible deletion status.
+- Full account export (JSON plus attachment manifest), scheduled account
+  deletion, and visible deletion status.
 - Image job history/gallery with cancel/retry/delete and preserved generation
   parameters.
 - **Versioned provider disclosure is shipped:** before the first chat,

@@ -73,7 +73,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
@@ -83,7 +83,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, bound executable roots to the active plus two rollbacks, and have passed a controlled production rollback/restore drill for both release families | Add signed builder provenance and define the supplemental-archive lifecycle plus off-host evidence retention |
 | A-20 | Medium | Users could send prompts, history and selected files to NVIDIA without a durable, current disclosure acknowledgement | A versioned, owner-bound timestamp is stored without prompt/file/IP data; chat, regeneration and image generation return `428` before leases, budget reservations, message writes or provider egress until the current disclosure is accepted. The keyboard-accessible mobile UI names each data class, links official NVIDIA privacy/terms pages and offers an equal cancel path | Obtain legal review of the actual processing basis, publish the complete operator privacy notice, confirm NVIDIA retention/training/DPA/region and production-entitlement terms, and bump the version when the data flow materially changes |
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
-| A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin | Define and enforce linked-history retention/deletion before materially raising account or quota volume |
+| A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days | Publish the operator-wide legal/default and usage-metadata schedules before materially raising account or quota volume |
 
 ## Quantitative risk view
 
@@ -1534,12 +1534,79 @@ is required before describing those controls as complete.
   or new special-category processing is introduced; byte length is derived from
   already retained text. The runbook now contains privacy-minimized containment,
   GDPR's qualifying-breach assessment remains 72 hours, NVIDIA processing is
-  unchanged, and linked-history retention plus off-host evidence remain open.
+  unchanged, and the operator-wide legal/default schedule plus off-host evidence
+  remain open.
+
+### Archived-chat retention rollout — 2026-10-16
+
+- Commit `7c9924ee2d27f1e40e28d59fd3b34c867b4da9d4` adds an owner-scoped
+  retention preference with a deletion-safe default of zero (keep until manual
+  deletion) and explicit 30/90/180/365-day choices. Only inactive archived
+  conversations whose archive and last-update timestamps both exceed the chosen
+  period qualify. Active chats, missing/zero preferences and every conversation
+  with a generation lease are excluded.
+- The responsive Storage panel exposes the policy and confirms destructive
+  changes. `GET/PATCH /api/account/chat-retention/` is authenticated, owner-
+  scoped and separately throttled; accepted changes log only owner ID and day
+  count. The daily job caps each run at 100 conversations by default, locks the
+  global storage gate, owner and conversation in generation-compatible order,
+  rechecks policy/age/lease state, and cascade-deletes messages plus linked files.
+  Dry-run and completion output is aggregate-only. A failed maintenance unit now
+  raises the immediate `maintenance_failed` monitor issue.
+- The first production transaction exposed a PostgreSQL-specific safety defect:
+  `SELECT FOR UPDATE` cannot lock the nullable side introduced by the optional
+  reverse-lease outer join. The transaction failed and rolled back with zero test
+  users, preferences or conversations retained. Commit
+  `4f61cb09afb68e649de5277a2c6461923bca4e0a` moves the lease test to a separate
+  query while the global gate and owner/conversation locks prevent a new lease.
+  A query-shape regression now forbids a join in the locked conversation query.
+- All 561 backend tests pass after the PostgreSQL repair; the targeted retention
+  suite has 17 tests. Django checks, bytecode compilation, migration drift and
+  diff validation pass. The feature rollout also passed 36 monitor tests,
+  frontend lint/build and `npm audit` with zero advisories. Coverage includes
+  authentication, strict policy values, owner isolation, database constraints,
+  keep-forever and lease exclusions, bounded batches, dry-run preservation,
+  linked physical-file deletion and the production lock regression.
+- The gzip-validated pre-migration backup is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261016_144506_660395176.sql.gz`, mode
+  `0600 micu:micu`, SHA-256
+  `d324b30cbbda111e17096d1991554845ac890ceffcb24945f5acbc291d955c46`.
+  Its parent ACL hash remained
+  `712a434db0b0a18538c66d541396e876f35326e10e1bf442d9c5aeda2c87f615`,
+  and neither `aichat` nor `aichat-monitor` can read the dump.
+- Migration `0028_chathistoryretention` preserved six conversations and 16
+  messages, with zero active leases/jobs and no retention preference created for
+  existing users. Production dry-run found zero eligible conversations and clean
+  audit integrity. Rollback-only PostgreSQL transactions proved the API default
+  and 30-day update, deletion of one old archived conversation/message, exact
+  13-byte aggregate accounting, and zero residual test data. The same cleanup
+  smoke then passed from the immutable deployed release.
+- Backend release
+  `/opt/aichat-backend-releases/release-20261016T115029_582695479` at the repair
+  commit and frontend release
+  `/var/www/aichat-releases/release-20261016T114534_350011778` are active with
+  valid manifests. A live backend drill reached the immediately preceding release
+  in two seconds and restored the exact repaired release in three. Public and
+  trusted-origin health return `200`; anonymous retention and `/.env` return
+  `403`, arbitrary media returns `404`, TCP 8501 is closed, and the origin socket
+  remains `0660 aichat:aichat-origin`. Backend/parser/scanner report zero restarts
+  and no warning-or-higher rollout journal entries. The installed monitor is
+  byte-identical to the repository, completed successfully, and reports
+  `active=[]`.
+- The scoped CISO review treats unintended deletion, policy tampering and a failed
+  maintenance path as the highest new risks. Default-no-delete, owner isolation,
+  two independent age checks, lease exclusion, a 100-row batch and rollback-
+  tested backups bound blast radius; aggregate logs and immediate job-failure
+  detection target sub-six-minute awareness without recording content. The
+  runbook now requires dry-run scope validation and integrity-checked recovery,
+  and forbids ad-hoc row reconstruction. No new vendor, provider transfer or data
+  category is introduced. NVIDIA processing is unchanged, and any qualifying
+  personal-data incident still enters the GDPR 72-hour assessment.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
-generation idempotency, saved-message byte ceilings, privacy-minimized alerting,
-and verified-staff-2FA admin gate were completed
+generation idempotency, saved-message byte ceilings, archived-chat retention,
+privacy-minimized alerting, and verified-staff-2FA admin gate were completed
 immediately afterward; actual-token budgets and invite-only registration are now
 implemented, and privileged changes are now privacy-minimized and integrity
 checked. Contract/GPU monetary enforcement and entitlement evidence, external
