@@ -42,10 +42,12 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   manifest-verified backend release, and malformed/redirected provider responses.
   The monitor runs under a dedicated non-login identity, receives its Telegram
   configuration through a systemd credential, can read restore status but not
-  database dumps, and validates those exact ACL boundaries on every run. Add
-  contract-spend correlation and an
-  external log sink without logging prompts,
-  cookies, OTPs, filenames, raw IPs, or secrets.
+  database dumps, and validates those exact ACL boundaries on every run. A
+  systemd path unit now turns changes to protected dotenv, vhost, application
+  units, monitor units/identity or installed monitor code into a fixed
+  privacy-safe event within the same alert window. Add contract-spend correlation
+  and an external log sink without logging prompts, cookies, OTPs, filenames,
+  raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;
   schedule and monitor it. Encrypt backups with a separately held key, keep a
   tested off-site copy, alert on job failure, and document RPO/RTO.

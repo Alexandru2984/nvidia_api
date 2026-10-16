@@ -63,6 +63,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=model_status_invalid reason=schema']
             + ['event=model_probe_degraded inconclusive=2']
             + ['event=model_probe_authorization_failed count=2']
+            + ['event=protected_config_changed']
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
@@ -80,6 +81,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'model_status_invalid',
              'model_probe_degraded',
              'model_probe_authorization',
+             'protected_config_changed',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
 
@@ -410,6 +412,14 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertIn('--credentials=%d/telegram.env', unit)
         self.assertNotIn('User=micu\n', unit)
         self.assertNotIn('BindReadOnlyPaths=/home/micu/backups/nvidia_db /home/micu/scripts/.env', unit)
+
+        path_unit = (
+            Path(__file__).resolve().parents[1]
+            / 'ops/systemd/aichat-config-watch.path'
+        ).read_text(encoding='utf-8')
+        self.assertIn('PathChanged=/home/micu/nvidia/backend/.env\n', path_unit)
+        self.assertIn('PathChanged=/etc/nginx/sites-available/aichat.micutu.com\n', path_unit)
+        self.assertIn('PathChanged=/usr/local/libexec/aichat-security-monitor\n', path_unit)
 
     def create_frontend_release(self):
         release_root = self.root / 'releases'

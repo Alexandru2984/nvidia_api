@@ -349,7 +349,8 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
   integrity, all three active root-owned release manifests, executable-release
-  retention, backup/restore freshness, ClamAV health/signature freshness, scanner
+  retention, protected dotenv/vhost/unit/monitor changes, backup/restore
+  freshness, ClamAV health/signature freshness, scanner
   failures, malware rejections, parser socket health, parser failures and installed
   parser executable integrity against the manifest-verified backend release, plus
   redirected/malformed provider response rejections every five minutes. It uses the host's

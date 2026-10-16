@@ -483,6 +483,7 @@ def read_journal():
         [JOURNALCTL_PATH,
          '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
          '--unit=aichat-model-probe.service', '--unit=aichat-document-parser.service',
+         '--unit=aichat-config-watch.service',
          f'--since={JOURNAL_WINDOW}',
          '--output=cat', '--no-pager', '--quiet'],
         capture_output=True, text=True, timeout=20, check=False,
@@ -719,6 +720,7 @@ def evaluate(
     model_status_invalid = journal.count('event=model_status_invalid')
     model_probe_degraded = journal.count('event=model_probe_degraded')
     model_probe_authorization = journal.count('event=model_probe_authorization_failed')
+    protected_config_changes = journal.count('event=protected_config_changed')
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -800,6 +802,10 @@ def evaluate(
     if model_probe_authorization:
         issues['model_probe_authorization'] = (
             'The NVIDIA model probe encountered an authorization or entitlement failure.'
+        )
+    if protected_config_changes:
+        issues['protected_config_changed'] = (
+            'A protected AI Chat Hub configuration or monitor file changed.'
         )
     if invite_consumed:
         issues['registration_invite_consumed'] = (

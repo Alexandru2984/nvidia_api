@@ -1,0 +1,34 @@
+[Unit]
+Description=Record a privacy-safe AI Chat Hub protected-configuration change
+
+[Service]
+Type=oneshot
+User=aichat-monitor
+Group=aichat-monitor
+ExecStart=/usr/bin/echo event=protected_config_changed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aichat-config-watch
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+MemoryMax=32M
+TasksMax=8

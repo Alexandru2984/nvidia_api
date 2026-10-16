@@ -9,10 +9,14 @@ SOURCE_MONITOR="$REPO_DIR/scripts/security_monitor.py"
 SOURCE_SERVICE="$REPO_DIR/ops/systemd/aichat-security-monitor.service"
 SOURCE_TIMER="$REPO_DIR/ops/systemd/aichat-security-monitor.timer"
 SOURCE_SYSUSERS="$REPO_DIR/ops/sysusers.d/aichat-monitor.conf"
+SOURCE_CONFIG_SERVICE="$REPO_DIR/ops/systemd/aichat-config-watch.service"
+SOURCE_CONFIG_PATH="$REPO_DIR/ops/systemd/aichat-config-watch.path"
 TARGET_MONITOR='/usr/local/libexec/aichat-security-monitor'
 TARGET_SERVICE='/etc/systemd/system/aichat-security-monitor.service'
 TARGET_TIMER='/etc/systemd/system/aichat-security-monitor.timer'
 TARGET_SYSUSERS='/etc/sysusers.d/aichat-monitor.conf'
+TARGET_CONFIG_SERVICE='/etc/systemd/system/aichat-config-watch.service'
+TARGET_CONFIG_PATH='/etc/systemd/system/aichat-config-watch.path'
 CREDENTIALS='/home/micu/scripts/.env'
 BACKUP_PARENT='/home/micu/backups'
 BACKUP_DIR='/home/micu/backups/nvidia_db'
@@ -38,7 +42,9 @@ if ! git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" diff --quiet -- \
   echo 'ERROR: tracked repository changes must be committed before installation' >&2
   exit 1
 fi
-for source in "$SOURCE_MONITOR" "$SOURCE_SERVICE" "$SOURCE_TIMER" "$SOURCE_SYSUSERS"; do
+for source in \
+  "$SOURCE_MONITOR" "$SOURCE_SERVICE" "$SOURCE_TIMER" "$SOURCE_SYSUSERS" \
+  "$SOURCE_CONFIG_SERVICE" "$SOURCE_CONFIG_PATH"; do
   [[ -f "$source" && ! -L "$source" ]] || {
     echo "ERROR: unsafe installation source: $source" >&2
     exit 1
@@ -71,12 +77,14 @@ fi
 temporary="$(mktemp -d /run/aichat-monitor-install.XXXXXX)"
 getfacl --absolute-names -- "$BACKUP_PARENT" "$BACKUP_DIR" "$RESTORE_LOG" \
   > "$temporary/backup.acl"
-for target_name in monitor service timer sysusers; do
+for target_name in monitor service timer sysusers config_service config_path; do
   case "$target_name" in
     monitor) target="$TARGET_MONITOR" ;;
     service) target="$TARGET_SERVICE" ;;
     timer) target="$TARGET_TIMER" ;;
     sysusers) target="$TARGET_SYSUSERS" ;;
+    config_service) target="$TARGET_CONFIG_SERVICE" ;;
+    config_path) target="$TARGET_CONFIG_PATH" ;;
   esac
   if [[ -e "$target" || -L "$target" ]]; then
     [[ -f "$target" && ! -L "$target" ]] || {
@@ -97,6 +105,8 @@ else
 fi
 timer_enabled="$(systemctl is-enabled aichat-security-monitor.timer 2>/dev/null || true)"
 timer_active="$(systemctl is-active aichat-security-monitor.timer 2>/dev/null || true)"
+config_path_enabled="$(systemctl is-enabled aichat-config-watch.path 2>/dev/null || true)"
+config_path_active="$(systemctl is-active aichat-config-watch.path 2>/dev/null || true)"
 
 restore_target() {
   local name="$1" target="$2"
@@ -114,11 +124,14 @@ rollback() {
     return
   fi
   systemctl stop aichat-security-monitor.timer aichat-security-monitor.service \
+    aichat-config-watch.path aichat-config-watch.service \
     >/dev/null 2>&1 || true
   restore_target monitor "$TARGET_MONITOR"
   restore_target service "$TARGET_SERVICE"
   restore_target timer "$TARGET_TIMER"
   restore_target sysusers "$TARGET_SYSUSERS"
+  restore_target config_service "$TARGET_CONFIG_SERVICE"
+  restore_target config_path "$TARGET_CONFIG_PATH"
   setfacl --restore="$temporary/backup.acl" >/dev/null 2>&1 || true
   IFS=: read -r uid gid mode <<< "$state_dir_owner"
   chown "$uid:$gid" -- "$STATE_DIR" 2>/dev/null || true
@@ -138,6 +151,12 @@ rollback() {
   if [[ "$timer_active" == active ]]; then
     systemctl start aichat-security-monitor.timer >/dev/null 2>&1 || true
   fi
+  if [[ "$config_path_enabled" == enabled ]]; then
+    systemctl enable aichat-config-watch.path >/dev/null 2>&1 || true
+  fi
+  if [[ "$config_path_active" == active ]]; then
+    systemctl start aichat-config-watch.path >/dev/null 2>&1 || true
+  fi
   rm -rf --one-file-system -- "$temporary"
   exit "$status"
 }
@@ -145,6 +164,8 @@ trap 'rollback "$?"' ERR
 trap 'rollback 130' INT TERM
 
 systemctl stop aichat-security-monitor.timer aichat-security-monitor.service
+systemctl stop aichat-config-watch.path aichat-config-watch.service \
+  >/dev/null 2>&1 || true
 install -d -o root -g root -m 0755 -- /etc/sysusers.d
 install -o root -g root -m 0644 -- "$SOURCE_SYSUSERS" "$TARGET_SYSUSERS"
 systemd-sysusers "$TARGET_SYSUSERS"
@@ -158,9 +179,13 @@ monitor_gid="$(id -g "$MONITOR_USER")"
 install -o root -g root -m 0755 -- "$SOURCE_MONITOR" "$TARGET_MONITOR"
 install -o root -g root -m 0644 -- "$SOURCE_SERVICE" "$TARGET_SERVICE"
 install -o root -g root -m 0644 -- "$SOURCE_TIMER" "$TARGET_TIMER"
+install -o root -g root -m 0644 -- "$SOURCE_CONFIG_SERVICE" "$TARGET_CONFIG_SERVICE"
+install -o root -g root -m 0644 -- "$SOURCE_CONFIG_PATH" "$TARGET_CONFIG_PATH"
 cmp --silent -- "$SOURCE_MONITOR" "$TARGET_MONITOR"
 cmp --silent -- "$SOURCE_SERVICE" "$TARGET_SERVICE"
 cmp --silent -- "$SOURCE_TIMER" "$TARGET_TIMER"
+cmp --silent -- "$SOURCE_CONFIG_SERVICE" "$TARGET_CONFIG_SERVICE"
+cmp --silent -- "$SOURCE_CONFIG_PATH" "$TARGET_CONFIG_PATH"
 
 # The dedicated identity may traverse only the shared backup parent, list/stat
 # this application's backup directory, and read only the privacy-minimized
@@ -176,11 +201,14 @@ if [[ -f "$STATE_FILE" ]]; then
 fi
 
 systemctl daemon-reload
+systemctl enable --now aichat-config-watch.path
 systemctl enable --now aichat-security-monitor.timer
 systemctl start aichat-security-monitor.service
 [[ "$(systemctl show aichat-security-monitor.service -p Result --value)" == success ]]
 [[ "$(systemctl show aichat-security-monitor.service -p ExecMainStatus --value)" == 0 ]]
 [[ "$(systemctl show aichat-security-monitor.service -p User --value)" == "$MONITOR_USER" ]]
+[[ "$(systemctl is-enabled aichat-config-watch.path)" == enabled ]]
+[[ "$(systemctl is-active aichat-config-watch.path)" == active ]]
 [[ "$(stat -c '%u:%g:%a' -- "$STATE_DIR")" == "$monitor_uid:$monitor_gid:700" ]]
 if [[ -f "$STATE_FILE" ]]; then
   [[ "$(stat -c '%u:%g:%a' -- "$STATE_FILE")" == "$monitor_uid:$monitor_gid:600" ]]

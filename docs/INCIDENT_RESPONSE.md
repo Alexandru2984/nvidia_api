@@ -35,6 +35,13 @@ provider authorization/entitlement probe failure, a database backup older than
 30 hours, a restore drill older than eight days, or any frontend/backend/Python-
 environment release manifest, ownership or permission failure.
 
+Any `protected_config_changed` alert means a watched dotenv, nginx vhost,
+application/monitor systemd unit, sysusers definition, or installed monitor
+executable changed. Treat an unplanned event as possible credential or host
+tampering: preserve the journal timestamp, compare the root-owned installed file
+to its committed source without copying secret contents, and contain before
+acknowledging the alert.
+
 ## 2. Contain
 
 - Disable the affected route/account or put the application into maintenance
