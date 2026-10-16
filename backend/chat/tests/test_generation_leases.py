@@ -11,9 +11,11 @@ from chat.models import (
     Attachment,
     Conversation,
     ConversationGenerationLease,
+    GenerationRequest,
     Message,
 )
 from chat.models_catalog import DEFAULT_MODEL_ID
+from chat.views import _renew_generation_lease
 
 
 def _stream_ok(*args, **kwargs):
@@ -164,6 +166,66 @@ class TestConversationGenerationLease:
         lease = ConversationGenerationLease.objects.get(conversation=convo)
         assert lease.token != old_token
         response.close()
+
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_expired_lease_cannot_renew_or_commit_send(
+        self,
+        mock_stream,
+        auth_client,
+        convo,
+    ):
+        response = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/',
+            {'content': 'must stay fenced'},
+            format='json',
+        )
+        stream = iter(response.streaming_content)
+        next(stream)  # persisted user message
+        next(stream)  # provider chunk
+        lease = ConversationGenerationLease.objects.get(conversation=convo)
+        ConversationGenerationLease.objects.filter(pk=lease.pk).update(
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        assert _renew_generation_lease(
+            convo.pk,
+            lease.token,
+            lease.generation_request_id,
+        ) == 0
+        with pytest.raises(RuntimeError, match='expired or was lost'):
+            next(stream)
+
+        assert not convo.messages.exists()
+        assert not ConversationGenerationLease.objects.exists()
+        assert GenerationRequest.objects.get().state == GenerationRequest.STATE_FAILED
+
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_expired_zero_reservation_regeneration_cannot_replace_branch(
+        self,
+        mock_stream,
+        auth_client,
+        convo,
+    ):
+        Message.objects.create(conversation=convo, role='user', content='question')
+        old_reply = Message.objects.create(
+            conversation=convo,
+            role='assistant',
+            content='keep this branch',
+        )
+        response = auth_client.post(f'/api/messages/{old_reply.id}/regenerate/')
+        stream = iter(response.streaming_content)
+        next(stream)  # provider chunk
+        ConversationGenerationLease.objects.filter(conversation=convo).update(
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        with pytest.raises(RuntimeError, match='expired or was lost'):
+            next(stream)
+
+        assert Message.objects.filter(pk=old_reply.pk, content='keep this branch').exists()
+        assert convo.messages.count() == 2
+        assert not ConversationGenerationLease.objects.exists()
+        assert GenerationRequest.objects.get().state == GenerationRequest.STATE_FAILED
 
     @patch('chat.views._reserve_provider_call', side_effect=RuntimeError('database failure'))
     def test_budget_reservation_exception_releases_lease(

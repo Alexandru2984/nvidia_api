@@ -2257,6 +2257,7 @@ def _renew_generation_lease(conversation_id, token, generation_request_id):
         conversation_id=conversation_id,
         token=token,
         generation_request_id=generation_request_id,
+        expires_at__gt=now,
     ).update(expires_at=expires_at)
     if renewed:
         GenerationRequest.objects.filter(
@@ -2266,16 +2267,29 @@ def _renew_generation_lease(conversation_id, token, generation_request_id):
     return renewed
 
 
-def _consume_generation_message_reservation(conversation_id, token):
+def _consume_generation_message_reservation(
+    conversation_id,
+    token,
+    generation_request_id,
+    *,
+    amount=1,
+):
+    if amount not in {0, 1}:
+        raise ValueError('Generation message reservation consumption must be 0 or 1.')
+    now = timezone.now()
     lease = ConversationGenerationLease.objects.select_for_update().filter(
         conversation_id=conversation_id,
         token=token,
-        reserved_messages__gt=0,
+        generation_request_id=generation_request_id,
+        expires_at__gt=now,
     ).first()
     if lease is None:
+        raise RuntimeError('Generation lease expired or was lost before commit.')
+    if lease.reserved_messages < amount:
         raise RuntimeError('Generation message reservation was lost.')
-    lease.reserved_messages -= 1
-    lease.save(update_fields=['reserved_messages'])
+    if amount:
+        lease.reserved_messages -= amount
+        lease.save(update_fields=['reserved_messages'])
 
 
 def _active_generation_conflict_locked(conversation_id):
@@ -2498,7 +2512,11 @@ def _save_assistant_reply(
             role='assistant',
             content=reply_text,
         )
-        _consume_generation_message_reservation(convo_id, lease_token)
+        _consume_generation_message_reservation(
+            convo_id,
+            lease_token,
+            generation_request_id,
+        )
         now = timezone.now()
         updated = GenerationRequest.objects.filter(
             pk=generation_request_id,
@@ -2554,8 +2572,15 @@ def _replace_regenerated_reply(
             role='assistant',
             content=reply_text,
         )
-        if consumes_reservation:
-            _consume_generation_message_reservation(convo_id, lease_token)
+        # Validate the lease even when this replacement does not consume a new
+        # message slot. An expired worker must never be able to resurrect and
+        # overwrite a newer branch merely because its reservation was zero.
+        _consume_generation_message_reservation(
+            convo_id,
+            lease_token,
+            generation_request_id,
+            amount=int(consumes_reservation),
+        )
         now = timezone.now()
         updated = GenerationRequest.objects.filter(
             pk=generation_request_id,
@@ -2916,7 +2941,11 @@ def send_message(request, pk):
                 Attachment.objects.filter(
                     pk__in=[attachment.pk for attachment in attachments],
                 ).update(message=user_msg)
-                _consume_generation_message_reservation(convo.pk, lease_token)
+                _consume_generation_message_reservation(
+                    convo.pk,
+                    lease_token,
+                    generation_request.pk,
+                )
         if attachment_conflict:
             lifecycle.close()
             response = Response({
