@@ -35,7 +35,8 @@ fi
 [[ "$DB_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo 'ERROR: Unsafe database name' >&2; exit 1; }
 
 if [[ ! -e "$OUT_DIR" && ! -L "$OUT_DIR" ]]; then
-  mkdir -p -m 0700 -- "$OUT_DIR"
+  mkdir -p -- "$OUT_DIR"
+  chmod 0700 -- "$OUT_DIR"
 fi
 [[ -d "$OUT_DIR" && ! -L "$OUT_DIR" ]] || {
   echo 'ERROR: Backup directory must be a real directory' >&2
