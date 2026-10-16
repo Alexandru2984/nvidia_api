@@ -33,7 +33,9 @@ any rejected redirect or malformed/bounds-violating provider response,
 any invalid runtime model-status file, any degraded scheduled model probe, any
 provider authorization/entitlement probe failure, a database backup older than
 30 hours, a restore drill older than eight days, or any frontend/backend/Python-
-environment release manifest, ownership or permission failure.
+environment release manifest, ownership or permission failure. Any lost
+generation lease raises `generation_interrupted`; three mismatched reuses of an
+`Idempotency-Key` within six minutes raise `generation_idempotency_conflict`.
 
 Any `protected_config_changed` alert means a watched dotenv, nginx vhost,
 application/monitor systemd unit, sysusers definition, or installed monitor
@@ -63,6 +65,13 @@ acknowledging the alert.
   scanner to restore availability.
 - For NVIDIA cost abuse, disable generation or revoke the API key before tuning
   throttles. A spending incident can continue while the UI appears healthy.
+- For `generation_interrupted`, disable automatic/client retries, preserve the
+  privacy-minimized request ID/state and provider-usage evidence, and reconcile
+  the affected conversation before issuing a new key. Never change an
+  `interrupted` job back to `queued`: the provider may have accepted work before
+  the local worker failed. Repeated idempotency conflicts may be a broken client
+  or deliberate replay/tampering; scope them by owner and key without logging or
+  exporting the prompt fingerprint.
 - For registration abuse, set `REGISTRATION_MODE=closed`, restart the backend,
   delete unused invitation rows through the verified-2FA admin, and preserve the
   relevant privacy-minimized events before reopening invite mode.

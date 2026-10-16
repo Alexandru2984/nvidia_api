@@ -407,8 +407,10 @@ off-site restore meets documented RPO/RTO.
 - Move gunicorn to a permissioned Unix socket and remove direct local TCP access.
 - Isolate/authenticate cloudflared-to-nginx client-IP trust so unrelated local
   processes cannot mint rate-limit identities.
-- Add transactional per-conversation generation locks, attachment row locks,
-  idempotency keys and durable cancel/retry state.
+- Transactional per-conversation generation locks, attachment row locks,
+  owner-scoped idempotency keys and durable cancel/result state are deployed.
+  Failed or interrupted work is deliberately not retried automatically because
+  the external provider cannot join the PostgreSQL commit.
 
 Exit gate: parser compromise cannot read app secrets or reach the network; local
 untrusted processes cannot bypass the origin boundary; parallel requests cannot

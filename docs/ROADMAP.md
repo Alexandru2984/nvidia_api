@@ -116,8 +116,12 @@ timed evidence.
   conversation mutation while active. Token reservations and pending messages
   are reconciled even when a response is never iterated; pending attachments are
   claimed under row lock; failed or unstarted regeneration preserves the old
-  branch. Add client idempotency keys and explicit durable generation jobs before
-  automatic network retries or horizontal queue processing.
+  branch. Owner-scoped client UUIDs now drive an explicit durable job state
+  machine; completed/partial results replay without provider work, mismatched
+  reuse fails closed, expired work is fenced and reconciled, and terminal metadata
+  has bounded retention. A future horizontal queue must preserve this protocol;
+  do not automatically retry `failed`/`interrupted` jobs because NVIDIA does not
+  share an atomic transaction with PostgreSQL.
 - **Bounded chat storage and egress are shipped:** owner-row serialization makes
   conversation limits and cross-conversation message reservations durable across
   workers; regeneration reserves only projected growth. Assistant output and

@@ -147,6 +147,14 @@ secret values are reproduced here.
   replacement content exists. Conversation mutation and message editing are
   fenced while generation is active. Explicit request idempotency keys and a
   durable generation-job state machine remain open for safe automatic retries.
+- 2026-10-16: the remaining S-11 application controls shipped in commit
+  `3d2f696`. Browser-generated UUIDs now identify owner-scoped durable send and
+  regenerate jobs. Payload-changing reuse fails closed; active duplicates return
+  a bounded conflict; completed and partial-canceled results replay from stored
+  messages without another NVIDIA call. Expired jobs are fenced, reconciled and
+  marked interrupted rather than automatically rerun. Five-minute monitoring
+  alerts on interruptions and repeated mismatched keys; terminal metadata expires
+  after seven days by default.
 - 2026-10-15: S-06 was partially mitigated in commit `75e0d6b` and production.
   Every upload is scanned before type inspection, parsing, deduplication or
   storage, and generated NVIDIA images are scanned before storage. Only exact
@@ -427,11 +435,14 @@ lock the conversation and pending attachment rows in one transaction; represent
 generation jobs explicitly; make cancellation/retry state durable.
 
 Status: the deployed per-conversation lease, mutation fences, attachment row
-locks, stream lifecycle cleanup and non-destructive regeneration close the
-confirmed duplicate-generation and attachment/history races. Client request
-idempotency and explicit durable job/cancellation state remain residual work;
-after a worker crash, cost accounting stays fail-closed and the expiring lease
-temporarily rejects a retry rather than risking duplicate provider work.
+locks, stream lifecycle cleanup, non-destructive regeneration, owner-scoped
+idempotency keys and durable job/cancellation outcomes close the confirmed
+duplicate-generation and attachment/history races. A worker crash fences the job
+as `interrupted`, reconciles its uncommitted send and rejects same-key execution.
+Residual limitation: NVIDIA does not participate in the PostgreSQL transaction,
+so an operator must reconcile provider evidence before authorizing a new-key
+retry of indeterminate work; automatic retry of failed/interrupted jobs remains
+intentionally disabled.
 
 ### S-12 — Medium — authenticated storage/egress paths lack complete quotas
 
@@ -613,8 +624,8 @@ production-entitlement decisions, and provide export/deletion status.
 
 1. Replace loopback TCP/backend trust with permissioned/authenticated origin
    paths.
-2. Add recent-auth policy, request idempotency/durable job state, global/chat-byte
-   quotas and linked-history retention. Absolute session deadlines, the indexed
+2. Add global/chat-byte quotas and linked-history retention. Recent-auth policy,
+   request idempotency/durable job state, absolute session deadlines, the indexed
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
    claim lock are deployed.

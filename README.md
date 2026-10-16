@@ -203,7 +203,21 @@ are heartbeated during long streams, and expire fail-safe after
 before provider dispatch removes its pending user message and releases its token
 reservation. Pending attachment rows are revalidated under row lock before they
 are linked, and regeneration keeps the previous branch until replacement text
-exists. Expired leases are removed by the normal maintenance command.
+exists.
+
+Browser send/regenerate actions also carry a fresh canonical UUID in
+`Idempotency-Key`. The durable owner-scoped request record and its lease are
+created atomically; reusing the key with changed conversation, operation, target
+or payload fails closed. Completed and partial-canceled results replay as SSE
+from the stored messages without a second NVIDIA call, including after an
+attachment has already been claimed or a regeneration target was replaced.
+Active duplicates receive `409 generation_request_in_progress`; failed or
+interrupted work remains closed instead of being dispatched ambiguously. The
+request fingerprint is a purpose-derived HMAC and does not duplicate prompt text.
+Legacy clients receive a server-generated key, but safe retry requires the client
+to reuse the returned key. Maintenance reconciles expired leases and uncommitted
+send rows, marks their jobs `interrupted`, and retains terminal metadata for
+`GENERATION_REQUEST_RETENTION_DAYS` (default 7; allowed 1–90).
 
 Saved chat growth is also bounded across workers. Conversation creation locks the
 owner row before enforcing `CHAT_MAX_CONVERSATIONS_PER_USER`; send and trailing-
@@ -349,7 +363,8 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
   integrity, all three active root-owned release manifests, executable-release
-  retention, protected dotenv/vhost/unit/monitor changes, backup/restore
+  retention, generation lease interruptions and repeated mismatched idempotency
+  keys, protected dotenv/vhost/unit/monitor changes, backup/restore
   freshness, ClamAV health/signature freshness, scanner
   failures, malware rejections, parser socket health, parser failures and installed
   parser executable integrity against the manifest-verified backend release, plus
