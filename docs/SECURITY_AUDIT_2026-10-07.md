@@ -474,8 +474,9 @@ global tenant usage. Owners can now keep archived chats indefinitely or select a
 30/90/180/365-day lifecycle. Bounded daily cleanup rechecks the owner policy and
 age under the same global/owner/conversation lock order, excludes every active
 generation lease, and cascade-deletes linked messages and attachment files.
-Maintenance failure is monitored. Residual work is an operator-wide legal/default
-schedule and an explicit usage-metadata lifecycle.
+Maintenance failure is monitored. User-linked AI usage counters expire after 90
+days and aggregate-only service counters after 400 days, using a separately
+bounded batch. Residual work is a published operator-wide legal/default schedule.
 The deployed owner-indexed session registry avoids decoding the global session
 table and enforces both a fixed 30-day lifetime and a 20-session account cap.
 
@@ -637,7 +638,9 @@ production-entitlement decisions, and provide export/deletion status.
    request idempotency/durable job state, absolute session deadlines, the indexed
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
-   claim lock. Define the operator-wide legal/default and usage-metadata schedule.
+   claim lock. User-linked AI usage now expires after 90 days and anonymous
+   service aggregates after 400 days. Define the operator-wide legal/default
+   schedule.
 4. Produce and retain signed wheel provenance and tabletop both backend rollback
    paths. Application code and the minimal runtime Python environment already use
    separate root-owned, manifest-verified atomic releases with automatic rollback,

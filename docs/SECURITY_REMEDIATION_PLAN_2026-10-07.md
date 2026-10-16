@@ -426,8 +426,9 @@ duplicate attachment consumption or destructive regeneration.
   export/download egress and saved-message bytes are deployed; expired sessions
   are removed by maintenance. Owner-configurable 30/90/180/365-day deletion of
   inactive archived chats is deployed with bounded, lease-safe cleanup and
-  maintenance-failure detection. Define usage-metadata retention and the
-  operator-wide legal/default schedule.
+  maintenance-failure detection. User-linked AI usage rows now expire after 90
+  days and non-identifying global aggregates after 400 days in bounded batches.
+  Define and publish the operator-wide legal/default schedule.
 - Stream bounded exports and rate-limit session inventory/download endpoints.
 - Send security/audit evidence off-host; monitor release hashes, identity/sudo
   events, environment/config changes, provider/mail anomalies and database/disk

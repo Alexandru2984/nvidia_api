@@ -140,8 +140,10 @@ timed evidence.
   growth regeneration. Owner-selected archived-history retention is now shipped:
   inactive archived conversations can be kept indefinitely or deleted after 30,
   90, 180, or 365 days by bounded daily maintenance, while active generations
-  and active chats remain excluded. Define the operator-wide legal/default
-  schedule and usage-metadata retention before materially raising account volume.
+  and active chats remain excluded. Owner-linked AI usage metadata now expires
+  after 90 days and anonymous service aggregates after 400 days, both in bounded
+  batches. Define and publish the operator-wide legal/default schedule before
+  materially raising account volume.
 - **Immutable backend application delivery is shipped:** production imports only
   a committed, root-owned, manifest-verified release selected through one atomic
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs

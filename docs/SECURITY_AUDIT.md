@@ -83,7 +83,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, bound executable roots to the active plus two rollbacks, and have passed a controlled production rollback/restore drill for both release families | Add signed builder provenance and define the supplemental-archive lifecycle plus off-host evidence retention |
 | A-20 | Medium | Users could send prompts, history and selected files to NVIDIA without a durable, current disclosure acknowledgement | A versioned, owner-bound timestamp is stored without prompt/file/IP data; chat, regeneration and image generation return `428` before leases, budget reservations, message writes or provider egress until the current disclosure is accepted. The keyboard-accessible mobile UI names each data class, links official NVIDIA privacy/terms pages and offers an equal cancel path | Obtain legal review of the actual processing basis, publish the complete operator privacy notice, confirm NVIDIA retention/training/DPA/region and production-entitlement terms, and bump the version when the data flow materially changes |
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
-| A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days | Publish the operator-wide legal/default and usage-metadata schedules before materially raising account or quota volume |
+| A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days; 90-day user-linked and 400-day aggregate-only AI-usage retention | Publish the operator-wide legal/default schedule before materially raising account or quota volume |
 
 ## Quantitative risk view
 
@@ -1603,10 +1603,61 @@ is required before describing those controls as complete.
   category is introduced. NVIDIA processing is unchanged, and any qualifying
   personal-data incident still enters the GDPR 72-hour assessment.
 
+### AI-usage metadata retention rollout — 2026-10-16
+
+- Commit `debbf66250c868d96cb9ff477fcf6a31d1317dfd` gives the numeric daily
+  provider-budget records an explicit lifecycle. Rows tied to an account are kept
+  for 90 days; service-wide rows, which have no user or object relationship, are
+  kept for 400 days to retain annual capacity/cost evidence. Cutoffs use complete
+  UTC dates and delete only rows strictly older than the configured period, so
+  the boundary day remains available.
+- `AI_USER_USAGE_RETENTION_DAYS` is validated from 30 through 3,650 days;
+  `AI_GLOBAL_USAGE_RETENTION_DAYS` must be at least as long and no more than 3,650
+  days. Each table independently deletes at most
+  `AI_USAGE_RETENTION_DELETE_BATCH_SIZE` rows per daily run (default 1,000,
+  validated 1 through 10,000), oldest first. Dry-run reports eligible totals and
+  the batch limit; successful cleanup logs only deleted user/global row counts.
+  Existing `maintenance_failed` detection covers any cleanup failure.
+- The targeted cleanup suite passes 13 tests and the full backend suite passes
+  563. Django checks, migration-drift detection, bytecode compilation, shell
+  syntax and diff validation pass. Boundary, separate lifecycle, dry-run and
+  independent-batch behavior are regression-tested. No database migration or
+  frontend change was required.
+- The gzip-validated pre-deploy backup is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261016_145542_013368149.sql.gz`, mode
+  `0600 micu:micu`, 14,637 bytes, SHA-256
+  `fb2618c872c96a7c0abc6dae72d694865e09051c9cc471426b5260c44041507e`.
+  Its parent ACL hash remained
+  `712a434db0b0a18538c66d541396e876f35326e10e1bf442d9c5aeda2c87f615`,
+  and neither application nor monitor identity can read the dump. Production had
+  zero per-user and zero aggregate usage rows before activation, and the deployed
+  dry-run reports zero eligible rows.
+- A rollback-only production transaction created rows one day beyond and exactly
+  on each configured boundary. The deployed release deleted only 2026-07-17 and
+  2025-09-10, preserved 2026-07-18 and 2025-09-11, emitted the expected one/one
+  aggregate event and left no user or usage residue after rollback.
+- Backend release
+  `/opt/aichat-backend-releases/release-20261016T115546_439571979` is active at
+  the exact feature commit with a valid manifest. The live drill reached the
+  preceding PostgreSQL-compatible retention release in one second and restored
+  this release in two. Public/trusted-origin health returns `200`, `/.env` returns
+  `403`, arbitrary media returns `404`, backend/parser/scanner have zero restarts,
+  and no warning-or-higher backend rollout event was recorded. The installed
+  monitor remains byte-identical to the repository and reports `active=[]`.
+- The scoped CISO review ranks over-deletion and premature loss of investigation
+  evidence above storage pressure for this change. Independent minimum/ordering
+  validation, strict boundary semantics, bounded batches, dry-run evidence,
+  immediate job-failure detection and a rollback-tested private backup bound that
+  risk. The 400-day aggregate preserves trend/cost evidence without user linkage;
+  neither table stores prompts, files, filenames, emails or IP addresses. No new
+  processor or egress path is introduced, NVIDIA processing is unchanged, and a
+  qualifying breach remains subject to the GDPR 72-hour assessment.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,
-privacy-minimized alerting, and verified-staff-2FA admin gate were completed
+bounded usage-metadata retention, privacy-minimized alerting, and verified-staff-
+2FA admin gate were completed
 immediately afterward; actual-token budgets and invite-only registration are now
 implemented, and privileged changes are now privacy-minimized and integrity
 checked. Contract/GPU monetary enforcement and entitlement evidence, external
