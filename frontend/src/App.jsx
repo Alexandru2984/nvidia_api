@@ -26,6 +26,10 @@ function newUploadAttemptId() {
   return globalThis.crypto.randomUUID()
 }
 
+function newGenerationRequestId() {
+  return globalThis.crypto.randomUUID()
+}
+
 function fileExt(name) {
   const i = (name || '').lastIndexOf('.')
   return i >= 0 ? name.slice(i + 1).toLowerCase() : ''
@@ -1575,13 +1579,17 @@ export default function App() {
     }
   }
 
-  async function handleSend(e, disclosureConfirmed = false) {
+  async function handleSend(
+    e,
+    disclosureConfirmed = false,
+    generationRequestId = newGenerationRequestId(),
+  ) {
     e?.preventDefault?.()
     const text = draft.trim()
     if (sending || attachmentsBlocked || activeModelUnavailable) return
     if (!text && includedPendingAttachments.length === 0) return
     if (!disclosureConfirmed && !user?.provider_disclosure?.accepted) {
-      requestProviderDisclosure(() => handleSend(null, true))
+      requestProviderDisclosure(() => handleSend(null, true, generationRequestId))
       return
     }
 
@@ -1674,7 +1682,11 @@ export default function App() {
           ),
         }))
         if (disclosureRequired) {
-          recoverProviderDisclosure(status, body, () => handleSend(null, true))
+          recoverProviderDisclosure(
+            status,
+            body,
+            () => handleSend(null, true, generationRequestId),
+          )
         }
       },
       onAbort: async () => {
@@ -1693,7 +1705,7 @@ export default function App() {
           setConversationNextCursor(refreshed.nextCursor)
         } catch { /* keep optimistic state */ }
       },
-    }, controller.signal)
+    }, controller.signal, generationRequestId)
 
     abortRef.current = null
     setSending(false)
@@ -1805,10 +1817,14 @@ export default function App() {
     } catch (e) { setError(e.message) }
   }
 
-  async function handleRegenerate(msgId, disclosureConfirmed = false) {
+  async function handleRegenerate(
+    msgId,
+    disclosureConfirmed = false,
+    generationRequestId = newGenerationRequestId(),
+  ) {
     if (!active || sending || activeModelUnavailable) return
     if (!disclosureConfirmed && !user?.provider_disclosure?.accepted) {
-      requestProviderDisclosure(() => handleRegenerate(msgId, true))
+      requestProviderDisclosure(() => handleRegenerate(msgId, true, generationRequestId))
       return
     }
     setSending(true)
@@ -1856,7 +1872,7 @@ export default function App() {
           if (!recoverProviderDisclosure(
             status,
             body,
-            () => handleRegenerate(msgId, true),
+            () => handleRegenerate(msgId, true, generationRequestId),
           )) setError(msg)
         },
         onAbort: async () => {
@@ -1866,7 +1882,7 @@ export default function App() {
             setActive(fresh)
           } catch { /* keep optimistic state */ }
         },
-      }, controller.signal)
+      }, controller.signal, generationRequestId)
     } finally {
       abortRef.current = null
       setSending(false)

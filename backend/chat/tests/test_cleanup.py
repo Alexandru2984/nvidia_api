@@ -17,6 +17,7 @@ from chat.models import (
     Conversation,
     ConversationGenerationLease,
     EmailVerification,
+    GenerationRequest,
     Message,
     PasswordReset,
     RegistrationInvite,
@@ -146,6 +147,74 @@ class TestCleanupAttachments:
         assert list(
             ConversationGenerationLease.objects.values_list('pk', flat=True)
         ) == [active.pk]
+
+    def test_interrupts_stale_generation_and_expires_only_old_terminal_records(
+        self,
+        user,
+        settings,
+    ):
+        settings.GENERATION_REQUEST_RETENTION_DAYS = 7
+        now = timezone.now()
+        convo = Conversation.objects.create(
+            user=user,
+            title='durable request cleanup',
+            model_id=DEFAULT_MODEL_ID,
+        )
+        pending_message = Message.objects.create(
+            conversation=convo,
+            role='user',
+            content='pending',
+        )
+        pending_attachment = _make_att(user)
+        pending_attachment.message = pending_message
+        pending_attachment.save(update_fields=['message'])
+        stale = GenerationRequest.objects.create(
+            user=user,
+            conversation=convo,
+            idempotency_key='00000000-0000-4000-8000-000000000010',
+            operation=GenerationRequest.OPERATION_SEND,
+            request_fingerprint='a' * 64,
+            user_message=pending_message,
+        )
+        ConversationGenerationLease.objects.create(
+            conversation=convo,
+            token='00000000-0000-4000-8000-000000000011',
+            generation_request=stale,
+            expires_at=now - timedelta(seconds=1),
+        )
+        old_terminal = GenerationRequest.objects.create(
+            user=user,
+            conversation=convo,
+            idempotency_key='00000000-0000-4000-8000-000000000012',
+            operation=GenerationRequest.OPERATION_SEND,
+            request_fingerprint='b' * 64,
+            state=GenerationRequest.STATE_FAILED,
+            completed_at=now - timedelta(days=8),
+        )
+        recent_terminal = GenerationRequest.objects.create(
+            user=user,
+            conversation=convo,
+            idempotency_key='00000000-0000-4000-8000-000000000013',
+            operation=GenerationRequest.OPERATION_SEND,
+            request_fingerprint='c' * 64,
+            state=GenerationRequest.STATE_FAILED,
+            completed_at=now,
+        )
+        GenerationRequest.objects.filter(pk=old_terminal.pk).update(
+            updated_at=now - timedelta(days=8),
+        )
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        stale.refresh_from_db()
+        pending_attachment.refresh_from_db()
+        assert stale.state == GenerationRequest.STATE_INTERRUPTED
+        assert stale.outcome_code == 'lease_expired'
+        assert not Message.objects.filter(pk=pending_message.pk).exists()
+        assert pending_attachment.message_id is None
+        assert not ConversationGenerationLease.objects.filter(conversation=convo).exists()
+        assert not GenerationRequest.objects.filter(pk=old_terminal.pk).exists()
+        assert GenerationRequest.objects.filter(pk=recent_terminal.pk).exists()
 
     def test_removes_only_expired_database_sessions(self, user):
         now = timezone.now()

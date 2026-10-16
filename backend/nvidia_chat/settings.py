@@ -355,6 +355,13 @@ if not 300 <= CHAT_GENERATION_LEASE_SECONDS <= 60 * 60:
     raise ImproperlyConfigured(
         'CHAT_GENERATION_LEASE_SECONDS must be between 300 and 3600.',
     )
+GENERATION_REQUEST_RETENTION_DAYS = _nonnegative_int_env(
+    'GENERATION_REQUEST_RETENTION_DAYS', 7,
+)
+if not 1 <= GENERATION_REQUEST_RETENTION_DAYS <= 90:
+    raise ImproperlyConfigured(
+        'GENERATION_REQUEST_RETENTION_DAYS must be between 1 and 90.',
+    )
 
 CHAT_MAX_CONVERSATIONS_PER_USER = _nonnegative_int_env(
     'CHAT_MAX_CONVERSATIONS_PER_USER', 500,

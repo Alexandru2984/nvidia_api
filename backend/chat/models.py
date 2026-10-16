@@ -208,6 +208,128 @@ class Conversation(models.Model):
         return f'{self.title} ({self.model_id})'
 
 
+class GenerationRequest(models.Model):
+    """Durable idempotency and outcome record for one provider generation."""
+
+    OPERATION_SEND = 'send'
+    OPERATION_REGENERATE = 'regenerate'
+    OPERATION_CHOICES = [
+        (OPERATION_SEND, 'Send'),
+        (OPERATION_REGENERATE, 'Regenerate'),
+    ]
+
+    STATE_QUEUED = 'queued'
+    STATE_STREAMING = 'streaming'
+    STATE_COMPLETED = 'completed'
+    STATE_CANCELED = 'canceled'
+    STATE_FAILED = 'failed'
+    STATE_INTERRUPTED = 'interrupted'
+    STATE_CHOICES = [
+        (STATE_QUEUED, 'Queued'),
+        (STATE_STREAMING, 'Streaming'),
+        (STATE_COMPLETED, 'Completed'),
+        (STATE_CANCELED, 'Canceled'),
+        (STATE_FAILED, 'Failed'),
+        (STATE_INTERRUPTED, 'Interrupted'),
+    ]
+    ACTIVE_STATES = (STATE_QUEUED, STATE_STREAMING)
+    REPLAYABLE_STATES = (STATE_COMPLETED, STATE_CANCELED)
+    TERMINAL_STATES = (
+        STATE_COMPLETED,
+        STATE_CANCELED,
+        STATE_FAILED,
+        STATE_INTERRUPTED,
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='generation_requests',
+        on_delete=models.CASCADE,
+    )
+    conversation = models.ForeignKey(
+        Conversation,
+        related_name='generation_requests',
+        on_delete=models.CASCADE,
+    )
+    idempotency_key = models.UUIDField(editable=False)
+    operation = models.CharField(max_length=12, choices=OPERATION_CHOICES)
+    # HMAC-SHA256 of the normalized request. Prompt text is not duplicated here.
+    request_fingerprint = models.CharField(max_length=64, editable=False)
+    # Kept as an integer because regeneration may legitimately delete its target.
+    target_message_id = models.PositiveBigIntegerField(null=True, blank=True)
+    state = models.CharField(max_length=12, choices=STATE_CHOICES, default=STATE_QUEUED)
+    user_message = models.ForeignKey(
+        'Message',
+        related_name='+',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    assistant_message = models.ForeignKey(
+        'Message',
+        related_name='+',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    outcome_code = models.CharField(max_length=64, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'idempotency_key'],
+                name='chat_generation_request_user_key_unique',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(operation='send', target_message_id__isnull=True)
+                    | models.Q(operation='regenerate', target_message_id__isnull=False)
+                ),
+                name='chat_generation_request_target_shape',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(state__in=[
+                    'queued',
+                    'streaming',
+                    'completed',
+                    'canceled',
+                    'failed',
+                    'interrupted',
+                ]),
+                name='chat_generation_request_state_valid',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        state__in=['queued', 'streaming'],
+                        completed_at__isnull=True,
+                    )
+                    | models.Q(
+                        state__in=['completed', 'canceled', 'failed', 'interrupted'],
+                        completed_at__isnull=False,
+                    )
+                ),
+                name='chat_generation_request_completion_shape',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['conversation', '-created_at'],
+                name='chat_genreq_convo_created_idx',
+            ),
+            models.Index(
+                fields=['state', 'updated_at'],
+                name='chat_genreq_state_updated_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'GenerationRequest(id={self.pk}, operation={self.operation}, state={self.state})'
+
+
 class ConversationGenerationLease(models.Model):
     """Cross-worker exclusion for one streamed generation per conversation."""
 
@@ -218,6 +340,13 @@ class ConversationGenerationLease(models.Model):
         primary_key=True,
     )
     token = models.UUIDField(editable=False)
+    generation_request = models.OneToOneField(
+        GenerationRequest,
+        related_name='lease',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     reserved_messages = models.PositiveSmallIntegerField(default=0)
     acquired_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField(db_index=True)

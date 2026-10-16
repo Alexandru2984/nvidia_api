@@ -67,6 +67,7 @@ from .models import (
     Conversation,
     ConversationGenerationLease,
     EmailVerification,
+    GenerationRequest,
     Message,
     PasswordReset,
     ProviderDisclosureAcceptance,
@@ -1966,12 +1967,68 @@ ZERO_TOKEN_USAGE = {
 }
 
 
-def _generation_conflict_response(retry_after):
+def _generation_conflict_response(retry_after, *, code='generation_in_progress'):
     response = Response({
         'error': 'A response is already being generated for this conversation.',
-        'code': 'generation_in_progress',
+        'code': code,
     }, status=status.HTTP_409_CONFLICT)
     response['Retry-After'] = str(max(1, retry_after))
+    return response
+
+
+def _parse_generation_idempotency_key(request):
+    raw_key = request.headers.get('Idempotency-Key')
+    if raw_key is None:
+        return uuid.uuid4(), None
+    try:
+        parsed = uuid.UUID(raw_key)
+    except (AttributeError, TypeError, ValueError):
+        parsed = None
+    if parsed is None or parsed.int == 0 or raw_key != str(parsed):
+        return None, Response({
+            'error': 'Idempotency-Key must be a canonical, non-zero UUID.',
+            'code': 'invalid_idempotency_key',
+        }, status=status.HTTP_400_BAD_REQUEST)
+    return parsed, None
+
+
+def _generation_request_fingerprints(payload):
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(',', ':'),
+        sort_keys=True,
+    ).encode('utf-8')
+    fingerprints = []
+    for secret in [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]:
+        root = hmac.new(
+            str(secret).encode('utf-8'),
+            b'aichat-generation-request-v1',
+            hashlib.sha256,
+        ).digest()
+        digest = hmac.new(root, encoded, hashlib.sha256).hexdigest()
+        if digest not in fingerprints:
+            fingerprints.append(digest)
+    return fingerprints
+
+
+def _idempotency_key_conflict_response():
+    return Response({
+        'error': 'This Idempotency-Key was already used for a different request.',
+        'code': 'idempotency_key_conflict',
+    }, status=status.HTTP_409_CONFLICT)
+
+
+def _generation_request_closed_response(generation_request):
+    return Response({
+        'error': 'This generation request is closed and cannot be executed again.',
+        'code': 'generation_request_closed',
+        'generation_state': generation_request.state if generation_request else 'unavailable',
+    }, status=status.HTTP_409_CONFLICT)
+
+
+def _with_idempotency_key(response, key):
+    response['Idempotency-Key'] = str(key)
     return response
 
 
@@ -1984,13 +2041,46 @@ def _chat_object_quota_response(resource, used, limit):
     }, status=status.HTTP_409_CONFLICT)
 
 
+def _interrupt_generation_request_locked(generation_request, outcome_code, now):
+    """Close a stale fenced request and reconcile an uncommitted send."""
+    if (
+        generation_request.operation == GenerationRequest.OPERATION_SEND
+        and generation_request.user_message_id is not None
+        and generation_request.assistant_message_id is None
+    ):
+        Attachment.objects.filter(
+            message_id=generation_request.user_message_id,
+        ).update(message=None)
+        Message.objects.filter(id=generation_request.user_message_id).delete()
+    generation_request.state = GenerationRequest.STATE_INTERRUPTED
+    generation_request.outcome_code = outcome_code
+    generation_request.completed_at = now
+    generation_request.updated_at = now
+    generation_request.save(update_fields=[
+        'state',
+        'outcome_code',
+        'completed_at',
+        'updated_at',
+    ])
+
+
 def _lease_retry_after(lease, now=None):
     now = now or timezone.now()
     return max(1, math.ceil((lease.expires_at - now).total_seconds()))
 
 
-def _acquire_generation_lease(conversation_id, *, message_reservation=0):
-    """Claim one conversation and reserve any rows the operation may add."""
+def _acquire_generation_lease(
+    conversation_id,
+    *,
+    user_id,
+    idempotency_key,
+    operation,
+    request_fingerprints,
+    target_message_id=None,
+    message_reservation=0,
+    existing_request_expected=False,
+):
+    """Claim one conversation and create or resolve its durable request."""
     if message_reservation not in {0, 1, 2}:
         raise ValueError('message_reservation must be between 0 and 2')
     now = timezone.now()
@@ -2000,7 +2090,7 @@ def _acquire_generation_lease(conversation_id, *, message_reservation=0):
         'user_id',
         flat=True,
     ).first()
-    if owner_id is None:
+    if owner_id is None or owner_id != user_id:
         raise Http404
     User = get_user_model()
     with transaction.atomic():
@@ -2013,11 +2103,68 @@ def _acquire_generation_lease(conversation_id, *, message_reservation=0):
         ).first()
         if locked_conversation is None:
             raise Http404
-        lease = ConversationGenerationLease.objects.filter(
+        lease = ConversationGenerationLease.objects.select_for_update().filter(
             conversation_id=conversation_id,
         ).first()
+
+        generation_request = GenerationRequest.objects.select_for_update().filter(
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        ).first()
+        if generation_request is not None:
+            same_request = (
+                generation_request.conversation_id == conversation_id
+                and generation_request.operation == operation
+                and generation_request.target_message_id == target_message_id
+                and generation_request.request_fingerprint in request_fingerprints
+            )
+            if not same_request:
+                security_log.warning(
+                    'event=generation_idempotency_conflict user_id=%s conversation_id=%s',
+                    user_id,
+                    conversation_id,
+                )
+                return None, generation_request, _idempotency_key_conflict_response()
+            if generation_request.state in GenerationRequest.REPLAYABLE_STATES:
+                return None, generation_request, None
+            if generation_request.state in GenerationRequest.TERMINAL_STATES:
+                return (
+                    None,
+                    generation_request,
+                    _generation_request_closed_response(generation_request),
+                )
+            if (
+                lease is not None
+                and lease.generation_request_id == generation_request.pk
+                and lease.expires_at > now
+            ):
+                return (
+                    None,
+                    generation_request,
+                    _generation_conflict_response(
+                        _lease_retry_after(lease, now),
+                        code='generation_request_in_progress',
+                    ),
+                )
+            _interrupt_generation_request_locked(
+                generation_request,
+                'lease_missing_or_expired',
+                now,
+            )
+            security_log.error(
+                'event=generation_request_interrupted user_id=%s conversation_id=%s',
+                user_id,
+                conversation_id,
+            )
+            return (
+                None,
+                generation_request,
+                _generation_request_closed_response(generation_request),
+            )
+        if existing_request_expected:
+            return None, None, _generation_request_closed_response(None)
         if lease is not None and lease.expires_at > now:
-            return None, _generation_conflict_response(_lease_retry_after(lease, now))
+            return None, None, _generation_conflict_response(_lease_retry_after(lease, now))
         if message_reservation:
             user_messages = Message.objects.filter(
                 conversation__user_id=owner_id,
@@ -2030,7 +2177,7 @@ def _acquire_generation_lease(conversation_id, *, message_reservation=0):
                 user_messages + reserved_messages + message_reservation
             )
             if projected_user_messages > settings.CHAT_MAX_MESSAGES_PER_USER:
-                return None, _chat_object_quota_response(
+                return None, None, _chat_object_quota_response(
                     'messages',
                     user_messages + reserved_messages,
                     settings.CHAT_MAX_MESSAGES_PER_USER,
@@ -2042,29 +2189,56 @@ def _acquire_generation_lease(conversation_id, *, message_reservation=0):
                 conversation_messages + message_reservation
                 > settings.CHAT_MAX_MESSAGES_PER_CONVERSATION
             ):
-                return None, _chat_object_quota_response(
+                return None, None, _chat_object_quota_response(
                     'conversation_messages',
                     conversation_messages,
                     settings.CHAT_MAX_MESSAGES_PER_CONVERSATION,
                 )
+        if lease is not None and lease.generation_request_id is not None:
+            stale_request = GenerationRequest.objects.select_for_update().filter(
+                pk=lease.generation_request_id,
+                state__in=GenerationRequest.ACTIVE_STATES,
+            ).first()
+            if stale_request is not None:
+                _interrupt_generation_request_locked(
+                    stale_request,
+                    'lease_expired',
+                    now,
+                )
+                security_log.error(
+                    'event=generation_request_interrupted user_id=%s conversation_id=%s',
+                    owner_id,
+                    conversation_id,
+                )
+        generation_request = GenerationRequest.objects.create(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            idempotency_key=idempotency_key,
+            operation=operation,
+            request_fingerprint=request_fingerprints[0],
+            target_message_id=target_message_id,
+        )
         if lease is None:
             ConversationGenerationLease.objects.create(
                 conversation_id=conversation_id,
                 token=token,
+                generation_request=generation_request,
                 reserved_messages=message_reservation,
                 expires_at=expires_at,
             )
         else:
             lease.token = token
+            lease.generation_request = generation_request
             lease.reserved_messages = message_reservation
             lease.expires_at = expires_at
             lease.save(update_fields=[
                 'token',
+                'generation_request',
                 'reserved_messages',
                 'acquired_at',
                 'expires_at',
             ])
-    return token, None
+    return token, generation_request, None
 
 
 def _release_generation_lease(conversation_id, token):
@@ -2074,14 +2248,22 @@ def _release_generation_lease(conversation_id, token):
     ).delete()
 
 
-def _renew_generation_lease(conversation_id, token):
-    expires_at = timezone.now() + timedelta(
+def _renew_generation_lease(conversation_id, token, generation_request_id):
+    now = timezone.now()
+    expires_at = now + timedelta(
         seconds=settings.CHAT_GENERATION_LEASE_SECONDS,
     )
-    return ConversationGenerationLease.objects.filter(
+    renewed = ConversationGenerationLease.objects.filter(
         conversation_id=conversation_id,
         token=token,
+        generation_request_id=generation_request_id,
     ).update(expires_at=expires_at)
+    if renewed:
+        GenerationRequest.objects.filter(
+            pk=generation_request_id,
+            state=GenerationRequest.STATE_STREAMING,
+        ).update(updated_at=now)
+    return renewed
 
 
 def _consume_generation_message_reservation(conversation_id, token):
@@ -2116,17 +2298,21 @@ class _GenerationLifecycle:
         *,
         conversation_id,
         lease_token,
+        generation_request_id,
         user_id,
         usage_day,
         token_reservation,
         on_provider_not_started=None,
+        on_provider_incomplete=None,
     ):
         self.conversation_id = conversation_id
         self.lease_token = lease_token
+        self.generation_request_id = generation_request_id
         self.user_id = user_id
         self.usage_day = usage_day
         self.token_reservation = token_reservation
         self.on_provider_not_started = on_provider_not_started
+        self.on_provider_incomplete = on_provider_incomplete
         self.provider_started = False
         self.last_usage = None
         self.closed = False
@@ -2136,6 +2322,16 @@ class _GenerationLifecycle:
         )
 
     def start_provider(self):
+        now = timezone.now()
+        updated = GenerationRequest.objects.filter(
+            pk=self.generation_request_id,
+            state=GenerationRequest.STATE_QUEUED,
+        ).update(
+            state=GenerationRequest.STATE_STREAMING,
+            updated_at=now,
+        )
+        if updated != 1:
+            raise RuntimeError('Generation request lost its queued state.')
         self.provider_started = True
 
     def record_usage(self, usage):
@@ -2145,7 +2341,11 @@ class _GenerationLifecycle:
         now = time.monotonic()
         if now < self.next_heartbeat:
             return
-        if _renew_generation_lease(self.conversation_id, self.lease_token) != 1:
+        if _renew_generation_lease(
+            self.conversation_id,
+            self.lease_token,
+            self.generation_request_id,
+        ) != 1:
             raise RuntimeError('Generation lease was lost while streaming.')
         self.next_heartbeat = now + max(
             30,
@@ -2164,6 +2364,21 @@ class _GenerationLifecycle:
                 'Failed to roll back an unstarted generation for convo=%s',
                 self.conversation_id,
             )
+        if self.provider_started:
+            try:
+                if self.on_provider_incomplete is not None:
+                    self.on_provider_incomplete()
+                else:
+                    _mark_generation_request_terminal(
+                        self.generation_request_id,
+                        GenerationRequest.STATE_FAILED,
+                        'stream_closed_without_result',
+                    )
+            except Exception:
+                log.exception(
+                    'Failed to reconcile an incomplete generation for convo=%s',
+                    self.conversation_id,
+                )
         try:
             usage = self.last_usage if self.provider_started else ZERO_TOKEN_USAGE
             _finalize_provider_usage(
@@ -2215,12 +2430,47 @@ class _ManagedGenerationStream:
             self.lifecycle.close()
 
 
-def _remove_pending_user_message(user_message_id):
-    if user_message_id is None:
-        return
+def _mark_generation_request_terminal(generation_request_id, state, outcome_code):
+    if state not in GenerationRequest.TERMINAL_STATES:
+        raise ValueError('Generation request terminal state is invalid.')
+    now = timezone.now()
+    return GenerationRequest.objects.filter(
+        pk=generation_request_id,
+        state__in=GenerationRequest.ACTIVE_STATES,
+    ).update(
+        state=state,
+        outcome_code=outcome_code,
+        completed_at=now,
+        updated_at=now,
+    )
+
+
+def _close_pending_send(
+    generation_request_id,
+    user_message_id,
+    state,
+    outcome_code,
+):
     with transaction.atomic():
-        Attachment.objects.filter(message_id=user_message_id).update(message=None)
-        Message.objects.filter(id=user_message_id).delete()
+        generation_request = GenerationRequest.objects.select_for_update().get(
+            pk=generation_request_id,
+        )
+        if generation_request.state not in GenerationRequest.ACTIVE_STATES:
+            return
+        if user_message_id is not None:
+            Attachment.objects.filter(message_id=user_message_id).update(message=None)
+            Message.objects.filter(id=user_message_id).delete()
+        now = timezone.now()
+        generation_request.state = state
+        generation_request.outcome_code = outcome_code
+        generation_request.completed_at = now
+        generation_request.updated_at = now
+        generation_request.save(update_fields=[
+            'state',
+            'outcome_code',
+            'completed_at',
+            'updated_at',
+        ])
 
 
 def _save_assistant_reply(
@@ -2230,6 +2480,9 @@ def _save_assistant_reply(
     *,
     user_id,
     lease_token,
+    generation_request_id,
+    terminal_state=GenerationRequest.STATE_COMPLETED,
+    outcome_code='completed',
 ):
     """Persist an assistant message and touch the conversation (setting the
     title from `title_snippet` if it's still the placeholder)."""
@@ -2246,6 +2499,21 @@ def _save_assistant_reply(
             content=reply_text,
         )
         _consume_generation_message_reservation(convo_id, lease_token)
+        now = timezone.now()
+        updated = GenerationRequest.objects.filter(
+            pk=generation_request_id,
+            user_id=user_id,
+            conversation_id=convo_id,
+            state__in=GenerationRequest.ACTIVE_STATES,
+        ).update(
+            state=terminal_state,
+            assistant_message=assistant_msg,
+            outcome_code=outcome_code,
+            completed_at=now,
+            updated_at=now,
+        )
+        if updated != 1:
+            raise RuntimeError('Generation request was lost before reply commit.')
         if title_snippet and convo_obj.title == 'New Chat':
             convo_obj.title = title_snippet[:60] + ('…' if len(title_snippet) > 60 else '')
         convo_obj.save()
@@ -2261,7 +2529,10 @@ def _replace_regenerated_reply(
     *,
     user_id,
     lease_token,
+    generation_request_id,
     consumes_reservation,
+    terminal_state=GenerationRequest.STATE_COMPLETED,
+    outcome_code='completed',
 ):
     """Commit a regenerated branch only after replacement text exists."""
     with transaction.atomic():
@@ -2285,8 +2556,61 @@ def _replace_regenerated_reply(
         )
         if consumes_reservation:
             _consume_generation_message_reservation(convo_id, lease_token)
+        now = timezone.now()
+        updated = GenerationRequest.objects.filter(
+            pk=generation_request_id,
+            user_id=user_id,
+            conversation_id=convo_id,
+            state__in=GenerationRequest.ACTIVE_STATES,
+        ).update(
+            state=terminal_state,
+            assistant_message=assistant_msg,
+            outcome_code=outcome_code,
+            completed_at=now,
+            updated_at=now,
+        )
+        if updated != 1:
+            raise RuntimeError('Generation request was lost before replacement commit.')
         convo_obj.save()
     return assistant_msg, convo_obj
+
+
+def _generation_replay_response(generation_request):
+    generation_request = GenerationRequest.objects.select_related(
+        'conversation',
+        'user_message',
+        'assistant_message',
+    ).filter(pk=generation_request.pk).first()
+    if generation_request is None or generation_request.assistant_message_id is None:
+        return _generation_request_closed_response(generation_request)
+    event = {
+        'done': True,
+        'replayed': True,
+        'generation_state': generation_request.state,
+        'assistant_message': MessageSerializer(
+            generation_request.assistant_message,
+        ).data,
+        'conversation': ConversationListSerializer(
+            generation_request.conversation,
+        ).data,
+        'usage': {},
+    }
+    if generation_request.operation == GenerationRequest.OPERATION_SEND:
+        if generation_request.user_message_id is None:
+            return _generation_request_closed_response(generation_request)
+        event['user_message'] = MessageSerializer(generation_request.user_message).data
+    security_log.info(
+        'event=generation_request_replayed user_id=%s conversation_id=%s',
+        generation_request.user_id,
+        generation_request.conversation_id,
+    )
+    response = StreamingHttpResponse(
+        iter([_sse(event)]),
+        content_type='text/event-stream',
+    )
+    response['Cache-Control'] = 'no-cache, no-transform'
+    response['X-Accel-Buffering'] = 'no'
+    return response
 
 
 @api_view(['GET', 'POST'])
@@ -2333,6 +2657,44 @@ def send_message(request, pk):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    idempotency_key, invalid_key_response = _parse_generation_idempotency_key(request)
+    if invalid_key_response is not None:
+        return invalid_key_response
+    override_model = request.data.get('model_id')
+    valid_attachment_ids = (
+        isinstance(attachment_ids, list)
+        and all(isinstance(attachment_id, int) for attachment_id in attachment_ids)
+    )
+    if valid_attachment_ids:
+        normalized_attachment_ids = list(dict.fromkeys(attachment_ids))
+        request_fingerprints = _generation_request_fingerprints({
+            'attachment_ids': normalized_attachment_ids,
+            'content': user_text,
+            'model_id': override_model or '',
+            'operation': GenerationRequest.OPERATION_SEND,
+        })
+        existing_request = GenerationRequest.objects.filter(
+            user=request.user,
+            idempotency_key=idempotency_key,
+        ).first()
+        if existing_request is not None:
+            lease_token, generation_request, conflict = _acquire_generation_lease(
+                convo.id,
+                user_id=request.user.pk,
+                idempotency_key=idempotency_key,
+                operation=GenerationRequest.OPERATION_SEND,
+                request_fingerprints=request_fingerprints,
+                existing_request_expected=True,
+            )
+            if conflict is not None:
+                return _with_idempotency_key(conflict, idempotency_key)
+            if lease_token is None:
+                return _with_idempotency_key(
+                    _generation_replay_response(generation_request),
+                    idempotency_key,
+                )
+            raise RuntimeError('Existing generation request unexpectedly acquired a new lease.')
+
     attachments = _resolve_attachments(request.user, attachment_ids)
     if attachments is None:
         return Response({'error': 'Invalid attachment_ids — must be your own unlinked attachments.'}, status=400)
@@ -2344,7 +2706,6 @@ def send_message(request, pk):
     if sum(len(a.extracted_text or '') for a in attachments) > settings.CHAT_MAX_DOCUMENT_CHARS_PER_MESSAGE:
         return Response({'error': 'Documents exceed the combined extracted-text limit.'}, status=400)
 
-    override_model = request.data.get('model_id')
     effective_model = override_model or convo.model_id
     if effective_model not in MODEL_IDS:
         return _unavailable_model_response()
@@ -2389,8 +2750,20 @@ def send_message(request, pk):
     if (response := _provider_disclosure_required_response(request)) is not None:
         return response
 
-    lease_token, conflict = _acquire_generation_lease(
+    # Invalid attachment shapes have already failed in `_resolve_attachments`.
+    # Valid IDs are normalized once so duplicates hash identically on replay.
+    request_fingerprints = _generation_request_fingerprints({
+        'attachment_ids': normalized_attachment_ids,
+        'content': user_text,
+        'model_id': override_model or '',
+        'operation': GenerationRequest.OPERATION_SEND,
+    })
+    lease_token, generation_request, conflict = _acquire_generation_lease(
         convo.id,
+        user_id=request.user.pk,
+        idempotency_key=idempotency_key,
+        operation=GenerationRequest.OPERATION_SEND,
+        request_fingerprints=request_fingerprints,
         message_reservation=2,
     )
     if conflict is not None:
@@ -2401,13 +2774,18 @@ def send_message(request, pk):
                 request.user.pk,
                 convo.id,
             )
-        else:
+        elif conflict_code and conflict_code.endswith('_limit'):
             security_log.warning(
                 'event=chat_object_quota_blocked code=%s user_id=%s',
                 conflict_code,
                 request.user.pk,
             )
-        return conflict
+        return _with_idempotency_key(conflict, idempotency_key)
+    if lease_token is None:
+        return _with_idempotency_key(
+            _generation_replay_response(generation_request),
+            idempotency_key,
+        )
 
     # Apply the selected model and its generation contract while no competing
     # generation can snapshot this conversation.
@@ -2429,14 +2807,25 @@ def send_message(request, pk):
             if not conversation_model_changed and generation_fields:
                 convo.save(update_fields=list(dict.fromkeys(generation_fields)))
     except Exception:
+        _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_FAILED,
+            'conversation_lock_failed',
+        )
         _release_generation_lease(convo.id, lease_token)
         raise
     if conversation_model_changed:
+        _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_CANCELED,
+            'conversation_changed',
+        )
         _release_generation_lease(convo.id, lease_token)
-        return Response({
+        response = Response({
             'error': 'The conversation model changed. Retry the message.',
             'code': 'conversation_changed',
         }, status=status.HTTP_409_CONFLICT)
+        return _with_idempotency_key(response, idempotency_key)
 
     prompt_characters = len(user_text) + sum(
         len(a.extracted_text or '') for a in attachments if a.kind == Attachment.KIND_DOCUMENT
@@ -2452,21 +2841,41 @@ def send_message(request, pk):
             day=usage_day,
         )
     except Exception:
+        _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_FAILED,
+            'budget_reservation_failed',
+        )
         _release_generation_lease(convo.id, lease_token)
         raise
     if budget_response is not None:
+        _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_CANCELED,
+            'budget_blocked',
+        )
         _release_generation_lease(convo.id, lease_token)
-        return budget_response
+        return _with_idempotency_key(budget_response, idempotency_key)
 
     pending = {'user_message_id': None}
     lifecycle = _GenerationLifecycle(
         conversation_id=convo.id,
         lease_token=lease_token,
+        generation_request_id=generation_request.pk,
         user_id=request.user.pk,
         usage_day=usage_day,
         token_reservation=token_reservation,
-        on_provider_not_started=lambda: _remove_pending_user_message(
+        on_provider_not_started=lambda: _close_pending_send(
+            generation_request.pk,
             pending['user_message_id'],
+            GenerationRequest.STATE_CANCELED,
+            'provider_not_started',
+        ),
+        on_provider_incomplete=lambda: _close_pending_send(
+            generation_request.pk,
+            pending['user_message_id'],
+            GenerationRequest.STATE_FAILED,
+            'stream_closed_without_result',
         ),
     )
 
@@ -2495,16 +2904,26 @@ def send_message(request, pk):
                     content=user_text,
                 )
                 pending['user_message_id'] = user_msg.id
+                linked = GenerationRequest.objects.filter(
+                    pk=generation_request.pk,
+                    state=GenerationRequest.STATE_QUEUED,
+                ).update(
+                    user_message=user_msg,
+                    updated_at=timezone.now(),
+                )
+                if linked != 1:
+                    raise RuntimeError('Generation request was lost before message commit.')
                 Attachment.objects.filter(
                     pk__in=[attachment.pk for attachment in attachments],
                 ).update(message=user_msg)
                 _consume_generation_message_reservation(convo.pk, lease_token)
         if attachment_conflict:
             lifecycle.close()
-            return Response({
+            response = Response({
                 'error': 'One or more attachments are no longer available. Upload them again.',
                 'code': 'attachment_already_claimed',
             }, status=status.HTTP_409_CONFLICT)
+            return _with_idempotency_key(response, idempotency_key)
 
         all_msgs = list(
             convo.messages.order_by('created_at').prefetch_related('attachments')
@@ -2556,9 +2975,17 @@ def send_message(request, pk):
                     title_snippet,
                     user_id=request.user.pk,
                     lease_token=lease_token,
+                    generation_request_id=generation_request.pk,
+                    terminal_state=GenerationRequest.STATE_CANCELED,
+                    outcome_code='client_disconnected_partial',
                 )
             else:
-                _remove_pending_user_message(user_msg_id)
+                _close_pending_send(
+                    generation_request.pk,
+                    user_msg_id,
+                    GenerationRequest.STATE_CANCELED,
+                    'client_disconnected_empty',
+                )
             log.info(
                 'Stream aborted by client for convo=%s (%d chars kept)',
                 convo_id,
@@ -2567,19 +2994,34 @@ def send_message(request, pk):
             raise
         except Exception:
             log.exception('Unexpected NVIDIA stream failure for convo=%s', convo_id)
-            _remove_pending_user_message(user_msg_id)
+            _close_pending_send(
+                generation_request.pk,
+                user_msg_id,
+                GenerationRequest.STATE_FAILED,
+                'stream_exception',
+            )
             yield _sse({'error': 'The response stream failed. Try again later.'})
             return
 
         if errored is not None:
             log.warning('NVIDIA stream error for convo=%s: %s', convo_id, errored)
-            _remove_pending_user_message(user_msg_id)
+            _close_pending_send(
+                generation_request.pk,
+                user_msg_id,
+                GenerationRequest.STATE_FAILED,
+                'provider_error',
+            )
             yield _sse({'error': errored})
             return
 
         reply_text = ''.join(full_text)
         if not reply_text:
-            _remove_pending_user_message(user_msg_id)
+            _close_pending_send(
+                generation_request.pk,
+                user_msg_id,
+                GenerationRequest.STATE_FAILED,
+                'empty_provider_response',
+            )
             yield _sse({'error': 'NVIDIA returned an empty response.'})
             return
 
@@ -2589,6 +3031,7 @@ def send_message(request, pk):
             title_snippet,
             user_id=request.user.pk,
             lease_token=lease_token,
+            generation_request_id=generation_request.pk,
         )
         user_msg_fresh = Message.objects.prefetch_related('attachments').get(
             id=user_msg_id,
@@ -2605,7 +3048,7 @@ def send_message(request, pk):
     response = StreamingHttpResponse(managed_stream, content_type='text/event-stream')
     response['Cache-Control'] = 'no-cache, no-transform'
     response['X-Accel-Buffering'] = 'no'
-    return response
+    return _with_idempotency_key(response, idempotency_key)
 
 
 def _build_history_for(convo, upto_msg_id=None):
@@ -2668,6 +3111,36 @@ def regenerate_message(request, pk):
     - If `pk` is a user message: delete every message after it, regenerate.
     """
     if (r := _rate_limited(request)): return r
+    idempotency_key, invalid_key_response = _parse_generation_idempotency_key(request)
+    if invalid_key_response is not None:
+        return invalid_key_response
+    request_fingerprints = _generation_request_fingerprints({
+        'operation': GenerationRequest.OPERATION_REGENERATE,
+        'target_message_id': pk,
+    })
+    existing_request = GenerationRequest.objects.select_related('conversation').filter(
+        user=request.user,
+        idempotency_key=idempotency_key,
+    ).first()
+    if existing_request is not None:
+        lease_token, generation_request, conflict = _acquire_generation_lease(
+            existing_request.conversation_id,
+            user_id=request.user.pk,
+            idempotency_key=idempotency_key,
+            operation=GenerationRequest.OPERATION_REGENERATE,
+            request_fingerprints=request_fingerprints,
+            target_message_id=pk,
+            existing_request_expected=True,
+        )
+        if conflict is not None:
+            return _with_idempotency_key(conflict, idempotency_key)
+        if lease_token is None:
+            return _with_idempotency_key(
+                _generation_replay_response(generation_request),
+                idempotency_key,
+            )
+        raise RuntimeError('Existing generation request unexpectedly acquired a new lease.')
+
     target = get_object_or_404(Message, pk=pk, conversation__user=request.user)
     convo = target.conversation
 
@@ -2686,8 +3159,13 @@ def regenerate_message(request, pk):
             id__gt=target.id,
         ).exists()
     )
-    lease_token, conflict = _acquire_generation_lease(
+    lease_token, generation_request, conflict = _acquire_generation_lease(
         convo.id,
+        user_id=request.user.pk,
+        idempotency_key=idempotency_key,
+        operation=GenerationRequest.OPERATION_REGENERATE,
+        request_fingerprints=request_fingerprints,
+        target_message_id=target.pk,
         message_reservation=regeneration_reservation,
     )
     if conflict is not None:
@@ -2698,13 +3176,18 @@ def regenerate_message(request, pk):
                 request.user.pk,
                 convo.id,
             )
-        else:
+        elif conflict_code and conflict_code.endswith('_limit'):
             security_log.warning(
                 'event=chat_object_quota_blocked code=%s user_id=%s',
                 conflict_code,
                 request.user.pk,
             )
-        return conflict
+        return _with_idempotency_key(conflict, idempotency_key)
+    if lease_token is None:
+        return _with_idempotency_key(
+            _generation_replay_response(generation_request),
+            idempotency_key,
+        )
 
     try:
         with transaction.atomic():
@@ -2730,18 +3213,37 @@ def regenerate_message(request, pk):
             if generation_fields:
                 convo.save(update_fields=generation_fields)
         if anchor is None:
+            _mark_generation_request_terminal(
+                generation_request.pk,
+                GenerationRequest.STATE_CANCELED,
+                'missing_anchor',
+            )
             _release_generation_lease(convo.id, lease_token)
-            return Response({
+            response = Response({
                 'error': 'No preceding user message to regenerate from.',
             }, status=status.HTTP_400_BAD_REQUEST)
+            return _with_idempotency_key(response, idempotency_key)
         # Snapshot the original branch before any destructive mutation. The old
         # answer remains intact on quota rejection, provider error, or an
         # unconsumed StreamingHttpResponse.
         history = _build_history_for(convo, upto_msg_id=anchor.id)
         if not history:
+            _mark_generation_request_terminal(
+                generation_request.pk,
+                GenerationRequest.STATE_CANCELED,
+                'empty_history',
+            )
             _release_generation_lease(convo.id, lease_token)
-            return Response({'error': 'Nothing to send.'}, status=400)
+            return _with_idempotency_key(
+                Response({'error': 'Nothing to send.'}, status=400),
+                idempotency_key,
+            )
     except Exception:
+        _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_FAILED,
+            'conversation_lock_failed',
+        )
         _release_generation_lease(convo.id, lease_token)
         raise
 
@@ -2756,18 +3258,39 @@ def regenerate_message(request, pk):
             day=usage_day,
         )
     except Exception:
+        _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_FAILED,
+            'budget_reservation_failed',
+        )
         _release_generation_lease(convo.id, lease_token)
         raise
     if budget_response is not None:
+        _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_CANCELED,
+            'budget_blocked',
+        )
         _release_generation_lease(convo.id, lease_token)
-        return budget_response
+        return _with_idempotency_key(budget_response, idempotency_key)
 
     lifecycle = _GenerationLifecycle(
         conversation_id=convo.id,
         lease_token=lease_token,
+        generation_request_id=generation_request.pk,
         user_id=request.user.pk,
         usage_day=usage_day,
         token_reservation=token_reservation,
+        on_provider_not_started=lambda: _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_CANCELED,
+            'provider_not_started',
+        ),
+        on_provider_incomplete=lambda: _mark_generation_request_terminal(
+            generation_request.pk,
+            GenerationRequest.STATE_FAILED,
+            'stream_closed_without_result',
+        ),
     )
     convo_id = convo.id
     model_id = convo.model_id
@@ -2776,7 +3299,11 @@ def regenerate_message(request, pk):
     anchor_id = anchor.id
     gen_kwargs = {'max_tokens': convo.max_tokens, 'temperature': convo.temperature}
 
-    def persist_replacement(text):
+    def persist_replacement(
+        text,
+        terminal_state=GenerationRequest.STATE_COMPLETED,
+        outcome_code='completed',
+    ):
         return _replace_regenerated_reply(
             convo_id,
             target_id,
@@ -2785,7 +3312,10 @@ def regenerate_message(request, pk):
             text,
             user_id=request.user.pk,
             lease_token=lease_token,
+            generation_request_id=generation_request.pk,
             consumes_reservation=bool(regeneration_reservation),
+            terminal_state=terminal_state,
+            outcome_code=outcome_code,
         )
 
     def event_stream():
@@ -2811,7 +3341,17 @@ def regenerate_message(request, pk):
         except GeneratorExit:
             partial = ''.join(full_text)
             if partial:
-                persist_replacement(partial)
+                persist_replacement(
+                    partial,
+                    GenerationRequest.STATE_CANCELED,
+                    'client_disconnected_partial',
+                )
+            else:
+                _mark_generation_request_terminal(
+                    generation_request.pk,
+                    GenerationRequest.STATE_CANCELED,
+                    'client_disconnected_empty',
+                )
             log.info(
                 'Regenerate aborted by client for convo=%s (%d chars kept)',
                 convo_id,
@@ -2820,16 +3360,31 @@ def regenerate_message(request, pk):
             raise
         except Exception:
             log.exception('Unexpected NVIDIA regenerate failure for convo=%s', convo_id)
+            _mark_generation_request_terminal(
+                generation_request.pk,
+                GenerationRequest.STATE_FAILED,
+                'stream_exception',
+            )
             yield _sse({'error': 'The response stream failed. Try again later.'})
             return
 
         if errored is not None:
             log.warning('NVIDIA regenerate error for convo=%s: %s', convo_id, errored)
+            _mark_generation_request_terminal(
+                generation_request.pk,
+                GenerationRequest.STATE_FAILED,
+                'provider_error',
+            )
             yield _sse({'error': errored})
             return
 
         reply_text = ''.join(full_text)
         if not reply_text:
+            _mark_generation_request_terminal(
+                generation_request.pk,
+                GenerationRequest.STATE_FAILED,
+                'empty_provider_response',
+            )
             yield _sse({'error': 'NVIDIA returned an empty response.'})
             return
 
@@ -2845,7 +3400,7 @@ def regenerate_message(request, pk):
     response = StreamingHttpResponse(managed_stream, content_type='text/event-stream')
     response['Cache-Control'] = 'no-cache, no-transform'
     response['X-Accel-Buffering'] = 'no'
-    return response
+    return _with_idempotency_key(response, idempotency_key)
 
 
 def _slugify(text):

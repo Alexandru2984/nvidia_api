@@ -101,10 +101,13 @@ export const api = {
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify(patch) }),
   switchModel: (id, model_id) =>
     request(`/conversations/${id}/`, { method: 'PATCH', body: JSON.stringify({ model_id }) }),
-  sendMessageStream: async (id, content, model_id, attachment_ids, handlers, signal) => {
+  sendMessageStream: async (
+    id, content, model_id, attachment_ids, handlers, signal, idempotencyKey,
+  ) => {
     const headers = { 'Content-Type': 'application/json' }
     const csrf = getCookie('csrftoken')
     if (csrf) headers['X-CSRFToken'] = csrf
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
     try {
       const res = await fetch(`${BASE}/conversations/${id}/messages/`, {
         method: 'POST',
@@ -215,10 +218,11 @@ export const api = {
   // Edit / regenerate
   editMessage: (id, content) =>
     request(`/messages/${id}/`, { method: 'PATCH', body: JSON.stringify({ content }) }),
-  regenerateMessageStream: async (id, handlers, signal) => {
+  regenerateMessageStream: async (id, handlers, signal, idempotencyKey) => {
     const headers = {}
     const csrf = getCookie('csrftoken')
     if (csrf) headers['X-CSRFToken'] = csrf
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
     try {
       const res = await fetch(`${BASE}/messages/${id}/regenerate/`, {
         method: 'POST', credentials: 'include', headers, signal,

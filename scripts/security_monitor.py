@@ -721,6 +721,10 @@ def evaluate(
     model_probe_degraded = journal.count('event=model_probe_degraded')
     model_probe_authorization = journal.count('event=model_probe_authorization_failed')
     protected_config_changes = journal.count('event=protected_config_changed')
+    generation_idempotency_conflicts = journal.count(
+        'event=generation_idempotency_conflict'
+    )
+    generation_interruptions = journal.count('event=generation_request_interrupted')
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -806,6 +810,18 @@ def evaluate(
     if protected_config_changes:
         issues['protected_config_changed'] = (
             'A protected AI Chat Hub configuration or monitor file changed.'
+        )
+    if generation_idempotency_conflicts >= int(
+        os.environ.get('GENERATION_IDEMPOTENCY_CONFLICT_ALERT_THRESHOLD', '3')
+    ):
+        issues['generation_idempotency_conflict'] = (
+            f'{generation_idempotency_conflicts} reused generation keys had mismatched '
+            'request data in six minutes.'
+        )
+    if generation_interruptions:
+        issues['generation_interrupted'] = (
+            f'{generation_interruptions} generation requests lost their durable lease '
+            'in six minutes.'
         )
     if invite_consumed:
         issues['registration_invite_consumed'] = (

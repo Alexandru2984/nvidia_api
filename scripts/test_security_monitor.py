@@ -64,6 +64,8 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=model_probe_degraded inconclusive=2']
             + ['event=model_probe_authorization_failed count=2']
             + ['event=protected_config_changed']
+            + ['event=generation_idempotency_conflict'] * 3
+            + ['event=generation_request_interrupted']
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
@@ -82,6 +84,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'model_probe_degraded',
              'model_probe_authorization',
              'protected_config_changed',
+             'generation_idempotency_conflict', 'generation_interrupted',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
 
