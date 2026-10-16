@@ -422,9 +422,9 @@ duplicate attachment consumption or destructive regeneration.
   policy are deployed; sensitive 2FA/password/account actions confirm credentials
   inline and stale session controls require password plus the enabled second
   factor before resuming.
-- Add durable per-user/global quotas for conversations, messages, sessions,
-  export/download egress and retained bytes; schedule `clearsessions` and usage
-  retention.
+- Durable per-user/global quotas for conversations, messages, sessions,
+  export/download egress and saved-message bytes are deployed; expired sessions
+  are removed by maintenance. Add linked-history/usage retention.
 - Stream bounded exports and rate-limit session inventory/download endpoints.
 - Send security/audit evidence off-host; monitor release hashes, identity/sudo
   events, environment/config changes, provider/mail anomalies and database/disk

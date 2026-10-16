@@ -36,6 +36,7 @@ provider authorization/entitlement probe failure, a database backup older than
 environment release manifest, ownership or permission failure. Any lost
 generation lease raises `generation_interrupted`; three mismatched reuses of an
 `Idempotency-Key` within six minutes raise `generation_idempotency_conflict`.
+Any saved-chat object or byte quota block raises `chat_object_quota`.
 
 Any `protected_config_changed` alert means a watched dotenv, nginx vhost,
 application/monitor systemd unit, sysusers definition, or installed monitor
@@ -65,6 +66,11 @@ acknowledging the alert.
   scanner to restore availability.
 - For NVIDIA cost abuse, disable generation or revoke the API key before tuning
   throttles. A spending incident can continue while the UI appears healthy.
+- For repeated saved-chat quota blocks, identify only the privacy-minimized owner
+  and scope (`conversation`, `user` or `global`), preserve the event count and
+  check database/disk growth. Do not export message content for triage. Keep the
+  global gate fail-closed; deleting confirmed owner data requires the normal
+  owner/account workflow, not direct counter or generated-column edits.
 - For `generation_interrupted`, disable automatic/client retries, preserve the
   privacy-minimized request ID/state and provider-usage evidence, and reconcile
   the affected conversation before issuing a new key. Never change an

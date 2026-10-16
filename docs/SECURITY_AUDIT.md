@@ -83,6 +83,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, bound executable roots to the active plus two rollbacks, and have passed a controlled production rollback/restore drill for both release families | Add signed builder provenance and define the supplemental-archive lifecycle plus off-host evidence retention |
 | A-20 | Medium | Users could send prompts, history and selected files to NVIDIA without a durable, current disclosure acknowledgement | A versioned, owner-bound timestamp is stored without prompt/file/IP data; chat, regeneration and image generation return `428` before leases, budget reservations, message writes or provider egress until the current disclosure is accepted. The keyboard-accessible mobile UI names each data class, links official NVIDIA privacy/terms pages and offers an equal cancel path | Obtain legal review of the actual processing basis, publish the complete operator privacy notice, confirm NVIDIA retention/training/DPA/region and production-entitlement terms, and bump the version when the data flow materially changes |
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
+| A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin | Define and enforce linked-history retention/deletion before materially raising account or quota volume |
 
 ## Quantitative risk view
 
@@ -1473,10 +1474,72 @@ is required before describing those controls as complete.
   The illustrative EUR 2,500/year program ALE is unchanged; this rollout was a
   functional recovery exercise, not the still-required full incident tabletop.
 
+### Saved-message byte-quota rollout — 2026-10-16
+
+- Commit `b2e96ab099140a8f51cc14a74e18320139e13740` closes an expiry-
+  fencing gap found while designing byte reservations: heartbeat and every final
+  send/regenerate commit now require the same unexpired token/job lease. An old
+  worker cannot resurrect after expiry, including a branch replacement that
+  reserves zero new message rows. Commit
+  `60ebb7bb61edb262d19ff3196adfa7322707086b` then adds the quota.
+- PostgreSQL derives `Message.content_bytes` as the stored expression
+  `octet_length(content)`, preventing application or bulk-write drift and exact
+  UTF-8 undercount. A database-constrained singleton gate serializes service-wide
+  accounting. Active leases reserve the exact user text plus four bytes per
+  possible assistant character; persistence atomically exchanges reservation for
+  stored bytes. Regeneration subtracts the branch it will replace and reserves
+  only maximum net growth.
+- Validated defaults are 16 MiB/conversation, 64 MiB/user and 1 GiB/service.
+  Conversation and account conflicts expose only the owner's usage; the global
+  `503` exposes neither tenant usage nor the service limit. Growth edits use the
+  same transaction gate, shrink/deletion remain available for recovery, message
+  admin is read-only, quota blocks use the existing six-minute alert, and the
+  responsive account panel shows owner-scoped message-text consumption.
+- All 543 backend tests and 36 monitor tests passed. Django checks and migration
+  drift, frontend lint/build, ShellCheck, diff validation and `npm audit` (zero
+  advisories) passed. Tests cover multibyte UTF-8, reservation transitions,
+  conversation/user/global conflicts, cross-user non-disclosure, edit growth and
+  shrink, net-growth regeneration, database singleton enforcement and admin
+  bypass prevention.
+- The gzip-validated pre-migration backup is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261016_143022_218854877.sql.gz`,
+  mode `0600 micu:micu`, SHA-256
+  `95fdc8c6a31c6808c55c4814c08c42763db79881350d6766395a3ae8078bcd29`.
+  Its parent ACL hash was identical before/after backup and both `aichat` and
+  `aichat-monitor` remain unable to read the dump.
+- Migration `0027_conversationgenerationlease_reserved_bytes_and_more` preserved
+  six conversations and 16 messages and reported 11,422 saved-message bytes,
+  zero active leases/jobs and singleton key `1`. PostgreSQL reports stored
+  generation (`attgenerated = s`), `octet_length(content)` and both positive-ID
+  and singleton gate checks. A rollback-only production transaction proved six
+  bytes for `é😀`, a 69-byte live reservation, a stable owner-byte conflict at
+  75 bytes and zero residual account data without provider work.
+- Backend release
+  `/opt/aichat-backend-releases/release-20261016T113049_962337211` and frontend
+  release `/var/www/aichat-releases/release-20261016T113101_720866007` are active
+  with valid manifests; the immediately preceding releases remain rollback
+  targets. A live backend rollback reached the prior release in two seconds and
+  restored the exact new release in two seconds. Public/origin health is `200`,
+  anonymous models and `/.env` are `403`, arbitrary media is `404`, TCP 8501 is
+  closed, and the origin socket is `0660 aichat:aichat-origin`. Backend/parser
+  remain at `NRestarts=0`; their systemd exposure is `2.9/2.1 OK`, while the
+  watcher/monitor remain `2.2/2.9 OK`. The path watcher recorded the planned
+  protected-file installation/drill changes; exact comparisons proved the vhost,
+  units and monitor executable match committed sources, no later event appeared,
+  and the alert cleared naturally after its six-minute window (`active=[]`).
+- The scoped CISO review ranks shared-database availability exhaustion, quota
+  tampering/bypass and insufficient attribution highest. Blast radius is bounded
+  per conversation/account before the 1 GiB shared circuit breaker; owner IDs and
+  scope are logged without content. No prompt copy, external transfer, new vendor
+  or new special-category processing is introduced; byte length is derived from
+  already retained text. The runbook now contains privacy-minimized containment,
+  GDPR's qualifying-breach assessment remains 72 hours, NVIDIA processing is
+  unchanged, and linked-history retention plus off-host evidence remain open.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
-generation idempotency, privacy-minimized alerting, and verified-staff-2FA admin
-gate were completed
+generation idempotency, saved-message byte ceilings, privacy-minimized alerting,
+and verified-staff-2FA admin gate were completed
 immediately afterward; actual-token budgets and invite-only registration are now
 implemented, and privileged changes are now privacy-minimized and integrity
 checked. Contract/GPU monetary enforcement and entitlement evidence, external

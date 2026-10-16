@@ -466,8 +466,11 @@ bounded to 64,000 characters. Owner-scoped Markdown export streams only below a
 conservative 25 MiB estimate and is limited to 10/hour; attachment downloads are
 limited to 120/hour; session list/revocation routes have per-user limits. Daily
 maintenance removes expired database sessions and the security monitor alerts on
-quota blocks. The responsive account panel exposes object consumption. Residual
-work is a global/chat-byte budget and linked-history retention/deletion policy.
+quota blocks. Database-generated UTF-8 byte counts and a singleton transaction
+gate now additionally enforce 16 MiB/conversation, 64 MiB/user and 1 GiB/service
+message-text limits, including live generation reservations. The responsive
+account panel exposes owner-scoped object and byte consumption without disclosing
+global tenant usage. Residual work is a linked-history retention/deletion policy.
 The deployed owner-indexed session registry avoids decoding the global session
 table and enforces both a fixed 30-day lifetime and a 20-session account cap.
 
@@ -624,11 +627,11 @@ production-entitlement decisions, and provide export/deletion status.
 
 1. Replace loopback TCP/backend trust with permissioned/authenticated origin
    paths.
-2. Add global/chat-byte quotas and linked-history retention. Recent-auth policy,
-   request idempotency/durable job state, absolute session deadlines, the indexed
-   owner/session registry, per-user object quotas, bounded/throttled egress,
-   expired-session cleanup, the per-conversation generation lease and attachment
-   claim lock are deployed.
+2. Add linked-history retention. Global/per-owner chat-byte quotas, recent-auth
+   policy, request idempotency/durable job state, absolute session deadlines, the
+   indexed owner/session registry, per-user object quotas, bounded/throttled
+   egress, expired-session cleanup, the per-conversation generation lease and
+   attachment claim lock are deployed.
 4. Produce and retain signed wheel provenance and tabletop both backend rollback
    paths. Application code and the minimal runtime Python environment already use
    separate root-owned, manifest-verified atomic releases with automatic rollback,

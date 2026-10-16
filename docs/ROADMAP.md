@@ -133,8 +133,11 @@ timed evidence.
   eviction. Sensitive account changes now share a five-minute recent-strong-auth
   policy bound to the user/session/current password; 2FA accounts require their
   second factor for password changes, and stale session-revocation actions resume
-  only after responsive reauthentication. Add global chat-byte budgets and
-  configurable linked-history retention before materially raising account volume.
+  only after responsive reauthentication. Database-derived UTF-8 byte accounting
+  now enforces transactional per-conversation, per-user and service-wide saved-
+  message ceilings, including live worst-case generation reservations and net-
+  growth regeneration. Add configurable linked-history retention before
+  materially raising account volume.
 - **Immutable backend application delivery is shipped:** production imports only
   a committed, root-owned, manifest-verified release selected through one atomic
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs
