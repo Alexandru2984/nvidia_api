@@ -353,8 +353,12 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   failures, malware rejections, parser socket health, parser failures and installed
   parser executable integrity against the manifest-verified backend release, plus
   redirected/malformed provider response rejections every five minutes. It uses the host's
-  existing Telegram channel, keeps cooldown state under
-  `/var/lib/aichat-security-monitor`, and never forwards raw log lines.
+  existing Telegram channel through a systemd credential, runs under the
+  dedicated non-login `aichat-monitor` identity, keeps cooldown state under
+  `/var/lib/aichat-security-monitor`, and never forwards raw log lines. A named
+  read-only ACL permits listing/statting this app's backup directory and reading
+  only the privacy-minimized restore status; mode-`0600` database dumps remain
+  unreadable to the monitor.
 
 Deploy steps after a code change:
 
@@ -398,10 +402,7 @@ curl -fsS https://aichat.micutu.com/api/health/
 curl -o /dev/null -sS -w '%{http_code}\n' https://aichat.micutu.com/media/not-public
 
 # Install/update the root-owned security monitor and timer
-sudo install -o root -g root -m 0755 scripts/security_monitor.py /usr/local/libexec/aichat-security-monitor
-sudo install -o root -g root -m 0644 ops/systemd/aichat-security-monitor.{service,timer} /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now aichat-security-monitor.timer
+sudo scripts/install_security_monitor.sh
 ```
 
 The frontend deploy script stages a root-owned release below

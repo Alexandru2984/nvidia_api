@@ -40,7 +40,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   scanner outages and ClamAV-signature freshness, isolated-parser health and
   parser/upload failure correlation, including installed parser drift from the
   manifest-verified backend release, and malformed/redirected provider responses.
-  Add contract-spend correlation and an
+  The monitor runs under a dedicated non-login identity, receives its Telegram
+  configuration through a systemd credential, can read restore status but not
+  database dumps, and validates those exact ACL boundaries on every run. Add
+  contract-spend correlation and an
   external log sink without logging prompts,
   cookies, OTPs, filenames, raw IPs, or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;

@@ -4,12 +4,13 @@ After=network-online.target aichat-backend.service aichat-clamd.service aichat-d
 
 [Service]
 Type=oneshot
-User=micu
-Group=micu
-# Grant journal and local scanner-socket visibility only inside this sandboxed
-# monitor process, not to the interactive `micu` account.
+User=aichat-monitor
+Group=aichat-monitor
+# Grant journal and local socket visibility only inside this dedicated,
+# non-login monitor process.
 SupplementaryGroups=systemd-journal clamav aichat-parser aichat-origin
-ExecStart=/usr/local/libexec/aichat-security-monitor
+LoadCredential=telegram.env:/home/micu/scripts/.env
+ExecStart=/usr/local/libexec/aichat-security-monitor --credentials=%d/telegram.env
 UMask=0077
 StateDirectory=aichat-security-monitor
 StateDirectoryMode=0700
@@ -18,7 +19,9 @@ PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindReadOnlyPaths=/home/micu/backups/nvidia_db /home/micu/scripts/.env
+BindReadOnlyPaths=/home/micu/backups/nvidia_db
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

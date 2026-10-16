@@ -50,6 +50,8 @@ PYTHON_ENV_SAFE_PATH_RE = re.compile(
 PARSER_MAGIC = b'AIP1'
 PARSER_REQUEST = struct.Struct('!4sBII')
 PARSER_RESPONSE = struct.Struct('!4sBI')
+JOURNALCTL_PATH = '/usr/bin/journalctl'
+GETFACL_PATH = '/usr/bin/getfacl'
 
 
 def _hash_file(path):
@@ -58,6 +60,25 @@ def _hash_file(path):
         for chunk in iter(lambda: handle.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _has_exact_acl(path, expected_entries):
+    """Require the complete access ACL, not merely permissive mode-bit masks."""
+    try:
+        result = subprocess.run(
+            [GETFACL_PATH, '--access', '--omit-header', '--numeric', '--absolute-names',
+             os.fspath(path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode or result.stderr.strip():
+        return False
+    entries = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return len(entries) == len(expected_entries) and set(entries) == set(expected_entries)
 
 
 def _evaluate_release(
@@ -459,7 +480,8 @@ def evaluate_document_parser_installation(
 
 def read_journal():
     result = subprocess.run(
-        ['journalctl', '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
+        [JOURNALCTL_PATH,
+         '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
          '--unit=aichat-model-probe.service', '--unit=aichat-document-parser.service',
          f'--since={JOURNAL_WINDOW}',
          '--output=cat', '--no-pager', '--quiet'],
@@ -497,6 +519,9 @@ def evaluate(
     document_parser_socket=None,
     document_parser_service=None,
     document_parser_worker=None,
+    backup_expected_uid=None,
+    backup_expected_gid=None,
+    backup_monitor_uid=None,
 ):
     now = now or time.time()
     issues = {}
@@ -589,8 +614,29 @@ def evaluate(
     if not backup_dir.is_dir() or backup_dir.is_symlink():
         issues['backup_missing'] = 'Backup directory is missing or unsafe.'
     else:
-        if stat.S_IMODE(backup_dir.stat().st_mode) & 0o077:
-            issues['backup_directory_permissions'] = 'Backup directory has group/other permissions.'
+        backup_info = backup_dir.stat()
+        if backup_monitor_uid is None:
+            if stat.S_IMODE(backup_info.st_mode) & 0o077:
+                issues['backup_directory_permissions'] = (
+                    'Backup directory has group/other permissions.'
+                )
+        else:
+            expected_acl = {
+                'user::rwx',
+                f'user:{backup_monitor_uid}:r-x',
+                'group::---',
+                'mask::r-x',
+                'other::---',
+            }
+            if (
+                stat.S_IMODE(backup_info.st_mode) != 0o750
+                or backup_info.st_uid != backup_expected_uid
+                or backup_info.st_gid != backup_expected_gid
+                or not _has_exact_acl(backup_dir, expected_acl)
+            ):
+                issues['backup_directory_permissions'] = (
+                    'Backup directory ownership, permissions or monitor ACL is unsafe.'
+                )
         dumps = [path for path in backup_dir.iterdir()
                  if DUMP_RE.fullmatch(path.name) and path.is_file() and not path.is_symlink()]
         if not dumps:
@@ -601,7 +647,16 @@ def evaluate(
             age_hours = max(0, int((now - info.st_mtime) // 3600))
             if now - info.st_mtime > BACKUP_MAX_AGE_SECONDS:
                 issues['backup_stale'] = f'Newest database backup is {age_hours} hours old.'
-            if stat.S_IMODE(info.st_mode) & 0o077:
+            if (
+                stat.S_IMODE(info.st_mode) != 0o600
+                or (
+                    backup_monitor_uid is not None
+                    and (
+                        info.st_uid != backup_expected_uid
+                        or info.st_gid != backup_expected_gid
+                    )
+                )
+            ):
                 issues['backup_permissions'] = 'Newest database backup has group/other permissions.'
 
     if not restore_log.is_file() or restore_log.is_symlink():
@@ -618,8 +673,28 @@ def evaluate(
         lines = [line for line in tail.splitlines() if line.strip()]
         if not lines or 'restore drill ok:' not in lines[-1]:
             issues['restore_failed'] = 'Latest restore-drill log has no success marker.'
-        if stat.S_IMODE(info.st_mode) & 0o077:
-            issues['restore_log_permissions'] = 'Restore-drill log has group/other permissions.'
+        if backup_monitor_uid is None:
+            if stat.S_IMODE(info.st_mode) & 0o077:
+                issues['restore_log_permissions'] = (
+                    'Restore-drill log has group/other permissions.'
+                )
+        else:
+            expected_acl = {
+                'user::rw-',
+                f'user:{backup_monitor_uid}:r--',
+                'group::---',
+                'mask::r--',
+                'other::---',
+            }
+            if (
+                stat.S_IMODE(info.st_mode) != 0o640
+                or info.st_uid != backup_expected_uid
+                or info.st_gid != backup_expected_gid
+                or not _has_exact_acl(restore_log, expected_acl)
+            ):
+                issues['restore_log_permissions'] = (
+                    'Restore-drill log ownership, permissions or monitor ACL is unsafe.'
+                )
 
     auth_failures = (
         journal.count('event=auth_failed')
@@ -740,9 +815,21 @@ def evaluate(
 
 
 def parse_monitor_credentials(path):
+    path = Path(path)
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise RuntimeError('monitor notification credentials are unavailable') from exc
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or stat.S_IMODE(info.st_mode) & 0o077
+        or info.st_uid not in {0, os.geteuid()}
+        or not 1 <= info.st_size <= 64 * 1024
+    ):
+        raise RuntimeError('monitor notification credentials are unsafe')
     wanted = {'BOT_TOKEN', 'CHAT_ID'}
     values = {}
-    for raw in Path(path).read_text(encoding='utf-8').splitlines():
+    for raw in path.read_text(encoding='utf-8').splitlines():
         line = raw.strip()
         if not line or line.startswith('#') or '=' not in line:
             continue
@@ -864,6 +951,10 @@ def main():
             send_telegram(args.credentials, text)
             print('test notification sent')
             return 0
+        # Validate the systemd-delivered notification credential on every run,
+        # not only when an alert happens. Otherwise a broken alert path could
+        # remain latent while all monitored conditions are healthy.
+        parse_monitor_credentials(args.credentials)
         journal = Path(args.journal_file).read_text(encoding='utf-8') if args.journal_file else read_journal()
         issues = evaluate(
             args.backup_dir,
@@ -884,6 +975,9 @@ def main():
             document_parser_socket=args.document_parser_socket,
             document_parser_service=args.document_parser_service,
             document_parser_worker=args.document_parser_worker,
+            backup_expected_uid=pwd.getpwnam('micu').pw_uid,
+            backup_expected_gid=pwd.getpwnam('micu').pw_gid,
+            backup_monitor_uid=pwd.getpwnam('aichat-monitor').pw_uid,
         )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))

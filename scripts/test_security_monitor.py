@@ -320,10 +320,67 @@ class SecurityMonitorTests(unittest.TestCase):
     def test_credentials_parser_accepts_quotes(self):
         env_file = self.root / 'monitor.env'
         env_file.write_text("BOT_TOKEN='token-value'\nCHAT_ID=12345\nIGNORED=value\n", encoding='utf-8')
+        env_file.chmod(0o600)
         self.assertEqual(
             monitor.parse_monitor_credentials(env_file),
             {'BOT_TOKEN': 'token-value', 'CHAT_ID': '12345'},
         )
+
+    def test_credentials_parser_rejects_permissive_or_symlinked_file(self):
+        env_file = self.root / 'monitor.env'
+        env_file.write_text('BOT_TOKEN=token\nCHAT_ID=1\n', encoding='utf-8')
+        env_file.chmod(0o640)
+        with self.assertRaisesRegex(RuntimeError, 'credentials are unsafe'):
+            monitor.parse_monitor_credentials(env_file)
+        env_file.chmod(0o600)
+        link = self.root / 'monitor-link.env'
+        link.symlink_to(env_file)
+        with self.assertRaisesRegex(RuntimeError, 'credentials are unsafe'):
+            monitor.parse_monitor_credentials(link)
+
+    def test_dedicated_monitor_backup_acl_geometry(self):
+        self.backups.chmod(0o750)
+        self.restore_log.chmod(0o640)
+        with mock.patch.object(monitor, '_has_exact_acl', return_value=True):
+            issues = monitor.evaluate(
+                self.backups,
+                self.restore_log,
+                '',
+                backup_expected_uid=os.getuid(),
+                backup_expected_gid=os.getgid(),
+                backup_monitor_uid=os.getuid() + 1,
+            )
+        self.assertEqual(issues, {})
+
+        with mock.patch.object(monitor, '_has_exact_acl', return_value=False):
+            issues = monitor.evaluate(
+                self.backups,
+                self.restore_log,
+                '',
+                backup_expected_uid=os.getuid(),
+                backup_expected_gid=os.getgid(),
+                backup_monitor_uid=os.getuid() + 1,
+            )
+        self.assertIn('backup_directory_permissions', issues)
+        self.assertIn('restore_log_permissions', issues)
+
+    def test_journal_reader_uses_absolute_executable(self):
+        completed = mock.Mock(returncode=0, stdout='journal', stderr='')
+        with mock.patch.object(monitor.subprocess, 'run', return_value=completed) as run:
+            self.assertEqual(monitor.read_journal(), 'journal')
+        self.assertEqual(run.call_args.args[0][0], '/usr/bin/journalctl')
+
+    def test_systemd_unit_uses_dedicated_identity_and_credential(self):
+        unit = (
+            Path(__file__).resolve().parents[1]
+            / 'ops/systemd/aichat-security-monitor.service'
+        ).read_text(encoding='utf-8')
+        self.assertIn('User=aichat-monitor\n', unit)
+        self.assertIn('Group=aichat-monitor\n', unit)
+        self.assertIn('LoadCredential=telegram.env:/home/micu/scripts/.env\n', unit)
+        self.assertIn('--credentials=%d/telegram.env', unit)
+        self.assertNotIn('User=micu\n', unit)
+        self.assertNotIn('BindReadOnlyPaths=/home/micu/backups/nvidia_db /home/micu/scripts/.env', unit)
 
     def create_frontend_release(self):
         release_root = self.root / 'releases'
