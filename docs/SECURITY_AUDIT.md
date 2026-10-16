@@ -1334,6 +1334,52 @@ is required before describing those controls as complete.
   accounting claim. External immutable retention and the full timed incident
   tabletop remain open.
 
+### Dedicated security-monitor identity rollout — 2026-10-16
+
+- Repository states `f7465c24c6834b9d249b0951ee8f04d1340bc5a4`,
+  `55e3caf58eab8104af748d07ac09f508d8b55e84`,
+  `e2b7c497d052841abd2b86e9f72259179a7b74f0` and
+  `2be47fe6e18ab76f308d418af00965332602f9cc` moved the five-minute
+  security monitor off the interactive `micu` identity. Systemd-sysusers now
+  provisions dedicated UID/GID `aichat-monitor` with `nologin`; the service has
+  only its journal/scanner/parser/origin supplementary groups and keeps its
+  `0700` state with a `0600` state file under that identity.
+- Telegram configuration is copied into the service's private credential mount
+  through `LoadCredential`; every invocation requires the exact systemd root
+  ownership, mode and named ACL before evaluating conditions. The dedicated UID
+  cannot open the source credential in `/home/micu/scripts/.env`. `journalctl`
+  is invoked by absolute path, removing privileged `PATH` resolution.
+- Exact named ACLs grant traverse-only access to the shared backup parent,
+  list/stat access to only the NVIDIA backup directory and read access to the
+  privacy-minimized restore result. A real one-byte open probe proves the newest
+  mode-`0600` database dump remains unreadable while the restore result is
+  readable. The monitor validates directory/file owners, modes and complete ACL
+  entry sets on every run, so replacing a named ACL with generic group access
+  fails closed.
+- The installer snapshots the executable, unit/timer, ACLs and state content and
+  restores them on failure. Three rollout gates deliberately exercised that
+  path: a missing `/etc/sysusers.d`, systemd's root-owned `0440` credential ACL
+  geometry, and unreliable `test -r` behavior under identity switching. Each
+  attempt restored the prior `micu` unit, original ACLs, state ownership/content
+  and active timer before the focused fix was committed. The final installation
+  completed all gates.
+- All 36 monitor tests, Python compilation, Bash syntax, ShellCheck and systemd
+  unit verification passed. The installed executable matches repository SHA-256
+  `ca12e231b14cdaa86759900cd62c8128e91be17a8e93daf803aa45214c6caafa`;
+  installed service, timer and sysusers files exactly match the repository. Two
+  consecutive dedicated-identity executions returned status zero with no active
+  issue or warning-level event, the timer remains enabled/active, the service
+  sandbox is `2.9 OK`, and public health remains `200`.
+- The scoped CISO review ranks elevation of privilege and information disclosure
+  through monitor compromise above alert-path availability. Its remaining data
+  scope is privacy-minimized journal/restore metadata and the pre-existing
+  Telegram notification credential, not database dumps, prompts, attachments,
+  application dotenv or provider credentials. No new vendor was introduced;
+  Telegram was already in scope. A qualifying personal-data incident still
+  triggers GDPR 72-hour assessment. The program's illustrative EUR 2,500/year
+  baseline ALE is unchanged; off-host immutable evidence and independent
+  monitoring of monitor failure remain residual controls.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 privacy-minimized alerting, and verified-staff-2FA admin gate were completed

@@ -471,8 +471,12 @@ Status: partially mitigated. The active frontend, backend application and Python
 environment are now root-owned, atomically selected releases with bounded
 SHA-256 manifests verified every five minutes. Local malware detections, scanner
 outages, proactive socket health and signature freshness now use the same alert
-path without filenames or content. The remaining high-value signals
-are off-host retention, sudo/process identity, secret/config changes and
+path without filenames or content. The monitor itself now runs as a dedicated
+non-login identity rather than the interactive administrator, receives the
+Telegram configuration as an ephemeral systemd credential, cannot read database
+dumps or its source credential, and has exact monitored ACL access only to backup
+metadata and the privacy-minimized restore status. The remaining high-value
+signals are off-host retention, sudo/process identity, secret/config changes and
 provider/mail cost anomalies.
 
 ### S-14 — Low — dependency provenance remains incomplete
