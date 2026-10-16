@@ -46,6 +46,20 @@ class MessageAdmin(PrivacyAuditAdminMixin, admin.ModelAdmin):
     def short_content(self, obj):
         return (obj.content[:60] + '…') if len(obj.content) > 60 else obj.content
 
+    # Message writes must pass through the transactional count/byte reservation
+    # path. Keep staff visibility without exposing an invariant-bypassing editor.
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        return [field.name for field in self.model._meta.fields]
+
 
 class ReadOnlyUsageAdmin(PrivacyAuditAdminMixin, admin.ModelAdmin):
     def has_add_permission(self, request):

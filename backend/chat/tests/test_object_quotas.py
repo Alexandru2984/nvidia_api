@@ -5,7 +5,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from chat.models import Conversation, ConversationGenerationLease, Message
+from chat.models import ChatStorageGate, Conversation, ConversationGenerationLease, Message
 from chat.models_catalog import DEFAULT_MODEL_ID
 
 
@@ -157,6 +157,214 @@ class TestChatObjectQuotas:
         response.close()
         assert not ConversationGenerationLease.objects.exists()
 
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_utf8_bytes_transition_from_reserved_to_database_derived_usage(
+        self,
+        mock_stream,
+        auth_client,
+        convo,
+        settings,
+    ):
+        settings.CHAT_MAX_ASSISTANT_CHARS = 16
+        response = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/',
+            {'content': 'é😀'},
+            format='json',
+        )
+
+        user_message = convo.messages.get(role='user')
+        lease = ConversationGenerationLease.objects.get(conversation=convo)
+        assert user_message.content_bytes == len('é😀'.encode()) == 6
+        assert lease.reserved_bytes == 64
+
+        body = _consume(response)
+        assistant = convo.messages.get(role='assistant')
+        assert 'bounded reply' in body
+        assert assistant.content_bytes == len('bounded reply'.encode())
+        assert not ConversationGenerationLease.objects.exists()
+
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_conversation_byte_limit_blocks_before_budget_or_provider(
+        self,
+        mock_stream,
+        auth_client,
+        convo,
+        user,
+        settings,
+    ):
+        settings.CHAT_MAX_ASSISTANT_CHARS = 20
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION = 100
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_USER = 1_000
+        settings.CHAT_MAX_MESSAGE_BYTES_GLOBAL = 10_000
+        Message.objects.create(conversation=convo, role='user', content='x' * 20)
+
+        response = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/',
+            {'content': 'blocked'},
+            format='json',
+        )
+
+        assert response.status_code == 409
+        assert response.json() == {
+            'error': (
+                'This conversation has reached its saved-message size limit. '
+                'Delete older chat data and retry.'
+            ),
+            'code': 'conversation_message_bytes_limit',
+            'used': 20,
+            'limit': 100,
+        }
+        assert not ConversationGenerationLease.objects.exists()
+        assert not user.daily_ai_usage.exists()
+        mock_stream.assert_not_called()
+
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_user_byte_limit_counts_cross_conversation_live_reservations(
+        self,
+        mock_stream,
+        auth_client,
+        convo,
+        user,
+        settings,
+    ):
+        settings.CHAT_MAX_ASSISTANT_CHARS = 16
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION = 1_000
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_USER = 80
+        settings.CHAT_MAX_MESSAGE_BYTES_GLOBAL = 10_000
+        other = Conversation.objects.create(
+            user=user,
+            title='other',
+            model_id=DEFAULT_MODEL_ID,
+        )
+        first = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/',
+            {'content': 'first'},
+            format='json',
+        )
+
+        blocked = auth_client.post(
+            f'/api/conversations/{other.id}/messages/',
+            {'content': 'second'},
+            format='json',
+        )
+
+        assert blocked.status_code == 409
+        assert blocked.json()['code'] == 'user_message_bytes_limit'
+        assert blocked.json()['used'] == 69
+        assert user.daily_ai_usage.get().chat_requests == 1
+        mock_stream.assert_not_called()
+        first.close()
+
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_global_byte_limit_is_cross_user_and_does_not_disclose_usage(
+        self,
+        mock_stream,
+        auth_client,
+        other_client,
+        convo,
+        other_user,
+        settings,
+    ):
+        settings.CHAT_MAX_ASSISTANT_CHARS = 16
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION = 1_000
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_USER = 1_000
+        settings.CHAT_MAX_MESSAGE_BYTES_GLOBAL = 80
+        other = Conversation.objects.create(
+            user=other_user,
+            title='other',
+            model_id=DEFAULT_MODEL_ID,
+        )
+        first = auth_client.post(
+            f'/api/conversations/{convo.id}/messages/',
+            {'content': 'first'},
+            format='json',
+        )
+
+        blocked = other_client.post(
+            f'/api/conversations/{other.id}/messages/',
+            {'content': 'second'},
+            format='json',
+        )
+
+        assert blocked.status_code == 503
+        assert blocked.json() == {
+            'error': 'The service-wide saved-chat capacity has been reached.',
+            'code': 'global_message_bytes_limit',
+        }
+        mock_stream.assert_not_called()
+        first.close()
+
+    def test_message_edit_enforces_growth_but_allows_shrink(
+        self,
+        auth_client,
+        convo,
+        settings,
+    ):
+        message = Message.objects.create(
+            conversation=convo,
+            role='user',
+            content='1234567890',
+        )
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION = 10
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_USER = 10
+        settings.CHAT_MAX_MESSAGE_BYTES_GLOBAL = 10
+
+        blocked = auth_client.patch(
+            f'/api/messages/{message.id}/',
+            {'content': '12345678901'},
+            format='json',
+        )
+        accepted = auth_client.patch(
+            f'/api/messages/{message.id}/',
+            {'content': 'short'},
+            format='json',
+        )
+
+        assert blocked.status_code == 409
+        assert blocked.json()['code'] == 'conversation_message_bytes_limit'
+        assert accepted.status_code == 200
+        message.refresh_from_db()
+        assert message.content == 'short'
+        assert message.content_bytes == 5
+
+    @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
+    def test_regeneration_reserves_only_worst_case_net_growth(
+        self,
+        mock_stream,
+        auth_client,
+        convo,
+        settings,
+    ):
+        settings.CHAT_MAX_ASSISTANT_CHARS = 20
+        prompt = Message.objects.create(
+            conversation=convo,
+            role='user',
+            content='question',
+        )
+        old = Message.objects.create(
+            conversation=convo,
+            role='assistant',
+            content='x' * 100,
+        )
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION = 108
+        settings.CHAT_MAX_MESSAGE_BYTES_PER_USER = 108
+        settings.CHAT_MAX_MESSAGE_BYTES_GLOBAL = 108
+
+        response = auth_client.post(f'/api/messages/{old.id}/regenerate/')
+        lease = ConversationGenerationLease.objects.get(conversation=convo)
+        assert lease.reserved_bytes == 0
+        body = _consume(response)
+
+        assert 'bounded reply' in body
+        assert Message.objects.filter(pk=prompt.pk).exists()
+        assert not Message.objects.filter(pk=old.pk).exists()
+        assert sum(convo.messages.values_list('content_bytes', flat=True)) == 21
+
+    def test_storage_gate_is_database_singleton(self, db):
+        assert list(ChatStorageGate.objects.values_list('pk', flat=True)) == [1]
+        with pytest.raises(IntegrityError), transaction.atomic():
+            ChatStorageGate.objects.create(pk=2)
+
     @patch('chat.views._stream_nvidia', side_effect=_stream_oversized)
     def test_oversized_assistant_response_is_not_persisted(
         self,
@@ -256,7 +464,7 @@ class TestChatObjectQuotas:
         assert not ConversationGenerationLease.objects.exists()
 
     def test_account_usage_publishes_object_limits(self, auth_client, convo, settings):
-        Message.objects.create(conversation=convo, role='user', content='one')
+        Message.objects.create(conversation=convo, role='user', content='é😀')
 
         body = auth_client.get('/api/account/usage/').json()
 
@@ -267,6 +475,12 @@ class TestChatObjectQuotas:
         assert (
             body['message_limit_per_conversation']
             == settings.CHAT_MAX_MESSAGES_PER_CONVERSATION
+        )
+        assert body['message_bytes'] == 6
+        assert body['message_bytes_limit'] == settings.CHAT_MAX_MESSAGE_BYTES_PER_USER
+        assert (
+            body['message_bytes_limit_per_conversation']
+            == settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION
         )
 
     def test_database_rejects_invalid_message_reservation(self, convo):

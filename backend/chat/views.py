@@ -64,6 +64,7 @@ from .nvidia_client import (
 from .models import (
     Attachment,
     AttachmentUploadAttempt,
+    ChatStorageGate,
     Conversation,
     ConversationGenerationLease,
     EmailVerification,
@@ -1353,16 +1354,24 @@ def list_attachments(request):
 def account_usage(request):
     files = Attachment.objects.filter(user=request.user).aggregate(bytes=Sum('size'), count=Count('id'))
     conversation_count = Conversation.objects.filter(user=request.user).count()
-    message_count = Message.objects.filter(conversation__user=request.user).count()
+    message_usage = Message.objects.filter(conversation__user=request.user).aggregate(
+        count=Count('id'),
+        bytes=Sum('content_bytes'),
+    )
     return Response({
         'storage_bytes': files['bytes'] or 0,
         'storage_limit_bytes': settings.MAX_USER_STORAGE,
         'attachments': files['count'],
         'conversations': conversation_count,
         'conversation_limit': settings.CHAT_MAX_CONVERSATIONS_PER_USER,
-        'messages': message_count,
+        'messages': message_usage['count'],
         'message_limit': settings.CHAT_MAX_MESSAGES_PER_USER,
         'message_limit_per_conversation': settings.CHAT_MAX_MESSAGES_PER_CONVERSATION,
+        'message_bytes': message_usage['bytes'] or 0,
+        'message_bytes_limit': settings.CHAT_MAX_MESSAGE_BYTES_PER_USER,
+        'message_bytes_limit_per_conversation': (
+            settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION
+        ),
         'ai_today': user_usage_snapshot(request.user),
     })
 
@@ -2041,6 +2050,69 @@ def _chat_object_quota_response(resource, used, limit):
     }, status=status.HTTP_409_CONFLICT)
 
 
+def _utf8_size(value):
+    return len((value or '').encode('utf-8'))
+
+
+def _chat_byte_quota_response(scope, used, limit):
+    code = f'{scope}_message_bytes_limit'
+    if scope == 'global':
+        return Response({
+            'error': 'The service-wide saved-chat capacity has been reached.',
+            'code': code,
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    label = 'conversation' if scope == 'conversation' else 'account'
+    return Response({
+        'error': f'This {label} has reached its saved-message size limit. Delete older chat data and retry.',
+        'code': code,
+        'used': used,
+        'limit': limit,
+    }, status=status.HTTP_409_CONFLICT)
+
+
+def _chat_message_byte_quota_conflict(user_id, conversation_id, additional_bytes, now):
+    """Check actual plus live-reserved UTF-8 bytes while the gate row is locked."""
+    if additional_bytes <= 0:
+        return None
+    message_totals = Message.objects.aggregate(
+        global_bytes=Sum('content_bytes'),
+        user_bytes=Sum(
+            'content_bytes',
+            filter=Q(conversation__user_id=user_id),
+        ),
+        conversation_bytes=Sum(
+            'content_bytes',
+            filter=Q(conversation_id=conversation_id),
+        ),
+    )
+    live_leases = ConversationGenerationLease.objects.filter(expires_at__gt=now)
+    reservation_totals = live_leases.aggregate(
+        global_bytes=Sum('reserved_bytes'),
+        user_bytes=Sum(
+            'reserved_bytes',
+            filter=Q(conversation__user_id=user_id),
+        ),
+        conversation_bytes=Sum(
+            'reserved_bytes',
+            filter=Q(conversation_id=conversation_id),
+        ),
+    )
+    totals = {
+        scope: int(message_totals[f'{scope}_bytes'] or 0)
+        + int(reservation_totals[f'{scope}_bytes'] or 0)
+        for scope in ('global', 'user', 'conversation')
+    }
+    limits = {
+        'conversation': settings.CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION,
+        'user': settings.CHAT_MAX_MESSAGE_BYTES_PER_USER,
+        'global': settings.CHAT_MAX_MESSAGE_BYTES_GLOBAL,
+    }
+    for scope in ('conversation', 'user', 'global'):
+        if totals[scope] + additional_bytes > limits[scope]:
+            return _chat_byte_quota_response(scope, totals[scope], limits[scope])
+    return None
+
+
 def _interrupt_generation_request_locked(generation_request, outcome_code, now):
     """Close a stale fenced request and reconcile an uncommitted send."""
     if (
@@ -2078,11 +2150,18 @@ def _acquire_generation_lease(
     request_fingerprints,
     target_message_id=None,
     message_reservation=0,
+    requested_message_bytes=0,
     existing_request_expected=False,
 ):
     """Claim one conversation and create or resolve its durable request."""
     if message_reservation not in {0, 1, 2}:
         raise ValueError('message_reservation must be between 0 and 2')
+    if (
+        not isinstance(requested_message_bytes, int)
+        or isinstance(requested_message_bytes, bool)
+        or requested_message_bytes < 0
+    ):
+        raise ValueError('requested_message_bytes must be a non-negative integer')
     now = timezone.now()
     expires_at = now + timedelta(seconds=settings.CHAT_GENERATION_LEASE_SECONDS)
     token = uuid.uuid4()
@@ -2094,6 +2173,9 @@ def _acquire_generation_lease(
         raise Http404
     User = get_user_model()
     with transaction.atomic():
+        # This singleton is the cross-user serialization boundary for the
+        # service-wide byte cap. Always lock it before owner/conversation rows.
+        ChatStorageGate.objects.select_for_update().get(pk=1)
         # Every user's generation reservation uses the same lock, so sends to
         # different conversations cannot collectively overrun the user quota.
         User.objects.select_for_update().only('pk').get(pk=owner_id)
@@ -2165,6 +2247,24 @@ def _acquire_generation_lease(
             return None, None, _generation_request_closed_response(None)
         if lease is not None and lease.expires_at > now:
             return None, None, _generation_conflict_response(_lease_retry_after(lease, now))
+        byte_reservation = requested_message_bytes
+        if operation == GenerationRequest.OPERATION_REGENERATE:
+            reservation_target = Message.objects.filter(
+                pk=target_message_id,
+                conversation_id=conversation_id,
+            ).only('id', 'role').first()
+            if reservation_target is None:
+                raise Http404
+            cutoff = (
+                {'id__gte': reservation_target.pk}
+                if reservation_target.role == 'assistant'
+                else {'id__gt': reservation_target.pk}
+            )
+            reclaimable_bytes = Message.objects.filter(
+                conversation_id=conversation_id,
+                **cutoff,
+            ).aggregate(total=Sum('content_bytes'))['total'] or 0
+            byte_reservation = max(0, requested_message_bytes - reclaimable_bytes)
         if message_reservation:
             user_messages = Message.objects.filter(
                 conversation__user_id=owner_id,
@@ -2194,6 +2294,14 @@ def _acquire_generation_lease(
                     conversation_messages,
                     settings.CHAT_MAX_MESSAGES_PER_CONVERSATION,
                 )
+        byte_conflict = _chat_message_byte_quota_conflict(
+            owner_id,
+            conversation_id,
+            byte_reservation,
+            now,
+        )
+        if byte_conflict is not None:
+            return None, None, byte_conflict
         if lease is not None and lease.generation_request_id is not None:
             stale_request = GenerationRequest.objects.select_for_update().filter(
                 pk=lease.generation_request_id,
@@ -2224,17 +2332,20 @@ def _acquire_generation_lease(
                 token=token,
                 generation_request=generation_request,
                 reserved_messages=message_reservation,
+                reserved_bytes=byte_reservation,
                 expires_at=expires_at,
             )
         else:
             lease.token = token
             lease.generation_request = generation_request
             lease.reserved_messages = message_reservation
+            lease.reserved_bytes = byte_reservation
             lease.expires_at = expires_at
             lease.save(update_fields=[
                 'token',
                 'generation_request',
                 'reserved_messages',
+                'reserved_bytes',
                 'acquired_at',
                 'expires_at',
             ])
@@ -2267,15 +2378,22 @@ def _renew_generation_lease(conversation_id, token, generation_request_id):
     return renewed
 
 
-def _consume_generation_message_reservation(
+def _consume_generation_reservation(
     conversation_id,
     token,
     generation_request_id,
     *,
-    amount=1,
+    message_amount=1,
+    byte_amount=0,
 ):
-    if amount not in {0, 1}:
+    if message_amount not in {0, 1}:
         raise ValueError('Generation message reservation consumption must be 0 or 1.')
+    if (
+        not isinstance(byte_amount, int)
+        or isinstance(byte_amount, bool)
+        or byte_amount < 0
+    ):
+        raise ValueError('Generation byte reservation consumption must be non-negative.')
     now = timezone.now()
     lease = ConversationGenerationLease.objects.select_for_update().filter(
         conversation_id=conversation_id,
@@ -2285,11 +2403,17 @@ def _consume_generation_message_reservation(
     ).first()
     if lease is None:
         raise RuntimeError('Generation lease expired or was lost before commit.')
-    if lease.reserved_messages < amount:
-        raise RuntimeError('Generation message reservation was lost.')
-    if amount:
-        lease.reserved_messages -= amount
-        lease.save(update_fields=['reserved_messages'])
+    if lease.reserved_messages < message_amount or lease.reserved_bytes < byte_amount:
+        raise RuntimeError('Generation storage reservation was lost.')
+    update_fields = []
+    if message_amount:
+        lease.reserved_messages -= message_amount
+        update_fields.append('reserved_messages')
+    if byte_amount:
+        lease.reserved_bytes -= byte_amount
+        update_fields.append('reserved_bytes')
+    if update_fields:
+        lease.save(update_fields=update_fields)
 
 
 def _active_generation_conflict_locked(conversation_id):
@@ -2502,6 +2626,7 @@ def _save_assistant_reply(
     title from `title_snippet` if it's still the placeholder)."""
     User = get_user_model()
     with transaction.atomic():
+        ChatStorageGate.objects.select_for_update().get(pk=1)
         User.objects.select_for_update().only('pk').get(pk=user_id)
         convo_obj = Conversation.objects.select_for_update().get(
             id=convo_id,
@@ -2512,10 +2637,11 @@ def _save_assistant_reply(
             role='assistant',
             content=reply_text,
         )
-        _consume_generation_message_reservation(
+        _consume_generation_reservation(
             convo_id,
             lease_token,
             generation_request_id,
+            byte_amount=_utf8_size(reply_text),
         )
         now = timezone.now()
         updated = GenerationRequest.objects.filter(
@@ -2554,6 +2680,7 @@ def _replace_regenerated_reply(
 ):
     """Commit a regenerated branch only after replacement text exists."""
     with transaction.atomic():
+        ChatStorageGate.objects.select_for_update().get(pk=1)
         get_user_model().objects.select_for_update().only('pk').get(pk=user_id)
         convo_obj = Conversation.objects.select_for_update().get(
             pk=convo_id,
@@ -2566,7 +2693,9 @@ def _replace_regenerated_reply(
         ).exists():
             raise Message.DoesNotExist('Regeneration anchor disappeared.')
         cutoff = {'id__gte': target_id} if target_role == 'assistant' else {'id__gt': target_id}
-        Message.objects.filter(conversation_id=convo_id, **cutoff).delete()
+        replaced = Message.objects.filter(conversation_id=convo_id, **cutoff)
+        replaced_bytes = replaced.aggregate(total=Sum('content_bytes'))['total'] or 0
+        replaced.delete()
         assistant_msg = Message.objects.create(
             conversation_id=convo_id,
             role='assistant',
@@ -2575,11 +2704,12 @@ def _replace_regenerated_reply(
         # Validate the lease even when this replacement does not consume a new
         # message slot. An expired worker must never be able to resurrect and
         # overwrite a newer branch merely because its reservation was zero.
-        _consume_generation_message_reservation(
+        _consume_generation_reservation(
             convo_id,
             lease_token,
             generation_request_id,
-            amount=int(consumes_reservation),
+            message_amount=int(consumes_reservation),
+            byte_amount=max(0, _utf8_size(reply_text) - replaced_bytes),
         )
         now = timezone.now()
         updated = GenerationRequest.objects.filter(
@@ -2790,6 +2920,9 @@ def send_message(request, pk):
         operation=GenerationRequest.OPERATION_SEND,
         request_fingerprints=request_fingerprints,
         message_reservation=2,
+        requested_message_bytes=(
+            _utf8_size(user_text) + (4 * settings.CHAT_MAX_ASSISTANT_CHARS)
+        ),
     )
     if conflict is not None:
         conflict_code = conflict.data.get('code')
@@ -2909,6 +3042,7 @@ def send_message(request, pk):
         # the security boundary against the same upload being claimed by two
         # requests for different conversations.
         with transaction.atomic():
+            ChatStorageGate.objects.select_for_update().get(pk=1)
             get_user_model().objects.select_for_update().only('pk').get(
                 pk=request.user.pk,
             )
@@ -2941,10 +3075,11 @@ def send_message(request, pk):
                 Attachment.objects.filter(
                     pk__in=[attachment.pk for attachment in attachments],
                 ).update(message=user_msg)
-                _consume_generation_message_reservation(
+                _consume_generation_reservation(
                     convo.pk,
                     lease_token,
                     generation_request.pk,
+                    byte_amount=_utf8_size(user_text),
                 )
         if attachment_conflict:
             lifecycle.close()
@@ -3115,6 +3250,8 @@ def message_detail(request, pk):
             status=400,
         )
     with transaction.atomic():
+        ChatStorageGate.objects.select_for_update().get(pk=1)
+        get_user_model().objects.select_for_update().only('pk').get(pk=request.user.pk)
         Conversation.objects.select_for_update().only('pk').get(
             pk=msg.conversation_id,
             user=request.user,
@@ -3125,6 +3262,20 @@ def message_detail(request, pk):
             pk=msg.pk,
             conversation__user=request.user,
         )
+        additional_bytes = max(0, _utf8_size(new_content) - msg.content_bytes)
+        byte_conflict = _chat_message_byte_quota_conflict(
+            request.user.pk,
+            msg.conversation_id,
+            additional_bytes,
+            timezone.now(),
+        )
+        if byte_conflict is not None:
+            security_log.warning(
+                'event=chat_object_quota_blocked code=%s user_id=%s',
+                byte_conflict.data['code'],
+                request.user.pk,
+            )
+            return byte_conflict
         msg.content = new_content
         msg.save(update_fields=['content'])
     return Response(MessageSerializer(msg).data)
@@ -3196,6 +3347,7 @@ def regenerate_message(request, pk):
         request_fingerprints=request_fingerprints,
         target_message_id=target.pk,
         message_reservation=regeneration_reservation,
+        requested_message_bytes=4 * settings.CHAT_MAX_ASSISTANT_CHARS,
     )
     if conflict is not None:
         conflict_code = conflict.data.get('code')

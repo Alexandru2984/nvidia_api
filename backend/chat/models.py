@@ -150,6 +150,23 @@ class ProviderDisclosureAcceptance(models.Model):
         return f'ProviderDisclosureAcceptance(user={self.user_id}, version={self.version})'
 
 
+class ChatStorageGate(models.Model):
+    """Singleton row serializing service-wide saved-message byte quotas."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(id=1),
+                name='chat_storage_gate_singleton',
+            ),
+        ]
+
+    def __str__(self):
+        return 'ChatStorageGate(singleton)'
+
+
 class Conversation(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -348,6 +365,7 @@ class ConversationGenerationLease(models.Model):
         blank=True,
     )
     reserved_messages = models.PositiveSmallIntegerField(default=0)
+    reserved_bytes = models.PositiveBigIntegerField(default=0)
     acquired_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField(db_index=True)
 
@@ -430,6 +448,18 @@ class Message(models.Model):
     conversation = models.ForeignKey(Conversation, related_name='messages', on_delete=models.CASCADE)
     role = models.CharField(max_length=16, choices=ROLE_CHOICES)
     content = models.TextField()
+    # Database-derived rather than application-maintained, so multi-byte UTF-8
+    # content cannot undercount quota usage and bulk writes cannot drift it.
+    content_bytes = models.GeneratedField(
+        expression=models.Func(
+            models.F('content'),
+            function='OCTET_LENGTH',
+            output_field=models.PositiveBigIntegerField(),
+        ),
+        output_field=models.PositiveBigIntegerField(),
+        db_persist=True,
+        editable=False,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

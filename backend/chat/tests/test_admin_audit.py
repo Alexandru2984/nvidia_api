@@ -14,7 +14,7 @@ from chat.admin_audit import (
     audit_event_is_valid,
     object_reference,
 )
-from chat.models import AdminAuditEvent, Conversation
+from chat.models import AdminAuditEvent, Conversation, Message
 
 pytestmark = pytest.mark.django_db
 
@@ -169,3 +169,16 @@ def test_every_registered_admin_is_privacy_audited():
         isinstance(model_admin, PrivacyAuditAdminMixin)
         for model_admin in admin.site._registry.values()
     )
+
+
+def test_message_admin_cannot_bypass_storage_reservations(user):
+    user.is_staff = True
+    user.is_superuser = True
+    request = RequestFactory().get('/admin/chat/message/')
+    request.user = user
+    model_admin = admin.site._registry[Message]
+
+    assert model_admin.has_view_permission(request)
+    assert not model_admin.has_add_permission(request)
+    assert not model_admin.has_change_permission(request)
+    assert not model_admin.has_delete_permission(request)

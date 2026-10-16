@@ -375,6 +375,15 @@ CHAT_MAX_MESSAGES_PER_CONVERSATION = _nonnegative_int_env(
 CHAT_MAX_ASSISTANT_CHARS = _nonnegative_int_env(
     'CHAT_MAX_ASSISTANT_CHARS', 64_000,
 )
+CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION = _nonnegative_int_env(
+    'CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION', 16 * 1024 * 1024,
+)
+CHAT_MAX_MESSAGE_BYTES_PER_USER = _nonnegative_int_env(
+    'CHAT_MAX_MESSAGE_BYTES_PER_USER', 64 * 1024 * 1024,
+)
+CHAT_MAX_MESSAGE_BYTES_GLOBAL = _nonnegative_int_env(
+    'CHAT_MAX_MESSAGE_BYTES_GLOBAL', 1024 * 1024 * 1024,
+)
 CHAT_MAX_EXPORT_BYTES = _nonnegative_int_env(
     'CHAT_MAX_EXPORT_BYTES', 25 * 1024 * 1024,
 )
@@ -389,6 +398,19 @@ if not 2 <= CHAT_MAX_MESSAGES_PER_CONVERSATION <= CHAT_MAX_MESSAGES_PER_USER:
 if CHAT_MAX_ASSISTANT_CHARS < CHAT_MAX_MESSAGE_CHARS:
     raise ImproperlyConfigured(
         'CHAT_MAX_ASSISTANT_CHARS must be at least CHAT_MAX_MESSAGE_CHARS.',
+    )
+minimum_exchange_bytes = 4 * (CHAT_MAX_MESSAGE_CHARS + CHAT_MAX_ASSISTANT_CHARS)
+if CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION < minimum_exchange_bytes:
+    raise ImproperlyConfigured(
+        'CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION must fit one maximum UTF-8 exchange.',
+    )
+if not (
+    CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION
+    <= CHAT_MAX_MESSAGE_BYTES_PER_USER
+    <= CHAT_MAX_MESSAGE_BYTES_GLOBAL
+):
+    raise ImproperlyConfigured(
+        'Chat message byte limits must be ordered conversation <= user <= global.',
     )
 if CHAT_MAX_EXPORT_BYTES < 1024 * 1024:
     raise ImproperlyConfigured('CHAT_MAX_EXPORT_BYTES must be at least 1 MiB.')

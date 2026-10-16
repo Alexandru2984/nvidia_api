@@ -11,6 +11,14 @@ function normalizeAttachmentPage(page) {
 }
 
 
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0
+  if (value < 1024) return `${value} B`
+  if (value < 1048576) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / 1048576).toFixed(1)} MB`
+}
+
+
 function TwoFactorPanel() {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
@@ -511,6 +519,15 @@ function StoragePanel() {
             Up to {usage.message_limit_per_conversation.toLocaleString()} messages per conversation.
           </small>
         </label>
+        {usage.message_bytes_limit > 0 && <label>
+          <span>Saved message text</span>
+          <strong>{formatBytes(usage.message_bytes)} / {formatBytes(usage.message_bytes_limit)}</strong>
+          <progress aria-label="Saved message text used" value={usage.message_bytes}
+            max={Math.max(1, usage.message_bytes_limit)} />
+          <small className="muted">
+            Up to {formatBytes(usage.message_bytes_limit_per_conversation)} per conversation.
+          </small>
+        </label>}
       </div>}
       {usage.ai_today && <div className="ai-usage-card">
         <h3>Today's AI usage</h3>

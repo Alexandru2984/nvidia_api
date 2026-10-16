@@ -89,6 +89,9 @@ CHAT_MAX_CONVERSATIONS_PER_USER=500
 CHAT_MAX_MESSAGES_PER_USER=10000
 CHAT_MAX_MESSAGES_PER_CONVERSATION=2000
 CHAT_MAX_ASSISTANT_CHARS=64000
+CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION=16777216
+CHAT_MAX_MESSAGE_BYTES_PER_USER=67108864
+CHAT_MAX_MESSAGE_BYTES_GLOBAL=1073741824
 CHAT_MAX_EXPORT_BYTES=26214400
 SESSION_ABSOLUTE_MAX_AGE_SECONDS=2592000
 SESSION_MAX_ACTIVE_PER_USER=20
@@ -223,11 +226,16 @@ Saved chat growth is also bounded across workers. Conversation creation locks th
 owner row before enforcing `CHAT_MAX_CONVERSATIONS_PER_USER`; send and trailing-
 user regeneration reserve their projected message rows under the same lock before
 provider work. Defaults are 500 conversations/user, 10,000 messages/user and
-2,000 messages/conversation. Assistant output is capped at 64,000 characters,
-Markdown exports are streamed under a conservative 25 MiB ceiling, and quota
-blocks are security-monitored. The responsive Storage panel exposes current
-counts and limits. Daily maintenance deletes expired database sessions; session
-inventory/revocation and attachment/export egress have explicit rate limits.
+2,000 messages/conversation. Database-generated UTF-8 byte counts and a singleton
+transaction gate additionally enforce 16 MiB/conversation, 64 MiB/user and 1
+GiB/service message-text ceilings. Sends reserve the exact prompt plus the
+worst-case assistant size before provider work; regeneration reserves only its
+maximum net growth. Assistant output is capped at 64,000 characters, Markdown
+exports are streamed under a conservative 25 MiB ceiling, and quota blocks are
+security-monitored. The responsive Storage panel exposes current counts, text
+bytes and owner-visible limits without disclosing global tenant usage. Daily
+maintenance deletes expired database sessions; session inventory/revocation and
+attachment/export egress have explicit rate limits.
 
 Authenticated sessions keep Django's 14-day sliding cookie but are also bounded
 by a fixed 30-day lifetime from login. Rotations preserve that original deadline,
