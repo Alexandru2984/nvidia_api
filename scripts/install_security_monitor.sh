@@ -195,8 +195,19 @@ fi
 latest_dump="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'nvidia_db_*.sql.gz' \
   -printf '%T@ %p\n' | sort -n | tail -n 1 | cut -d' ' -f2-)"
 [[ -n "$latest_dump" ]]
-runuser --user "$MONITOR_USER" -- test ! -r "$latest_dump"
-runuser --user "$MONITOR_USER" -- test -r "$RESTORE_LOG"
+if runuser --user "$MONITOR_USER" -- python3 -c '
+from pathlib import Path
+import sys
+Path(sys.argv[1]).open("rb").read(1)
+' "$latest_dump" >/dev/null 2>&1; then
+  echo 'ERROR: dedicated monitor can read a private database dump' >&2
+  false
+fi
+runuser --user "$MONITOR_USER" -- python3 -c '
+from pathlib import Path
+import sys
+Path(sys.argv[1]).open("rb").read(1)
+' "$RESTORE_LOG" >/dev/null
 
 completed=1
 trap - ERR INT TERM
