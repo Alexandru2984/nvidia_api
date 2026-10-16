@@ -369,6 +369,28 @@ if not 1 <= CHAT_RETENTION_DELETE_BATCH_SIZE <= 1000:
     raise ImproperlyConfigured(
         'CHAT_RETENTION_DELETE_BATCH_SIZE must be between 1 and 1000.',
     )
+AI_USER_USAGE_RETENTION_DAYS = _nonnegative_int_env(
+    'AI_USER_USAGE_RETENTION_DAYS', 90,
+)
+AI_GLOBAL_USAGE_RETENTION_DAYS = _nonnegative_int_env(
+    'AI_GLOBAL_USAGE_RETENTION_DAYS', 400,
+)
+AI_USAGE_RETENTION_DELETE_BATCH_SIZE = _nonnegative_int_env(
+    'AI_USAGE_RETENTION_DELETE_BATCH_SIZE', 1000,
+)
+if not 30 <= AI_USER_USAGE_RETENTION_DAYS <= 3650:
+    raise ImproperlyConfigured(
+        'AI_USER_USAGE_RETENTION_DAYS must be between 30 and 3650.',
+    )
+if not AI_USER_USAGE_RETENTION_DAYS <= AI_GLOBAL_USAGE_RETENTION_DAYS <= 3650:
+    raise ImproperlyConfigured(
+        'AI_GLOBAL_USAGE_RETENTION_DAYS must be between the user retention '
+        'period and 3650.',
+    )
+if not 1 <= AI_USAGE_RETENTION_DELETE_BATCH_SIZE <= 10_000:
+    raise ImproperlyConfigured(
+        'AI_USAGE_RETENTION_DELETE_BATCH_SIZE must be between 1 and 10000.',
+    )
 
 CHAT_MAX_CONVERSATIONS_PER_USER = _nonnegative_int_env(
     'CHAT_MAX_CONVERSATIONS_PER_USER', 500,

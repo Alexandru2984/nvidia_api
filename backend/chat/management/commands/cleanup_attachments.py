@@ -21,8 +21,10 @@ from chat.models import (
     ChatStorageGate,
     Conversation,
     ConversationGenerationLease,
+    DailyAIUsage,
     EmailVerification,
     GenerationRequest,
+    GlobalAIUsage,
     Message,
     PasswordReset,
     RegistrationInvite,
@@ -82,6 +84,30 @@ class Command(BaseCommand):
             models.Q(expire_date__lte=now)
             | models.Q(chat_authentication__absolute_expires_at__lte=now)
         ).distinct()
+        today = timezone.localdate()
+        user_usage_cutoff = today - timedelta(
+            days=settings.AI_USER_USAGE_RETENTION_DAYS,
+        )
+        global_usage_cutoff = today - timedelta(
+            days=settings.AI_GLOBAL_USAGE_RETENTION_DAYS,
+        )
+        expired_user_usage_qs = DailyAIUsage.objects.filter(
+            day__lt=user_usage_cutoff,
+        )
+        expired_global_usage_qs = GlobalAIUsage.objects.filter(
+            day__lt=global_usage_cutoff,
+        )
+        expired_user_usage_count = expired_user_usage_qs.count()
+        expired_global_usage_count = expired_global_usage_qs.count()
+        usage_delete_batch_size = settings.AI_USAGE_RETENTION_DELETE_BATCH_SIZE
+        expired_user_usage_ids = list(
+            expired_user_usage_qs.order_by('day', 'id').values_list('pk', flat=True)
+            [:usage_delete_batch_size]
+        )
+        expired_global_usage_ids = list(
+            expired_global_usage_qs.order_by('day', 'id').values_list('pk', flat=True)
+            [:usage_delete_batch_size]
+        )
         retention_filter = models.Q(pk__isnull=True)
         for retention_days in ChatHistoryRetention.DELETE_DAYS:
             retention_cutoff = now - timedelta(days=retention_days)
@@ -150,6 +176,16 @@ class Command(BaseCommand):
             )
             self.stdout.write(f'  - {session_count} expired sessions')
             self.stdout.write(
+                f'  - {expired_user_usage_count} expired per-user AI usage rows '
+                f'(older than {settings.AI_USER_USAGE_RETENTION_DAYS} days; '
+                f'batch limit {usage_delete_batch_size})'
+            )
+            self.stdout.write(
+                f'  - {expired_global_usage_count} expired aggregate AI usage rows '
+                f'(older than {settings.AI_GLOBAL_USAGE_RETENTION_DAYS} days; '
+                f'batch limit {usage_delete_batch_size})'
+            )
+            self.stdout.write(
                 f'  - {retention_count} retention-eligible archived conversations '
                 f'({retention_message_usage["count"] or 0} messages, '
                 f'{(retention_message_usage["bytes"] or 0) / 1024 / 1024:.1f} MiB; '
@@ -203,6 +239,18 @@ class Command(BaseCommand):
         generation_lease_qs.delete()
         expired_generation_request_qs.delete()
         session_qs.delete()
+        deleted_user_usage_rows, _ = DailyAIUsage.objects.filter(
+            pk__in=expired_user_usage_ids,
+        ).delete()
+        deleted_global_usage_rows, _ = GlobalAIUsage.objects.filter(
+            pk__in=expired_global_usage_ids,
+        ).delete()
+        if deleted_user_usage_rows or deleted_global_usage_rows:
+            security_log.info(
+                'event=ai_usage_retention_deleted user_rows=%s global_rows=%s',
+                deleted_user_usage_rows,
+                deleted_global_usage_rows,
+            )
 
         retained_conversations_deleted = 0
         retained_messages_deleted = 0
@@ -272,6 +320,8 @@ class Command(BaseCommand):
             f'{stale_generation_request_count} interrupted generation requests, '
             f'{expired_generation_request_count} expired generation request records, '
             f'{session_count} expired sessions, '
+            f'{deleted_user_usage_rows} expired per-user AI usage rows, '
+            f'{deleted_global_usage_rows} expired aggregate AI usage rows, '
             f'{retained_conversations_deleted} retained archived conversations '
             f'({retained_messages_deleted} messages, {retained_bytes_deleted} bytes).'
         ))

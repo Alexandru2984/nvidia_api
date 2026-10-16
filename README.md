@@ -199,7 +199,10 @@ reserve a conservative token allowance atomically; the terminal NVIDIA `usage`
 chunk replaces that reservation with actual prompt/completion tokens. Missing or
 malformed usage fails closed until the UTC reset and is security-monitored. Tune
 `AI_USER_DAILY_TOKEN_LIMIT`, `AI_GLOBAL_DAILY_TOKEN_LIMIT`, and
-`AI_CHAT_TOKEN_RESERVATION` for the deployment's capacity.
+`AI_CHAT_TOKEN_RESERVATION` for the deployment's capacity. Daily maintenance
+removes owner-linked usage rows older than `AI_USER_USAGE_RETENTION_DAYS`
+(default 90) and aggregate-only rows older than
+`AI_GLOBAL_USAGE_RETENTION_DAYS` (default 400), in independently bounded batches.
 
 Only one send or regeneration may run per conversation across all workers.
 PostgreSQL-backed leases return `409 generation_in_progress` with `Retry-After`,

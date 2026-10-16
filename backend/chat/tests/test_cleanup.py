@@ -16,8 +16,10 @@ from chat.models import (
     AuthenticatedSession,
     Conversation,
     ConversationGenerationLease,
+    DailyAIUsage,
     EmailVerification,
     GenerationRequest,
+    GlobalAIUsage,
     Message,
     PasswordReset,
     RegistrationInvite,
@@ -269,6 +271,69 @@ class TestCleanupAttachments:
         call_command('cleanup_attachments', stdout=StringIO())
 
         assert list(RegistrationInvite.objects.values_list('pk', flat=True)) == [keep.pk]
+
+    def test_removes_only_usage_rows_older_than_each_retention(self, user, settings):
+        settings.AI_USER_USAGE_RETENTION_DAYS = 90
+        settings.AI_GLOBAL_USAGE_RETENTION_DAYS = 400
+        settings.AI_USAGE_RETENTION_DELETE_BATCH_SIZE = 1000
+        today = timezone.localdate()
+        old_user = DailyAIUsage.objects.create(
+            user=user,
+            day=today - timedelta(days=91),
+            chat_requests=3,
+        )
+        retained_user = DailyAIUsage.objects.create(
+            user=user,
+            day=today - timedelta(days=90),
+            chat_requests=2,
+        )
+        old_global = GlobalAIUsage.objects.create(
+            day=today - timedelta(days=401),
+            chat_requests=3,
+        )
+        retained_global = GlobalAIUsage.objects.create(
+            day=today - timedelta(days=400),
+            chat_requests=2,
+        )
+
+        output = StringIO()
+        call_command('cleanup_attachments', stdout=output)
+
+        assert not DailyAIUsage.objects.filter(pk=old_user.pk).exists()
+        assert DailyAIUsage.objects.filter(pk=retained_user.pk).exists()
+        assert not GlobalAIUsage.objects.filter(pk=old_global.pk).exists()
+        assert GlobalAIUsage.objects.filter(pk=retained_global.pk).exists()
+        assert '1 expired per-user AI usage rows' in output.getvalue()
+        assert '1 expired aggregate AI usage rows' in output.getvalue()
+
+    def test_usage_retention_is_batched_and_dry_run_is_non_destructive(
+        self,
+        user,
+        other_user,
+        settings,
+    ):
+        settings.AI_USER_USAGE_RETENTION_DAYS = 30
+        settings.AI_GLOBAL_USAGE_RETENTION_DAYS = 30
+        settings.AI_USAGE_RETENTION_DELETE_BATCH_SIZE = 1
+        old_day = timezone.localdate() - timedelta(days=31)
+        for owner in (user, other_user):
+            DailyAIUsage.objects.create(user=owner, day=old_day)
+        GlobalAIUsage.objects.create(day=old_day)
+        GlobalAIUsage.objects.create(day=old_day - timedelta(days=1))
+        output = StringIO()
+
+        call_command('cleanup_attachments', '--dry-run', stdout=output)
+
+        assert DailyAIUsage.objects.count() == 2
+        assert GlobalAIUsage.objects.count() == 2
+        assert '2 expired per-user AI usage rows' in output.getvalue()
+        assert '2 expired aggregate AI usage rows' in output.getvalue()
+        assert 'batch limit 1' in output.getvalue()
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        assert DailyAIUsage.objects.count() == 1
+        assert GlobalAIUsage.objects.count() == 1
 
     def test_dry_run_reports_clean_admin_audit_integrity(self, user, convo):
         from django.contrib.admin.models import CHANGE, LogEntry
