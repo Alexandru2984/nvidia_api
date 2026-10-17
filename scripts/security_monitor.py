@@ -725,6 +725,8 @@ def evaluate(
         'event=generation_idempotency_conflict'
     )
     generation_interruptions = journal.count('event=generation_request_interrupted')
+    account_exports = journal.count('event=account_export_completed')
+    account_export_bound_failures = journal.count('event=account_export_bound_exceeded')
     maintenance_failures = journal.count(
         'aichat-maintenance.service: Failed with result'
     )
@@ -825,6 +827,15 @@ def evaluate(
         issues['generation_interrupted'] = (
             f'{generation_interruptions} generation requests lost their durable lease '
             'in six minutes.'
+        )
+    if account_exports:
+        issues['account_export_completed'] = (
+            f'{account_exports} account data exports completed in six minutes.'
+        )
+    if account_export_bound_failures:
+        issues['account_export_bound_exceeded'] = (
+            f'{account_export_bound_failures} account data exports exceeded their validated '
+            'streaming bound in six minutes.'
         )
     if maintenance_failures:
         issues['maintenance_failed'] = (

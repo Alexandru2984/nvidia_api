@@ -66,6 +66,8 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=protected_config_changed']
             + ['event=generation_idempotency_conflict'] * 3
             + ['event=generation_request_interrupted']
+            + ['event=account_export_completed user_id=4 records=6 bytes=2048']
+            + ['event=account_export_bound_exceeded user_id=4']
             + ["aichat-maintenance.service: Failed with result 'exit-code'."]
             + ['Internal Server Error:'] * 3
         )
@@ -86,9 +88,12 @@ class SecurityMonitorTests(unittest.TestCase):
              'model_probe_authorization',
              'protected_config_changed',
              'generation_idempotency_conflict', 'generation_interrupted',
+             'account_export_completed', 'account_export_bound_exceeded',
              'maintenance_failed',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
+        self.assertNotIn('user_id', issues['account_export_completed'])
+        self.assertNotIn('user_id', issues['account_export_bound_exceeded'])
 
     def test_clamav_database_requires_recent_protected_daily_signatures(self):
         database_dir = self.root / 'clamav'
