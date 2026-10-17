@@ -142,8 +142,14 @@ timed evidence.
   90, 180, or 365 days by bounded daily maintenance, while active generations
   and active chats remain excluded. Owner-linked AI usage metadata now expires
   after 90 days and anonymous service aggregates after 400 days, both in bounded
-  batches. Define and publish the operator-wide legal/default schedule before
-  materially raising account volume.
+  batches. Full owner-scoped account export is also shipped: recent password and
+  2FA proof unlock a rate-limited streaming JSON export of profile, preferences,
+  chats, usage, safe session metadata and an attachment manifest. File bodies,
+  extracted text, authentication material, raw session identifiers and internal
+  fingerprints stay excluded; record/byte preflight plus a hard stream bound
+  protect the service. Every completed or bound-breaking export enters the
+  six-minute privacy-minimized alert path. Define and publish the operator-wide
+  legal/default schedule before materially raising account volume.
 - **Immutable backend application delivery is shipped:** production imports only
   a committed, root-owned, manifest-verified release selected through one atomic
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs
@@ -179,8 +185,7 @@ timed evidence.
   compact mode, and reduced-motion mode.
 - Token/request/storage dashboard with daily/monthly budgets and downloadable
   personal usage history.
-- Full account export (JSON plus attachment manifest), scheduled account
-  deletion, and visible deletion status.
+- Scheduled account deletion and visible deletion status.
 - Image job history/gallery with cancel/retry/delete and preserved generation
   parameters.
 - **Versioned provider disclosure is shipped:** before the first chat,

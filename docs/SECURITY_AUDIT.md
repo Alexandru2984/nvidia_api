@@ -55,8 +55,10 @@ limits.
 
 STRIDE coverage also identified spoofing risk at the reverse-proxy boundary,
 repudiation from limited security audit events, and disclosure through raw
-upstream errors. `X-Real-IP` is accepted only from the local tunnel/nginx path and
-upstream responses are now logged server-side while clients receive generic text.
+upstream errors. `X-Real-IP` is accepted only from loopback or the permissioned
+nginx-to-Gunicorn Unix socket; a missing/malformed address on that socket fails
+closed and alerts, while untrusted TCP peers cannot override their source.
+Upstream responses are logged server-side while clients receive generic text.
 
 ## Findings register
 
@@ -73,7 +75,7 @@ upstream responses are now logged server-side while clients receive generic text
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
@@ -1653,11 +1655,92 @@ is required before describing those controls as complete.
   processor or egress path is introduced, NVIDIA processing is unchanged, and a
   qualifying breach remains subject to the GDPR 72-hour assessment.
 
+### Full account export and Unix-socket client-IP repair — 2026-10-18
+
+- Commit `cbfc6a1ba99b70ae430b96821716730c77845367` adds a responsive full-
+  account JSON export in Settings. `GET /api/account/export/` is owner-scoped,
+  requires the five-minute password-bound recent-auth marker (and 2FA when
+  enabled), and is limited to two attempts per owner/day. It streams profile,
+  preferences/security status, conversations/messages, an attachment manifest,
+  durable generation outcomes, retained personal usage and safe session metadata.
+  It never emits password hashes/plaintext, OTP/reset state, TOTP secrets,
+  recovery hashes, raw session keys/handles, attachment paths/bodies, extracted
+  text, content HMACs or request fingerprints. Abnormal cross-owner attachment
+  links expose no foreign relationship IDs, and generation metadata requires
+  both request and conversation ownership.
+- A preflight rejects more than 25,000 records or a conservative estimate above
+  128 MiB before response streaming; an independent hard byte counter aborts and
+  emits an error event if stored data violates the estimate. Responses are
+  `private, no-store, no-transform`, `nosniff`, unbuffered and attachment-only.
+  Commit `615781ee33b7ab08660037de4e2ce2d704026c88` adds a privacy-minimized
+  alert for every completed export and any hard-bound breach. The monitor relays
+  only fixed issue names/counts, never owner/IP/filename/content values.
+- The main new STRIDE risk is information disclosure after account takeover.
+  Requiring current credentials and the configured second factor stops a stolen
+  session cookie alone; owner filtering prevents horizontal disclosure; omitted
+  file bodies/authentication material reduce impact. Worst-case application
+  egress is one owner's retained JSON, at most 128 MiB twice/day. Spoofing,
+  repudiation and denial-of-service are covered respectively by strong step-up,
+  aggregate completion evidence and record/byte/rate bounds. There is no new
+  NVIDIA/vendor egress. The feature supports access/portability operations but
+  does not by itself establish GDPR identity-verification procedure, legal basis,
+  response deadline, or the still-missing complete operator privacy notice.
+- The first public alert-path smoke exposed a pre-existing production availability
+  defect: Gunicorn's Unix socket leaves `REMOTE_ADDR` empty, while the real-IP
+  middleware trusted `X-Real-IP` only for loopback TCP. `django-ratelimit` then
+  raised `ImproperlyConfigured` on public login and returned `500`. The temporary
+  account was removed with zero session residue. Commit
+  `1d566b365fd35d81982c28afc61b35b34a408f0d` accepts nginx's overwritten
+  `X-Real-IP` only when the peer is loopback or the protected Unix socket, keeps
+  `X-Forwarded-For` ignored, ignores spoofed headers from nonlocal TCP peers, and
+  fails a socket request with missing/malformed client IP as monitored `400`.
+  A repeated public TLS login, recent-auth and export then passed with a 1,023-
+  byte response and zero user/session residue; the monitor entered
+  `account_export_completed` from the real Gunicorn journal, delivered the
+  controlled alert, and returned to `active=[]` with a successful resolution run
+  after the six-minute window expired. The installed monitor is byte-identical
+  to the repository and its timer/config watcher are active.
+- The full suites pass: 571 backend tests, 38 Playwright tests at widths down to
+  320 px, and 36 monitor tests. Django checks, migration drift, compilation,
+  frontend lint/build, diff validation and production dependency audit also pass;
+  `npm audit --omit=dev` reports zero advisories. Coverage includes owner
+  isolation, explicit secret/file exclusions, conservative/hard bounds, 2/day
+  enforcement, safe browser initiation, mobile overflow, Unix/loopback/untrusted
+  IP resolution, malformed socket identity, and privacy-minimized detection.
+- The gzip-valid pre-deploy backup
+  `/home/micu/backups/nvidia_db/nvidia_db_20261018_023746_120917256.sql.gz` is
+  14,633 bytes, mode `0600 micu:micu`, SHA-256
+  `bb8f86aabcdd088b222e5181f3a1215ef73409057f74b7268299ca00fa74db6c`.
+  Neither `aichat` nor `aichat-monitor` can read it; the protected dotenv ACL
+  hash remained `e957040aa926e7592861c49de6d536cb72c7c2c12ac78679d945d6e2abd39653`.
+  No migration was required. A rollback-only production transaction exported
+  six owner records in 2,213 bytes, excluded a second owner's data and all marked
+  secrets, and left zero rows/files. The public TLS smoke also left zero residue.
+- Final backend release
+  `/opt/aichat-backend-releases/release-20261017T234407_285204479` and its newest
+  rollback `/opt/aichat-backend-releases/release-20261017T234324_157417673` both
+  derive from the repaired commit `1d566b3`; their controlled rollback/restore
+  took two seconds each way. Frontend release
+  `/var/www/aichat-releases/release-20261017T233805_774231936` rolled back to
+  `/var/www/aichat-releases/release-20261016T114534_350011778` in one second and
+  restored in under one second. All manifests validate. Public and origin root/
+  health return `200`, anonymous export/models and `/.env` return `403`, arbitrary
+  media returns `404`, TCP 8501 is closed, the origin socket remains
+  `0660 aichat:aichat-origin`, and backend/parser/scanner have `NRestarts=0`.
+- CISO response priority for an unexpected export is immediate session revocation,
+  password/2FA recovery, authentication-window preservation and determination of
+  whether the stream completed. Because chat/email/IP metadata are personal data,
+  a plausible unauthorized export starts legal/privacy assessment from the
+  recorded awareness time and may invoke the GDPR 72-hour notification duty.
+  The runbook now includes containment and a quarterly export-alert exercise.
+  External immutable log retention remains required so a host compromise cannot
+  erase this evidence.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,
-bounded usage-metadata retention, privacy-minimized alerting, and verified-staff-
-2FA admin gate were completed
+bounded usage-metadata retention, strongly authenticated full-account export,
+privacy-minimized alerting, and verified-staff-2FA admin gate were completed
 immediately afterward; actual-token budgets and invite-only registration are now
 implemented, and privileged changes are now privacy-minimized and integrity
 checked. Contract/GPU monetary enforcement and entitlement evidence, external

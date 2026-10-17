@@ -36,6 +36,12 @@ provider authorization/entitlement probe failure, a database backup older than
 environment release manifest, ownership or permission failure. Any lost
 generation lease raises `generation_interrupted`; three mismatched reuses of an
 `Idempotency-Key` within six minutes raise `generation_idempotency_conflict`.
+Every completed full-account export raises `account_export_completed`; any
+unexpected hard streaming-bound breach raises `account_export_bound_exceeded`.
+Neither alert includes the owner, IP, exported fields, filenames, or content.
+Any Unix-socket request missing a valid nginx-provided client address raises
+`proxy_client_ip_invalid`; investigate the proxy/socket trust boundary before
+restoring affected authentication paths.
 Any saved-chat object or byte quota block raises `chat_object_quota`. A failed
 `aichat-maintenance.service` run raises `maintenance_failed`; this includes a
 failed archived-history cleanup and must not be dismissed as routine expiry.
@@ -68,6 +74,16 @@ acknowledging the alert.
   scanner to restore availability.
 - For NVIDIA cost abuse, disable generation or revoke the API key before tuning
   throttles. A spending incident can continue while the UI appears healthy.
+- For an unexpected `account_export_completed`, treat the account as potentially
+  compromised: preserve the event and nginx/authentication window, revoke all
+  sessions, require a password reset and verify or re-enroll 2FA from a known-
+  clean device. Determine whether the export response completed and which owner
+  records existed at that time without copying message/file contents into the
+  incident channel. The export never contains attachment bodies, authentication
+  secrets or raw session credentials, but it can contain the owner's complete
+  saved chat text, email, usage and session IP metadata; start legal/privacy
+  assessment and the GDPR 72-hour awareness clock when unauthorized disclosure
+  is plausible.
 - For repeated saved-chat quota blocks, identify only the privacy-minimized owner
   and scope (`conversation`, `user` or `global`), preserve the event count and
   check database/disk growth. Do not export message content for triage. Keep the
@@ -193,6 +209,8 @@ inventory.
 - Quarterly: tabletop for credential theft plus private-attachment disclosure.
 - Quarterly: alert-path test for availability, authentication abuse, and NVIDIA
   spend.
+- Quarterly: controlled account-export alert followed by session containment,
+  privacy scoping, and confirmation that the temporary account leaves no residue.
 - Quarterly: exercise a failed-maintenance/retention scenario, including dry-run
   scope validation and recovery decision authority.
 - At least twice yearly: restore a selected encrypted backup into an isolated
