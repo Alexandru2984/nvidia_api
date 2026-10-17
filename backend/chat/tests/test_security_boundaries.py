@@ -4,6 +4,7 @@ from datetime import timedelta
 from io import BytesIO
 
 import pytest
+from django.core.cache import cache
 from django.utils import timezone
 from django.test import RequestFactory
 from rest_framework.test import APIClient
@@ -147,6 +148,7 @@ def test_session_handles_cannot_authenticate(auth_client):
 
 @pytest.mark.parametrize('remote,real,forwarded,expected', [
     ('127.0.0.1', '198.51.100.3', '', '198.51.100.3'),
+    ('', '2001:db8::3', '', '2001:db8::3'),
     ('127.0.0.1', 'garbage', '', '127.0.0.1'),
     ('127.0.0.1', '', '198.51.100.3', '127.0.0.1'),
     ('203.0.113.1', '198.51.100.3', '', '203.0.113.1'),
@@ -155,3 +157,33 @@ def test_ip_resolution_trusts_only_nginx_header(remote, real, forwarded, expecte
     request = RequestFactory().get('/', REMOTE_ADDR=remote, HTTP_X_REAL_IP=real,
         HTTP_X_FORWARDED_FOR=forwarded)
     assert RealClientIPMiddleware(lambda r: r.META['REMOTE_ADDR'])(request) == expected
+
+
+@pytest.mark.parametrize('real', ['', 'garbage'])
+def test_unix_socket_request_requires_valid_nginx_client_ip(real, caplog):
+    request = RequestFactory().get(
+        '/api/auth/login/',
+        REMOTE_ADDR='',
+        HTTP_X_REAL_IP=real,
+        HTTP_X_FORWARDED_FOR='198.51.100.9',
+    )
+
+    response = RealClientIPMiddleware(lambda _: None)(request)
+
+    assert response.status_code == 400
+    assert 'event=proxy_client_ip_invalid' in caplog.text
+
+
+def test_login_rate_limit_accepts_unix_socket_nginx_ip(client, user, settings):
+    settings.RATELIMIT_ENABLE = True
+    cache.clear()
+
+    response = client.post(
+        '/api/auth/login/',
+        {'username': user.username, 'password': 'Hunter2pass'},
+        format='json',
+        REMOTE_ADDR='',
+        HTTP_X_REAL_IP='198.51.100.10',
+    )
+
+    assert response.status_code == 200

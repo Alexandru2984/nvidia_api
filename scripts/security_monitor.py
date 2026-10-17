@@ -727,6 +727,7 @@ def evaluate(
     generation_interruptions = journal.count('event=generation_request_interrupted')
     account_exports = journal.count('event=account_export_completed')
     account_export_bound_failures = journal.count('event=account_export_bound_exceeded')
+    invalid_proxy_client_ips = journal.count('event=proxy_client_ip_invalid')
     maintenance_failures = journal.count(
         'aichat-maintenance.service: Failed with result'
     )
@@ -836,6 +837,11 @@ def evaluate(
         issues['account_export_bound_exceeded'] = (
             f'{account_export_bound_failures} account data exports exceeded their validated '
             'streaming bound in six minutes.'
+        )
+    if invalid_proxy_client_ips:
+        issues['proxy_client_ip_invalid'] = (
+            f'{invalid_proxy_client_ips} requests arrived without a valid trusted proxy '
+            'client address in six minutes.'
         )
     if maintenance_failures:
         issues['maintenance_failed'] = (

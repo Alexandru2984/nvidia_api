@@ -68,6 +68,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=generation_request_interrupted']
             + ['event=account_export_completed user_id=4 records=6 bytes=2048']
             + ['event=account_export_bound_exceeded user_id=4']
+            + ['event=proxy_client_ip_invalid']
             + ["aichat-maintenance.service: Failed with result 'exit-code'."]
             + ['Internal Server Error:'] * 3
         )
@@ -89,6 +90,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'protected_config_changed',
              'generation_idempotency_conflict', 'generation_interrupted',
              'account_export_completed', 'account_export_bound_exceeded',
+             'proxy_client_ip_invalid',
              'maintenance_failed',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )

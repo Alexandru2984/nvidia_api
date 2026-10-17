@@ -1,9 +1,10 @@
-"""Resolve real client IP from nginx-injected X-Real-IP / X-Forwarded-For.
+"""Resolve the real client IP from nginx-injected X-Real-IP.
 
-Gunicorn binds to 127.0.0.1, so REMOTE_ADDR is always the loopback. We trust
-X-Real-IP only when REMOTE_ADDR is loopback (i.e. the request really came
-through nginx). For external requests this header would be attacker-controlled
-and we ignore it.
+Gunicorn uses a permissioned Unix socket in production, where REMOTE_ADDR is
+empty. Local development may still use loopback TCP. We trust X-Real-IP only
+for those two origin shapes; for external TCP requests the header would be
+attacker-controlled and is ignored. A Unix-socket request without a valid
+nginx-set address fails closed before IP-keyed rate limiting.
 """
 
 import logging
@@ -21,14 +22,27 @@ class RealClientIPMiddleware:
 
     def __call__(self, request):
         remote = request.META.get('REMOTE_ADDR', '')
-        if remote in _LOOPBACK:
+        if not remote or remote in _LOOPBACK:
             # nginx overwrites X-Real-IP. Never fall back to client-supplied XFF.
             real = request.META.get('HTTP_X_REAL_IP', '').strip()
             if real:
                 try:
                     request.META['REMOTE_ADDR'] = str(ip_address(real))
                 except ValueError:
-                    pass
+                    if not remote:
+                        security_log.error('event=proxy_client_ip_invalid')
+                        return HttpResponse(
+                            'Invalid proxy client address.',
+                            status=400,
+                            content_type='text/plain; charset=utf-8',
+                        )
+            elif not remote:
+                security_log.error('event=proxy_client_ip_invalid')
+                return HttpResponse(
+                    'Missing proxy client address.',
+                    status=400,
+                    content_type='text/plain; charset=utf-8',
+                )
         return self.get_response(request)
 
 
