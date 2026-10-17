@@ -456,6 +456,12 @@ function StoragePanel() {
   const [nextCursor, setNextCursor] = useState(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [retentionBusy, setRetentionBusy] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportPassword, setExportPassword] = useState('')
+  const [exportCode, setExportCode] = useState('')
+  const [exportNeedsCode, setExportNeedsCode] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
+  const [exportError, setExportError] = useState(null)
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -509,6 +515,27 @@ function StoragePanel() {
       setRetention(await api.updateChatRetention(archivedDays))
     } catch (e) { setError(e.message) }
     finally { setRetentionBusy(false) }
+  }
+
+  async function downloadAccountExport(event) {
+    event.preventDefault()
+    setExportBusy(true); setExportError(null)
+    try {
+      await api.reauthenticate(exportPassword, exportCode.trim() || undefined)
+      const link = document.createElement('a')
+      link.href = api.accountExportUrl()
+      link.download = ''
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setExportOpen(false); setExportCode(''); setExportNeedsCode(false)
+    } catch (e) {
+      if (e.body?.two_factor_required) setExportNeedsCode(true)
+      setExportError(e.message)
+    } finally {
+      setExportPassword('')
+      setExportBusy(false)
+    }
   }
 
   return <section className="settings-section">
@@ -570,6 +597,41 @@ function StoragePanel() {
           {' '}{retention.archived_days} inactive days. Restore a chat before then to keep it.
         </p>}
       </div>}
+      <div className="export-card">
+        <h3>Export your data</h3>
+        <p className="muted">
+          Download a private JSON file containing your account profile, conversations,
+          messages, settings, session metadata, AI usage, and an attachment manifest.
+          File contents and internal security values are never included.
+        </p>
+        {!exportOpen ? <button className="link" onClick={() => {
+          setExportOpen(true); setExportError(null)
+        }}>Prepare account export…</button> : <form onSubmit={downloadAccountExport}>
+          {exportError && <p className="login-error" role="alert">{exportError}</p>}
+          <label className="settings-field">
+            <span>Current password</span>
+            <input type="password" autoComplete="current-password"
+              value={exportPassword} onChange={(event) => setExportPassword(event.target.value)}
+              required />
+          </label>
+          {exportNeedsCode && <label className="settings-field">
+            <span>2FA or recovery code</span>
+            <input type="text" autoComplete="one-time-code" maxLength={17}
+              value={exportCode} onChange={(event) => setExportCode(event.target.value)}
+              required />
+          </label>}
+          <div className="export-actions">
+            <button className="primary" type="submit"
+              disabled={exportBusy || !exportPassword || (exportNeedsCode && !exportCode)}>
+              {exportBusy ? 'Preparing…' : 'Verify and download'}
+            </button>
+            <button className="link" type="button" onClick={() => {
+              setExportOpen(false); setExportPassword(''); setExportCode('')
+              setExportNeedsCode(false); setExportError(null)
+            }}>Cancel</button>
+          </div>
+        </form>}
+      </div>
       {usage.ai_today && <div className="ai-usage-card">
         <h3>Today's AI usage</h3>
         {!usage.ai_today.enabled && <p className="login-error">AI generation is temporarily disabled.</p>}

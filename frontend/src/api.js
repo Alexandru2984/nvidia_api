@@ -274,6 +274,7 @@ export const api = {
 
   // Account
   accountUsage: () => request('/account/usage/'),
+  accountExportUrl: () => `${BASE}/account/export/`,
   chatRetention: () => request('/account/chat-retention/'),
   updateChatRetention: (archived_days) =>
     request('/account/chat-retention/', {

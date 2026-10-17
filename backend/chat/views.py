@@ -64,16 +64,19 @@ from .nvidia_client import (
 from .models import (
     Attachment,
     AttachmentUploadAttempt,
+    AuthenticatedSession,
     ChatHistoryRetention,
     ChatStorageGate,
     Conversation,
     ConversationGenerationLease,
+    DailyAIUsage,
     EmailVerification,
     GenerationRequest,
     Message,
     PasswordReset,
     ProviderDisclosureAcceptance,
     RegistrationInvite,
+    TwoFactor,
 )
 from .models_catalog import (
     DEFAULT_IMAGE_GEN_MODEL_ID,
@@ -93,7 +96,7 @@ from .provider_disclosure import (
     provider_disclosure_state,
 )
 from .registration import hash_invite_code
-from .recent_auth import confirm_recent_auth, mark_recent_auth
+from .recent_auth import confirm_recent_auth, mark_recent_auth, require_recent_auth
 from .security_events import actor_for_request, security_log
 from .serializers import (
     AttachmentSerializer,
@@ -3639,6 +3642,275 @@ def regenerate_message(request, pk):
 def _slugify(text):
     s = re.sub(r'[^A-Za-z0-9._-]+', '-', text).strip('-')
     return (s or 'conversation')[:60]
+
+
+def _export_timestamp(value):
+    if value is None:
+        return None
+    return value.isoformat().replace('+00:00', 'Z')
+
+
+def _export_json(value):
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(',', ':'),
+    ).encode('utf-8')
+
+
+@api_view(['GET'])
+@ratelimit(key='user', rate='2/d', block=False)
+def export_account(request):
+    """Stream a bounded owner-only JSON export without secrets or file bodies."""
+    if (r := _rate_limited(request)): return r
+    if (response := require_recent_auth(request)) is not None:
+        return response
+
+    user_id = request.user.pk
+    conversations = Conversation.objects.filter(user_id=user_id).order_by('created_at', 'id')
+    messages = Message.objects.filter(conversation__user_id=user_id).order_by(
+        'conversation_id', 'created_at', 'id',
+    )
+    attachments = Attachment.objects.filter(user_id=user_id).select_related(
+        'message__conversation',
+    ).order_by('created_at', 'id')
+    generation_requests = GenerationRequest.objects.filter(
+        user_id=user_id,
+        conversation__user_id=user_id,
+    ).order_by('created_at', 'id')
+    usage_rows = DailyAIUsage.objects.filter(user_id=user_id).order_by('day', 'id')
+    sessions = AuthenticatedSession.objects.filter(user_id=user_id).order_by('login_at')
+
+    conversation_stats = conversations.aggregate(
+        count=Count('id'),
+        title_characters=Sum(Length('title')),
+        system_characters=Sum(Length('system_prompt')),
+    )
+    message_stats = messages.aggregate(
+        count=Count('id'),
+        bytes=Sum('content_bytes'),
+    )
+    attachment_stats = attachments.aggregate(
+        count=Count('id'),
+        name_characters=Sum(Length('original_name')),
+        mime_characters=Sum(Length('mime_type')),
+    )
+    generation_count = generation_requests.count()
+    usage_count = usage_rows.count()
+    session_stats = sessions.aggregate(
+        count=Count('session_id'),
+        user_agent_characters=Sum(Length('user_agent')),
+        ip_characters=Sum(Length('ip_address')),
+    )
+    counts = {
+        'conversations': conversation_stats['count'],
+        'messages': message_stats['count'],
+        'attachments': attachment_stats['count'],
+        'generation_requests': generation_count,
+        'ai_usage_days': usage_count,
+        'sessions': session_stats['count'],
+    }
+    record_count = sum(counts.values())
+    export_characters = sum((
+        conversation_stats['title_characters'] or 0,
+        conversation_stats['system_characters'] or 0,
+        attachment_stats['name_characters'] or 0,
+        attachment_stats['mime_characters'] or 0,
+        session_stats['user_agent_characters'] or 0,
+        session_stats['ip_characters'] or 0,
+    ))
+    # ensure_ascii=False keeps normal UTF-8 compact. Six bytes per stored byte/
+    # character safely covers the worst JSON control-character escape, while the
+    # per-record allowance covers keys, identifiers and timestamps.
+    estimated_bytes = (
+        (message_stats['bytes'] or 0) * 6
+        + export_characters * 6
+        + record_count * 1024
+        + 128 * 1024
+    )
+    if (
+        record_count > settings.ACCOUNT_EXPORT_MAX_RECORDS
+        or estimated_bytes > settings.ACCOUNT_EXPORT_MAX_BYTES
+    ):
+        return Response({
+            'error': 'This account is too large to export safely in one file.',
+            'code': 'account_export_too_large',
+            'record_limit': settings.ACCOUNT_EXPORT_MAX_RECORDS,
+            'byte_limit': settings.ACCOUNT_EXPORT_MAX_BYTES,
+        }, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+    retention = ChatHistoryRetention.objects.filter(user_id=user_id).values(
+        'archived_days', 'updated_at',
+    ).first()
+    acceptance = ProviderDisclosureAcceptance.objects.filter(user_id=user_id).values(
+        'version', 'accepted_at',
+    ).first()
+    two_factor = TwoFactor.objects.filter(user_id=user_id).values(
+        'enabled', 'enrolled_at', 'last_used_at',
+    ).first()
+    invitation = RegistrationInvite.objects.filter(used_by_id=user_id).values(
+        'used_at',
+    ).first()
+    exported_at = timezone.now()
+    prefix = {
+        'schema_version': 1,
+        'exported_at': _export_timestamp(exported_at),
+        'account': {
+            'id': user_id,
+            'username': request.user.username,
+            'email': request.user.email,
+            'first_name': request.user.first_name,
+            'last_name': request.user.last_name,
+            'is_staff': request.user.is_staff,
+            'is_active': request.user.is_active,
+            'date_joined': _export_timestamp(request.user.date_joined),
+            'last_login': _export_timestamp(request.user.last_login),
+        },
+        'preferences_and_security': {
+            'archived_chat_retention_days': retention['archived_days'] if retention else 0,
+            'archived_chat_retention_updated_at': (
+                _export_timestamp(retention['updated_at']) if retention else None
+            ),
+            'provider_disclosure': {
+                'version': acceptance['version'] if acceptance else None,
+                'accepted_at': (
+                    _export_timestamp(acceptance['accepted_at']) if acceptance else None
+                ),
+            },
+            'two_factor': {
+                'enabled': two_factor['enabled'] if two_factor else False,
+                'enrolled_at': (
+                    _export_timestamp(two_factor['enrolled_at']) if two_factor else None
+                ),
+                'last_used_at': (
+                    _export_timestamp(two_factor['last_used_at']) if two_factor else None
+                ),
+            },
+            'invitation_redeemed_at': (
+                _export_timestamp(invitation['used_at']) if invitation else None
+            ),
+        },
+        'counts': counts,
+        'attachment_files_included': False,
+    }
+    current_session_key = request.session.session_key
+
+    def records(queryset, mapper):
+        first = True
+        for item in queryset.iterator(chunk_size=100):
+            if not first:
+                yield b','
+            first = False
+            yield _export_json(mapper(item))
+
+    def attachment_record(item):
+        owner_linked = (
+            item.message_id is not None
+            and item.message.conversation.user_id == user_id
+        )
+        return {
+            'id': item.pk,
+            'message_id': item.message_id if owner_linked else None,
+            'conversation_id': item.message.conversation_id if owner_linked else None,
+            'original_name': item.original_name,
+            'mime_type': item.mime_type,
+            'size': item.size,
+            'kind': item.kind,
+            'created_at': _export_timestamp(item.created_at),
+            'file_bytes_included': False,
+        }
+
+    def raw_stream():
+        encoded_prefix = _export_json(prefix)
+        yield encoded_prefix[:-1] + b',"conversations":['
+        yield from records(conversations, lambda item: {
+            'id': item.pk,
+            'title': item.title,
+            'model_id': item.model_id,
+            'system_prompt': item.system_prompt,
+            'temperature': item.temperature,
+            'max_tokens': item.max_tokens,
+            'is_pinned': item.is_pinned,
+            'archived_at': _export_timestamp(item.archived_at),
+            'created_at': _export_timestamp(item.created_at),
+            'updated_at': _export_timestamp(item.updated_at),
+        })
+        yield b'],"messages":['
+        yield from records(messages, lambda item: {
+            'id': item.pk,
+            'conversation_id': item.conversation_id,
+            'role': item.role,
+            'content': item.content,
+            'created_at': _export_timestamp(item.created_at),
+        })
+        yield b'],"attachments":['
+        yield from records(attachments, attachment_record)
+        yield b'],"generation_requests":['
+        yield from records(generation_requests, lambda item: {
+            'id': item.pk,
+            'conversation_id': item.conversation_id,
+            'idempotency_key': str(item.idempotency_key),
+            'operation': item.operation,
+            'target_message_id': item.target_message_id,
+            'state': item.state,
+            'user_message_id': item.user_message_id,
+            'assistant_message_id': item.assistant_message_id,
+            'outcome_code': item.outcome_code,
+            'created_at': _export_timestamp(item.created_at),
+            'updated_at': _export_timestamp(item.updated_at),
+            'completed_at': _export_timestamp(item.completed_at),
+        })
+        yield b'],"ai_usage_history":['
+        yield from records(usage_rows, lambda item: {
+            'day': item.day.isoformat(),
+            'chat_requests': item.chat_requests,
+            'image_requests': item.image_requests,
+            'prompt_characters': item.prompt_characters,
+            'prompt_tokens': item.prompt_tokens,
+            'completion_tokens': item.completion_tokens,
+            'reserved_tokens': item.reserved_tokens,
+            'unmetered_chat_requests': item.unmetered_chat_requests,
+        })
+        yield b'],"sessions":['
+        yield from records(sessions, lambda item: {
+            'current': item.session_id == current_session_key,
+            'user_agent': item.user_agent,
+            'ip_address': item.ip_address,
+            'login_at': _export_timestamp(item.login_at),
+            'absolute_expires_at': _export_timestamp(item.absolute_expires_at),
+        })
+        yield b']}'
+
+    def bounded_stream():
+        emitted = 0
+        for chunk in raw_stream():
+            emitted += len(chunk)
+            if emitted > settings.ACCOUNT_EXPORT_MAX_BYTES:
+                security_log.error(
+                    'event=account_export_bound_exceeded user_id=%s',
+                    user_id,
+                )
+                raise RuntimeError('Account export exceeded its validated byte bound.')
+            yield chunk
+        security_log.info(
+            'event=account_export_completed user_id=%s records=%s bytes=%s',
+            user_id,
+            record_count,
+            emitted,
+        )
+
+    response = StreamingHttpResponse(
+        bounded_stream(),
+        content_type='application/json; charset=utf-8',
+    )
+    response['Content-Disposition'] = (
+        f'attachment; filename="aichat-account-{exported_at:%Y%m%dT%H%M%SZ}.json"'
+    )
+    response['Cache-Control'] = 'private, no-store'
+    response['X-Accel-Buffering'] = 'no'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @api_view(['GET'])

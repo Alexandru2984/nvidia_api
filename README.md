@@ -94,6 +94,8 @@ CHAT_MAX_MESSAGE_BYTES_PER_CONVERSATION=16777216
 CHAT_MAX_MESSAGE_BYTES_PER_USER=67108864
 CHAT_MAX_MESSAGE_BYTES_GLOBAL=1073741824
 CHAT_MAX_EXPORT_BYTES=26214400
+ACCOUNT_EXPORT_MAX_BYTES=134217728
+ACCOUNT_EXPORT_MAX_RECORDS=25000
 SESSION_ABSOLUTE_MAX_AGE_SECONDS=2592000
 SESSION_MAX_ACTIVE_PER_USER=20
 RECENT_AUTH_MAX_AGE_SECONDS=300
@@ -154,6 +156,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles without decoding the global session table; revocation requires recent strong authentication. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
 | GET/PATCH | `/account/chat-retention/` | `{archived_days}` | session | Owner-scoped opt-in lifecycle. Accepts 0 (keep until manually deleted), 30, 90, 180, or 365 days; only inactive archived conversations qualify. |
+| GET | `/account/export/` | — | recent strong session | Owner-only JSON stream containing account/chat/preferences/usage data and an attachment manifest, never file bodies or authentication secrets. Limited to 2/day and rejected before streaming above the validated record/byte ceilings. |
 | POST | `/provider-disclosure/` | `{version}` | session | Records the current versioned NVIDIA data-flow acknowledgement; stale or non-integer versions fail closed. |
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
 | GET | `/conversations/?q=` | — | session | Scoped to `request.user`; `q` searches titles and message text. |
@@ -238,7 +241,12 @@ worst-case assistant size before provider work; regeneration reserves only its
 maximum net growth. Assistant output is capped at 64,000 characters, Markdown
 exports are streamed under a conservative 25 MiB ceiling, and quota blocks are
 security-monitored. The responsive Storage panel exposes current counts, text
-bytes and owner-visible limits without disclosing global tenant usage. Daily
+bytes and owner-visible limits without disclosing global tenant usage. Its full
+account export requires a fresh password plus 2FA when enabled, streams only the
+owner's portable JSON under `ACCOUNT_EXPORT_MAX_BYTES` and
+`ACCOUNT_EXPORT_MAX_RECORDS`, and omits file bodies, extracted text, hashes,
+password/OTP/2FA material, raw session credentials and internal request
+fingerprints. Daily
 maintenance deletes expired database sessions and processes at most
 `CHAT_RETENTION_DELETE_BATCH_SIZE` owner-opted-in archived conversations. It
 revalidates policy, age and absence of a generation lease under the normal lock

@@ -145,6 +145,17 @@ async function mockAPI(
           prompt_characters: 420, resets_at: '2026-10-06T00:00:00Z', enabled: true,
         },
       },
+      '/api/account/chat-retention/': {
+        archived_days: 0,
+        choices: [
+          { days: 0, label: 'Keep until I delete' },
+          { days: 30, label: 'Delete after 30 days' },
+          { days: 90, label: 'Delete after 90 days' },
+          { days: 180, label: 'Delete after 180 days' },
+          { days: 365, label: 'Delete after 365 days' },
+        ],
+        scope: 'archived_inactive_conversations',
+      },
       '/api/auth/2fa/status/': { enabled: false, recovery_codes_remaining: 0 },
       '/api/auth/sessions/': [{ id: 'opaque-handle', current: true, ua: 'Browser', ip: '198.51.100.1', expires_at: '2026-11-01T00:00:00Z' }],
     }[path]
@@ -358,6 +369,35 @@ test('expired session controls reauthenticate with 2FA and resume revocation', a
   await expectNoPageOverflow(page)
 })
 
+test('account export reauthenticates and starts a download without mobile overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await page.addInitScript(() => {
+    HTMLAnchorElement.prototype.click = function click() {
+      window.__accountExportDownload = { href: this.href, download: this.download }
+    }
+  })
+  await mockAPI(page)
+  const reauthPayloads = []
+  await page.route('**/api/auth/reauthenticate/', async (route) => {
+    reauthPayloads.push(route.request().postDataJSON())
+    await route.fulfill({ status: 200, json: { authenticated: true, valid_for_seconds: 300 } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Settings', { exact: true }).click()
+  const panel = page.getByRole('heading', { name: 'Export your data' }).locator('..')
+  await panel.getByRole('button', { name: 'Prepare account export…' }).click()
+  await panel.getByLabel('Current password').fill('correct-password')
+  await panel.getByRole('button', { name: 'Verify and download' }).click()
+
+  expect(reauthPayloads).toEqual([{ password: 'correct-password' }])
+  expect(await page.evaluate(() => window.__accountExportDownload)).toEqual({
+    href: 'http://127.0.0.1:5179/api/account/export/', download: '',
+  })
+  await expect(panel.getByLabel('Current password')).toHaveCount(0)
+  await expectNoPageOverflow(page)
+})
+
 async function expectNoPageOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
@@ -382,6 +422,7 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(page.getByLabel('Conversation storage used')).toHaveAttribute('value', '1')
     await expect(page.getByLabel('Message storage used')).toHaveAttribute('value', '2')
     await expect(page.getByRole('heading', { name: "Today's AI usage" })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Export your data' })).toBeVisible()
     await expect(page.getByLabel('Daily chat requests used')).toHaveAttribute('value', '4')
     await expect(page.getByLabel('Daily generated images used')).toHaveAttribute('value', '1')
     await page.getByLabel('Color theme').selectOption('light')

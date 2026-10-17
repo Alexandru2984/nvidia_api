@@ -416,6 +416,12 @@ CHAT_MAX_MESSAGE_BYTES_GLOBAL = _nonnegative_int_env(
 CHAT_MAX_EXPORT_BYTES = _nonnegative_int_env(
     'CHAT_MAX_EXPORT_BYTES', 25 * 1024 * 1024,
 )
+ACCOUNT_EXPORT_MAX_BYTES = _nonnegative_int_env(
+    'ACCOUNT_EXPORT_MAX_BYTES', 128 * 1024 * 1024,
+)
+ACCOUNT_EXPORT_MAX_RECORDS = _nonnegative_int_env(
+    'ACCOUNT_EXPORT_MAX_RECORDS', 25_000,
+)
 if CHAT_MAX_CONVERSATIONS_PER_USER < 1:
     raise ImproperlyConfigured('CHAT_MAX_CONVERSATIONS_PER_USER must be positive.')
 if CHAT_MAX_MESSAGES_PER_USER < 2:
@@ -443,6 +449,14 @@ if not (
     )
 if CHAT_MAX_EXPORT_BYTES < 1024 * 1024:
     raise ImproperlyConfigured('CHAT_MAX_EXPORT_BYTES must be at least 1 MiB.')
+if not 1024 * 1024 <= ACCOUNT_EXPORT_MAX_BYTES <= 512 * 1024 * 1024:
+    raise ImproperlyConfigured(
+        'ACCOUNT_EXPORT_MAX_BYTES must be between 1 MiB and 512 MiB.',
+    )
+if not 1000 <= ACCOUNT_EXPORT_MAX_RECORDS <= 100_000:
+    raise ImproperlyConfigured(
+        'ACCOUNT_EXPORT_MAX_RECORDS must be between 1000 and 100000.',
+    )
 
 
 # Durable daily provider budgets. Set AI_GENERATION_ENABLED=False and restart
