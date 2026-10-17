@@ -1,9 +1,16 @@
 """Tests for change-password and delete-account."""
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.sessions.models import Session
 from rest_framework.test import APIClient
 
-from chat.models import Attachment, Conversation, Message, TwoFactor
+from chat.models import (
+    Attachment,
+    AuthenticatedSession,
+    Conversation,
+    Message,
+    TwoFactor,
+)
 from chat.twofactor import _hash_recovery
 
 
@@ -95,6 +102,24 @@ class TestDeleteAccount:
         assert Attachment.objects.count() == 0
         # session is gone too
         assert auth_client.get('/api/models/').status_code in (401, 403)
+
+    def test_success_revokes_every_django_session_before_user_cascade(self, user):
+        first = APIClient()
+        second = APIClient()
+        _login(first, user)
+        _login(second, user)
+        session_keys = {first.session.session_key, second.session.session_key}
+        assert Session.objects.filter(session_key__in=session_keys).count() == 2
+        assert AuthenticatedSession.objects.filter(user=user).count() == 2
+
+        response = first.post(self.URL, {'password': 'Hunter2pass'}, format='json')
+
+        assert response.status_code == 200
+        assert response.json() == {'deleted': True, 'sessions_revoked': 2}
+        assert not Session.objects.filter(session_key__in=session_keys).exists()
+        assert not AuthenticatedSession.objects.filter(session_id__in=session_keys).exists()
+        assert not get_user_model().objects.filter(pk=user.pk).exists()
+        assert second.get('/api/models/').status_code in (401, 403)
 
     def test_2fa_required_when_enabled(self, auth_client, user):
         TwoFactor.objects.create(user=user, secret='irrelevant', enabled=True,

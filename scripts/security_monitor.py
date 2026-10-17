@@ -728,6 +728,7 @@ def evaluate(
     account_exports = journal.count('event=account_export_completed')
     account_export_bound_failures = journal.count('event=account_export_bound_exceeded')
     invalid_proxy_client_ips = journal.count('event=proxy_client_ip_invalid')
+    account_deletions = journal.count('event=account_deleted')
     maintenance_failures = journal.count(
         'aichat-maintenance.service: Failed with result'
     )
@@ -842,6 +843,10 @@ def evaluate(
         issues['proxy_client_ip_invalid'] = (
             f'{invalid_proxy_client_ips} requests arrived without a valid trusted proxy '
             'client address in six minutes.'
+        )
+    if account_deletions:
+        issues['account_deleted'] = (
+            f'{account_deletions} accounts were permanently deleted in six minutes.'
         )
     if maintenance_failures:
         issues['maintenance_failed'] = (

@@ -798,10 +798,18 @@ def auth_delete_account(request):
 
     user = request.user
     user_id = user.pk
-    django_logout(request)
-    user.delete()
-    security_log.warning('event=account_deleted former_user_id=%s', user_id)
-    return Response({'deleted': True})
+    with transaction.atomic():
+        # revoke_user_sessions locks the owner; the outer transaction keeps that
+        # lock through the cascade so an indexed login cannot appear in between.
+        revoked = _revoke_user_sessions(user)
+        django_logout(request)
+        user.delete()
+    security_log.warning(
+        'event=account_deleted former_user_id=%s sessions_revoked=%s',
+        user_id,
+        revoked,
+    )
+    return Response({'deleted': True, 'sessions_revoked': revoked})
 
 
 @api_view(['GET'])
