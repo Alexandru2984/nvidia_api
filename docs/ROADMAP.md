@@ -148,8 +148,12 @@ timed evidence.
   extracted text, authentication material, raw session identifiers and internal
   fingerprints stay excluded; record/byte preflight plus a hard stream bound
   protect the service. Every completed or bound-breaking export enters the
-  six-minute privacy-minimized alert path. Define and publish the operator-wide
-  legal/default schedule before materially raising account volume.
+  six-minute privacy-minimized alert path. Cancelable scheduled account deletion
+  is also shipped: strong authentication opens a seven-day grace period, visible
+  status can be canceled before its deadline, and lease-safe daily maintenance
+  revokes every session before deleting at most 25 due accounts. Define and
+  publish the operator-wide legal/default schedule before materially raising
+  account volume.
 - **Immutable backend application delivery is shipped:** production imports only
   a committed, root-owned, manifest-verified release selected through one atomic
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs
@@ -185,7 +189,12 @@ timed evidence.
   compact mode, and reduced-motion mode.
 - Token/request/storage dashboard with daily/monthly budgets and downloadable
   personal usage history.
-- Scheduled account deletion and visible deletion status.
+- **Scheduled account deletion and visible status are shipped:** schedule/cancel
+  requires password plus enabled 2FA, scheduling is idempotent and cannot extend
+  a pending deadline, due cancellation fails closed, daily execution is bounded
+  and excludes active generation owners before slicing, and all lifecycle events
+  enter the privacy-minimized alert path. Add a durable retry outbox for the rare
+  case where post-commit physical-file deletion fails.
 - Image job history/gallery with cancel/retry/delete and preserved generation
   parameters.
 - **Versioned provider disclosure is shipped:** before the first chat,

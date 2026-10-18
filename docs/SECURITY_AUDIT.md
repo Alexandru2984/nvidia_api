@@ -75,7 +75,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, permanent account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
@@ -1772,11 +1772,104 @@ is required before describing those controls as complete.
   theft. Strong step-up, rate limiting, all-session revocation and immediate
   privacy-minimized detection reduce likelihood and MTTD, but deletion remains
   intentionally irreversible in the live database. Scheduled/cancelable deletion
-  and visible status remain open. Backup and mandated audit retention also mean
+  and visible status were the next open control and are closed by the rollout
+  below. Backup and mandated audit retention also mean
   the endpoint is not a promise of instant erasure from every retained copy; the
   operator still needs a published erasure/backup schedule and verified legal
   process. Suspected unauthorized deletion enters incident/privacy assessment
   from the awareness timestamp and uses only integrity-checked recovery.
+
+### Cancelable scheduled account deletion rollout — 2026-10-18
+
+- Commit `7e246983d27a99e85f24b55aeb83a66dfb254e25` adds owner-visible
+  `GET/POST/DELETE /api/account/deletion/` state and a responsive Danger Zone
+  flow down to 320 px. Mutations require the current password plus enabled 2FA,
+  are independently limited to five/hour and serialize on the owner. The default
+  grace period is seven days (startup-bounded 1–30); repeated scheduling returns
+  the original deadline instead of extending it, and cancellation fails with
+  `409 deletion_due` at the deadline. The account remains usable during grace so
+  its verified owner can cancel.
+- Migration `0029_accountdeletionrequest` creates one request per owner, an
+  indexed execution deadline and a database constraint forbidding a deadline
+  before its request timestamp. Daily maintenance reports the total in dry-run,
+  excludes owners with a surviving generation lease before applying the default
+  25-account batch (startup-bounded 1–100), then rechecks deadline and lease under
+  the global storage-gate/owner/request lock order. Execution revokes all indexed
+  parent Django sessions before the owner cascade. Immediate deletion now uses
+  the same global-gate/owner fence, so neither path can race a new generation.
+  Login holds the owner lock through session creation, closing the inverse
+  login-versus-delete orphan race.
+- Attachment storage deletion now runs only after database commit. A rollback
+  therefore cannot restore a row whose physical file has already disappeared;
+  regression coverage proves both rollback preservation and committed cascading
+  deletion. A post-commit storage failure still needs a durable retry outbox: the
+  maintenance unit fails and alerts, but an unreferenced private file can remain
+  until verified operator cleanup. This residual is explicit in the roadmap and
+  runbook rather than being mislabeled as guaranteed erasure.
+- Schedule, cancellation and committed execution write fixed structured events.
+  The six-minute monitor sends only event names/counts, never username, email,
+  IP, prompt, filename, session identifier or authentication factor. The local
+  execution event contains only former numeric owner ID and revoked-session
+  count. The runbook treats an unexpected schedule as urgent recoverable account
+  takeover, an unexplained cancellation as possible persistence, and execution
+  like immediate destructive deletion.
+- The complete local CI contract passes: 584 backend tests, 39 Playwright tests,
+  36 monitor tests, Django deploy checks, migration drift, compilation,
+  ShellCheck/Bash syntax, immutable-Action and wheel-lock validation, deterministic
+  SBOM generation/check, frontend lint/build, `npm audit --audit-level=low` and
+  `pip-audit 2.10.1`; both dependency audits report zero known vulnerabilities.
+  GitHub itself contains no failed Actions/check-run for this repository, but its
+  remote `main` was 18 commits behind before this feature and therefore had not
+  tested the recent local commits. Replaying the exact workflow locally found and
+  fixed one stale Playwright text assertion; no push was made.
+- Before migration, a gzip-validated database backup was written to
+  `/home/micu/backups/nvidia_db/nvidia_db_20261018_162157_624392381.sql.gz`,
+  14,644 bytes, mode `0600 micu:micu`, SHA-256
+  `2823be77aafaf2a77caf177011ad57fa8d08fd19dfc0af8fdb2e488e0e6d2314`.
+  Its ACL evidence hashes to
+  `18e54a257a3289e280aa86fe4b2df9784c2dee1c6ed0ec64bab251796aa055c1`;
+  neither `aichat` nor `aichat-monitor` can read the dump. Migration took one
+  second and preserved three users, six conversations and 16 messages while
+  creating zero deletion requests. PostgreSQL introspection confirmed the
+  deadline check and `execute_after` index.
+- Public TLS smoke created two sessions for a content-free temporary account and
+  observed schedule `201`, identical-deadline repeat `200`, cancel `200`, and
+  overdue cancel `409`. The deployed dry-run found exactly one due request; the
+  real systemd maintenance job deleted it, revoked both sessions and left zero
+  temporary users, requests or indexed sessions. Both old cookies then received
+  `403`. A rollback-only PostgreSQL smoke proved active-lease exclusion, the
+  immediate-delete fence, successful execution after lease release and zero
+  residue. Its first harness attempt used Django's disallowed `testserver` host,
+  failed before the feature path and rolled back with zero residue; the corrected
+  real-host HTTPS run passed.
+- Backend release
+  `/opt/aichat-backend-releases/release-20261018T132221_973720049` and frontend
+  release `/var/www/aichat-releases/release-20261018T132232_018494110` have valid
+  manifests. Backend rollback to
+  `/opt/aichat-backend-releases/release-20261017T235214_114371420` and restore
+  each took two seconds; frontend rollback to
+  `/var/www/aichat-releases/release-20261017T233805_774231936` took 72 ms and
+  restore 68 ms. Backend, maintenance and monitor report successful results and
+  zero automatic restarts; the installed monitor is byte-identical to the repo,
+  timers are active and database dumps remain unreadable to it. The real journal
+  activated exactly the three deletion-lifecycle issues plus the expected
+  deployment config-change issue; successful resolution runs cleared config
+  change first and returned all state to `active=[]` at 16:31:36 EEST. The final
+  state hash is
+  `6d5812e751fbfc00495a7293ecbb71e5248b09e31d1dbc2150086ebeab6ff2b6`.
+- Scoped CISO review ranks credential-driven destructive tampering, accidental
+  over-deletion and cleanup failure above availability. Strong proof, a deadline
+  that cannot be attacker-extended, cancellation before due, active-generation
+  fencing, owner/session locks, a 25-account daily cap, preflight dry-run, private
+  rollback-tested backup and immediate execution/maintenance alerts bound the
+  likely blast radius and target sub-six-minute detection. A compromised database
+  or service identity can bypass application batching, and a worker outage delays
+  execution, so timer health and least privilege remain mandatory. No new NVIDIA
+  transfer, processor or data class is introduced. Live deletion does not erase
+  restricted backups immediately; the local seven-dump lifecycle and any legally
+  mandated evidence must be stated in the complete privacy/erasure schedule. A
+  plausible unauthorized execution starts incident/privacy assessment at
+  awareness and may trigger the GDPR 72-hour notification analysis.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
