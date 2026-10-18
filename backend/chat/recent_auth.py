@@ -5,7 +5,11 @@ import logging
 import time
 
 from django.conf import settings
+from django.contrib.auth import get_user_model, update_session_auth_hash
+from django.db import transaction
 from rest_framework.response import Response
+
+from .passwords import upgrade_password_hash, verify_password_without_upgrade
 
 security_log = logging.getLogger('security')
 
@@ -76,11 +80,7 @@ def confirm_recent_auth(request, password, code=''):
     from .twofactor import login_requires_2fa, verify_for_login
 
     two_factor_required = login_requires_2fa(request.user)
-    if (
-        not isinstance(password, str)
-        or len(password) > settings.MAX_PASSWORD_LENGTH
-        or not request.user.check_password(password)
-    ):
+    if not isinstance(password, str) or len(password) > settings.MAX_PASSWORD_LENGTH:
         security_log.warning(
             'event=recent_auth_failed user_id=%s factor=password',
             request.user.pk,
@@ -90,20 +90,52 @@ def confirm_recent_auth(request, password, code=''):
             'two_factor_required': two_factor_required,
         }, status=401)
     code = code.strip() if isinstance(code, str) else ''
-    if two_factor_required and not code:
-        return Response({
-            'error': 'Two-factor code required.',
-            'two_factor_required': True,
-        }, status=401)
-    if two_factor_required and not verify_for_login(request.user, code):
-        security_log.warning(
-            'event=recent_auth_failed user_id=%s factor=two_factor',
-            request.user.pk,
+    with transaction.atomic():
+        locked_user = get_user_model().objects.select_for_update().get(
+            pk=request.user.pk,
         )
-        return Response({
-            'error': 'Authentication failed.',
-            'two_factor_required': True,
-        }, status=401)
-    mark_recent_auth(request)
+        password_valid, password_needs_upgrade = verify_password_without_upgrade(
+            password,
+            locked_user.password,
+        )
+        if not password_valid:
+            security_log.warning(
+                'event=recent_auth_failed user_id=%s factor=password',
+                request.user.pk,
+            )
+            return Response({
+                'error': 'Authentication failed.',
+                'two_factor_required': two_factor_required,
+            }, status=401)
+        if two_factor_required and not code:
+            return Response({
+                'error': 'Two-factor code required.',
+                'two_factor_required': True,
+            }, status=401)
+        if two_factor_required and not verify_for_login(locked_user, code):
+            security_log.warning(
+                'event=recent_auth_failed user_id=%s factor=two_factor',
+                request.user.pk,
+            )
+            return Response({
+                'error': 'Authentication failed.',
+                'two_factor_required': True,
+            }, status=401)
+        if upgrade_password_hash(locked_user, password, password_needs_upgrade):
+            from .sessions import revoke_user_sessions, sync_session_record
+
+            request.user.password = locked_user.password
+            update_session_auth_hash(request, request.user)
+            sync_session_record(request)
+            revoked = revoke_user_sessions(
+                request.user,
+                except_key=request.session.session_key,
+            )
+            security_log.info(
+                'event=password_hash_upgraded user_id=%s sessions_revoked=%s',
+                request.user.pk,
+                revoked,
+            )
+        mark_recent_auth(request)
     security_log.info('event=recent_auth_succeeded user_id=%s', request.user.pk)
     return None

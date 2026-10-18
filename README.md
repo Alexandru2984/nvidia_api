@@ -297,6 +297,13 @@ fresh password and, when enabled, TOTP/recovery code before retrying the origina
 action. Reauthentication never extends the fixed absolute session deadline.
 `RECENT_AUTH_MAX_AGE_SECONDS` defaults to 300 and is restricted to 60–3600.
 
+New and changed passwords use Django's memory-hard scrypt hasher. Existing
+PBKDF2 hashes remain readable and are upgraded lazily only after the complete
+password-plus-2FA flow succeeds. A failed or incomplete second factor never
+rewrites the credential or invalidates active sessions. A completed upgrade
+keeps the new/current session and removes older indexed sessions that Django's
+password-derived session authentication would otherwise reject implicitly.
+
 The token limit is a consumption/capacity control, not a fabricated currency
 estimate. NVIDIA documents production NIM pricing around licensing/GPU capacity,
 so monetary enforcement must use the owner's actual contract or infrastructure
