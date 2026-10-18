@@ -151,7 +151,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/auth/logout/` | — | session | |
 | POST | `/auth/reauthenticate/` | `{password, code?}` | session | Refreshes the five-minute sensitive-action window; 2FA accounts require both factors. |
 | POST | `/auth/password/` | `{current_password, new_password, code?}` | session | Requires both factors when enabled, keeps this session, and revokes all others. |
-| POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Cascades all user data. |
+| POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Revokes every indexed Django session before cascading live user data and returns `sessions_revoked`. |
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles without decoding the global session table; revocation requires recent strong authentication. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |

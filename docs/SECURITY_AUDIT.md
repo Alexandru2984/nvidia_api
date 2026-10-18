@@ -69,13 +69,13 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-03 | High | Shared service user had broad host reach | Dedicated non-login `aichat` web/timer identity, separate root-owned application/dependency releases, narrowly bound runtime paths, unprivileged app database role and restrictive systemd sandbox | Move file-based secrets to systemd credentials during a controlled rotation |
 | A-04 | High | Existing backups were mode `0664` in a `0755` directory | Private modes, `umask 077`, atomic output, locks, gzip verification, and scheduled restore drills are deployed | Add encryption and a tested off-site copy |
 | A-05 | High | Anonymous session auth did not uniformly enforce CSRF | Strict session authentication and object-only JSON parser | Keep regression tests in CI |
-| A-06 | High | Raw session keys were returned to the browser and long-lived stolen sessions could invoke session controls without fresh proof | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry/account caps; five-minute user/session/password-bound recent authentication with required 2FA and responsive step-up before revocation | Rotate sessions after any suspected historic disclosure; retain recent-auth and expiry regressions |
+| A-06 | High | Raw session keys were returned to the browser and long-lived stolen sessions could invoke session controls without fresh proof | HMAC-derived opaque non-bearer handles backed by an indexed owner/session registry; fixed absolute expiry/account caps; five-minute user/session/password-bound recent authentication with required 2FA and responsive step-up before revocation; permanent account deletion removes every indexed parent session row before the owner cascade | Rotate sessions after any suspected historic disclosure; retain recent-auth and expiry regressions |
 | A-07 | High | Dependency advisories in runtime/tooling packages | Pinned upgrades, SHA-256-locked production wheels with a release-embedded CycloneDX SBOM, full-commit-SHA CI Actions, plus weekly `pip-audit` and `npm audit` | Review failed scheduled jobs; use an update bot with controlled merges and retain signed provenance evidence |
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, permanent account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
@@ -1735,6 +1735,48 @@ is required before describing those controls as complete.
   The runbook now includes containment and a quarterly export-alert exercise.
   External immutable log retention remains required so a host compromise cannot
   erase this evidence.
+
+### Account-deletion session purge rollout — 2026-10-18
+
+- The public export-alert smoke revealed one harness-created authenticated Django
+  session remaining after its user row was deleted directly. The indexed
+  `AuthenticatedSession` row had cascaded, but its parent `django_session` row
+  cannot cascade in that direction. The orphan was identified without exposing
+  its payload, deleted, and a complete inventory then returned zero authenticated
+  sessions whose owner no longer existed. The application endpoint already
+  logged out its current session, but other device sessions had the same parent-
+  row lifecycle gap.
+- Commit `e7ae2e4df1061b2b43401a1527d91f07a76a04d0` now locks the owner and
+  deletes every indexed Django session inside the account-deletion transaction
+  before the user/data cascade. The response reports only `sessions_revoked`;
+  the security journal records former owner ID plus that count, and the monitor
+  emits only the aggregate `account_deleted` issue. Password, 2FA when enabled,
+  five-per-hour throttling and the existing confirmation UI remain mandatory.
+- Tests create two independently authenticated clients and prove both parent
+  session rows, both registry rows, the user and owned data disappear while the
+  second client becomes anonymous. The full backend suite passes 572 tests;
+  account/session-focused coverage passes 24 tests and all 36 monitor tests pass.
+  Django checks, migration drift, compilation and diff validation remain clean;
+  no schema or frontend bundle change was required.
+- A real public TLS smoke created two sessions, deleted through the first and
+  received `sessions_revoked=2`; both session tables and the temporary owner were
+  empty afterward, and the second client received `403`. The real Gunicorn event
+  activated and delivered the controlled `account_deleted` alert; after the
+  six-minute journal window, the successful resolution run returned the installed
+  byte-identical monitor to `active=[]`. Backend release
+  `/opt/aichat-backend-releases/release-20261017T235214_114371420` carries the
+  exact commit and has a valid manifest; rollback to repaired release
+  `/opt/aichat-backend-releases/release-20261017T234407_285204479` and restoration
+  each took two seconds.
+- The STRIDE focus is destructive tampering and repudiation after credential
+  theft. Strong step-up, rate limiting, all-session revocation and immediate
+  privacy-minimized detection reduce likelihood and MTTD, but deletion remains
+  intentionally irreversible in the live database. Scheduled/cancelable deletion
+  and visible status remain open. Backup and mandated audit retention also mean
+  the endpoint is not a promise of instant erasure from every retained copy; the
+  operator still needs a published erasure/backup schedule and verified legal
+  process. Suspected unauthorized deletion enters incident/privacy assessment
+  from the awareness timestamp and uses only integrity-checked recovery.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

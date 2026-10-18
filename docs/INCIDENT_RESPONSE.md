@@ -42,6 +42,9 @@ Neither alert includes the owner, IP, exported fields, filenames, or content.
 Any Unix-socket request missing a valid nginx-provided client address raises
 `proxy_client_ip_invalid`; investigate the proxy/socket trust boundary before
 restoring affected authentication paths.
+Every permanent account deletion raises `account_deleted` with only an aggregate
+count in the alert. Treat an unexpected event as destructive account takeover,
+even when no active session remains to inspect.
 Any saved-chat object or byte quota block raises `chat_object_quota`. A failed
 `aichat-maintenance.service` run raises `maintenance_failed`; this includes a
 failed archived-history cleanup and must not be dismissed as routine expiry.
@@ -84,6 +87,14 @@ acknowledging the alert.
   saved chat text, email, usage and session IP metadata; start legal/privacy
   assessment and the GDPR 72-hour awareness clock when unauthorized disclosure
   is plausible.
+- For an unexpected `account_deleted`, immediately preserve the authentication,
+  nginx and deletion-event window plus the newest pre-event backup identity and
+  hash. Confirm that every session was revoked and contain any credential/control-
+  plane compromise before considering recovery. The live deletion is immediate;
+  do not recreate the user, messages, ownership links or files manually. Restore
+  only through the documented integrity-checked recovery process with explicit
+  owner/legal authorization, and account for retained backup/audit copies under
+  the published retention policy.
 - For repeated saved-chat quota blocks, identify only the privacy-minimized owner
   and scope (`conversation`, `user` or `global`), preserve the event count and
   check database/disk growth. Do not export message content for triage. Keep the
