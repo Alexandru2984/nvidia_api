@@ -125,6 +125,10 @@ INSTALLED_APPS = [
     'chat',
 ]
 
+AUTHENTICATION_BACKENDS = [
+    'chat.auth_backend.DeferredPasswordUpgradeBackend',
+]
+
 MIDDLEWARE = [
     'chat.middleware.RealClientIPMiddleware',
     'chat.middleware.PrivateAPIResponseMiddleware',

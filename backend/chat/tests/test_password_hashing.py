@@ -80,6 +80,24 @@ def test_wrong_password_does_not_upgrade_legacy_hash(client, user):
 
 @pytest.mark.django_db
 @override_settings(PASSWORD_HASHERS=MEMORY_HARD_HASHERS)
+def test_failed_login_still_emits_privacy_safe_security_event(client, user, caplog):
+    _set_legacy_password(user)
+
+    with caplog.at_level('WARNING', logger='security'):
+        response = client.post('/api/auth/login/', {
+            'username': user.username,
+            'password': 'wrong-password',
+        }, format='json')
+
+    assert response.status_code == 401
+    messages = [record.getMessage() for record in caplog.records]
+    assert len([message for message in messages if message.startswith('event=auth_failed ')]) == 1
+    assert PASSWORD not in caplog.text
+    assert 'wrong-password' not in caplog.text
+
+
+@pytest.mark.django_db
+@override_settings(PASSWORD_HASHERS=MEMORY_HARD_HASHERS)
 def test_missing_second_factor_does_not_upgrade_or_invalidate_sessions(user):
     original = _set_legacy_password(user)
     TwoFactor.objects.create(

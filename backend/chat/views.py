@@ -15,6 +15,7 @@ from pathlib import Path
 import requests
 from django.conf import settings
 from django.contrib.auth import (
+    authenticate,
     get_user_model,
     update_session_auth_hash,
 )
@@ -91,9 +92,7 @@ from .models_catalog import (
     model_generation_limits,
 )
 from .passwords import (
-    burn_default_password_hasher,
     upgrade_password_hash,
-    verify_password_without_upgrade,
 )
 from .provider_disclosure import (
     CURRENT_PROVIDER_DISCLOSURE_VERSION,
@@ -257,18 +256,11 @@ def auth_login(request):
         return Response({'error': 'username and password required'}, status=status.HTTP_400_BAD_REQUEST)
     if len(password) > settings.MAX_PASSWORD_LENGTH:
         return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+    user = authenticate(request, username=username, password=password)
+    if user is None:
+        return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+    password_needs_upgrade = getattr(user, '_password_hash_needs_upgrade', False)
     User = get_user_model()
-    try:
-        user = User._default_manager.get_by_natural_key(username)
-    except User.DoesNotExist:
-        burn_default_password_hasher(password)
-        return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
-    password_valid, password_needs_upgrade = verify_password_without_upgrade(
-        password,
-        user.password,
-    )
-    if not password_valid or not getattr(user, 'is_active', True):
-        return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
     with transaction.atomic():
         locked_user = User.objects.select_for_update().filter(
             pk=user.pk,
