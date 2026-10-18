@@ -436,6 +436,11 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   username, email, IP, prompt, filename, session key or authentication factor.
   A committed attachment-storage deletion failure also alerts without its path
   or filename while the durable maintenance outbox retains retry state.
+  Routine request logs are minimized separately: this nginx vhost does not
+  inherit the host-wide raw-IP access log, while Gunicorn retains only timestamp,
+  method, path without query, HTTP version, status, response bytes and latency.
+  Client IP, User-Agent, Referer, cookies and query strings are excluded; security
+  events use a secret-keyed network pseudonym where actor correlation is needed.
 
 Deploy steps after a code change:
 
