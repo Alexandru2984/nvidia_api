@@ -23,6 +23,17 @@ export default defineConfig([
       'no-empty': ['error', { allowEmptyCatch: true }],
       // Legacy sync-setState-in-effect patterns; safe but worth surfacing.
       'react-hooks/set-state-in-effect': 'warn',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='style']",
+          message: 'Inline styles require CSP unsafe-inline; use a CSS class.',
+        },
+        {
+          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+          message: 'Render structured React nodes instead of injecting HTML.',
+        },
+      ],
     },
   },
 ])

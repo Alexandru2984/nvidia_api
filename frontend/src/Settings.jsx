@@ -123,7 +123,7 @@ function TwoFactorPanel() {
         <div className="enroll-card">
           <p>1. Scan this QR with your authenticator app, or enter the secret manually.</p>
           <img className="two-factor-qr" src={enrollData.qr_data_url} alt="2FA QR" />
-          <pre className="secret-box" style={{ userSelect: 'all' }}>{enrollData.secret}</pre>
+          <pre className="secret-box selectable-secret">{enrollData.secret}</pre>
           <p>2. Enter the 6-digit code your app shows now:</p>
           <input
             type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
@@ -172,7 +172,7 @@ function TwoFactorPanel() {
           <input
             type="text" placeholder="2FA code or recovery code"
             value={disableCode} onChange={(e) => setDisableCode(e.target.value)}
-            style={{ marginTop: 8 }}
+            className="spaced-input"
           />
           <div className="settings-actions">
             <button className="primary danger" onClick={doDisable} disabled={busy || !disablePassword || !disableCode}>
@@ -318,15 +318,15 @@ function SessionsPanel() {
           </div>
         </form>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="session-list">
         {sessions.map((s) => (
           <div key={s.id} className="session-row">
             <div>
               <div><strong>{s.current ? 'This device' : 'Other device'}</strong></div>
-              <div className="muted" style={{ fontSize: 12 }}>
+              <div className="muted session-meta">
                 {s.ua ? s.ua.slice(0, 80) : 'Unknown UA'} · IP {s.ip || '—'}
               </div>
-              <div className="muted" style={{ fontSize: 12 }}>
+              <div className="muted session-meta">
                 Signed in {s.login_at ? new Date(s.login_at).toLocaleString() : '—'} · expires {new Date(s.expires_at).toLocaleString()}
               </div>
             </div>
@@ -337,7 +337,7 @@ function SessionsPanel() {
         ))}
       </div>
       {sessions.filter((s) => !s.current).length > 0 && (
-        <button className="link danger" onClick={revokeOthers} disabled={busy} style={{ marginTop: 12 }}>
+        <button className="link danger session-revoke-others" onClick={revokeOthers} disabled={busy}>
           Sign out of all other sessions
         </button>
       )}
@@ -379,7 +379,7 @@ function PasswordPanel() {
       <p className="muted">Changing your password signs out every other device.</p>
       {error && <div className="login-error">{error}</div>}
       {info && <div className="login-info">{info}</div>}
-      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360 }}>
+      <form className="settings-form" onSubmit={submit}>
         <input type="password" placeholder="Current password" autoComplete="current-password"
           value={current} onChange={(e) => setCurrent(e.target.value)} required />
         <input type="password" placeholder="New password (min 8 chars)" autoComplete="new-password"
@@ -521,10 +521,10 @@ function DangerPanel({ onLoggedOut }) {
           <input type="password" placeholder="Your password" autoComplete="current-password"
             value={password} onChange={(e) => setPassword(e.target.value)} />
           {needsCode && (
-            <input type="text" placeholder="2FA code or recovery code" style={{ marginTop: 8 }}
+            <input className="spaced-input" type="text" placeholder="2FA code or recovery code"
               value={code} onChange={(e) => setCode(e.target.value)} />
           )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div className="settings-actions">
             <button className="primary danger" onClick={doDelete} disabled={busy || !password}>
               {busy ? 'Deleting…' : 'Permanently delete account'}
             </button>

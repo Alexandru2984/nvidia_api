@@ -202,7 +202,7 @@ function CodeScreen({ email, initialCooldown = 60, onVerified, onBack }) {
           </div>
         </div>
         <p className="login-hint">
-          We sent a code to <strong style={{ color: 'var(--text)' }}>{email}</strong>. The code expires in 30 minutes.
+          We sent a code to <strong className="login-recipient">{email}</strong>. The code expires in 30 minutes.
         </p>
         <label>
           <span>Verification code</span>
@@ -339,7 +339,7 @@ function ResetScreen({ email, onReset, onBack }) {
           </div>
         </div>
         <p className="login-hint">
-          We sent a code to <strong style={{ color: 'var(--text)' }}>{email}</strong>.
+          We sent a code to <strong className="login-recipient">{email}</strong>.
         </p>
         <label>
           <span>Reset code</span>
@@ -563,7 +563,7 @@ function AuthScreen({ initialMode = 'login', onLoggedIn, registrationMode }) {
           {busy ? (isRegister ? 'Creating…' : 'Signing in…') : (isRegister ? 'Create account' : 'Sign in')}
         </button>
         {!isRegister && (
-          <div className="login-toggle" style={{ marginTop: -4 }}>
+          <div className="login-toggle forgot-password-row">
             <button type="button" className="link" onClick={() => switchMode('forgot')}>Forgot password?</button>
           </div>
         )}
@@ -794,12 +794,12 @@ function MessageRow({ m, modelLabel, busy, onEdit, onRegenerate }) {
   return (
     <div className={`msg ${m.role}`}>
       <div className="avatar">{m.role === 'user' ? 'U' : 'AI'}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="message-content">
         <div className="role">
           <span>{m.role === 'user' ? 'You' : modelLabel}</span>
           {m.role === 'assistant' && m.content && <CopyButton text={m.content} />}
           {!isPending && !editing && !busy && (
-            <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
+            <span className="message-actions">
               {m.role === 'user' && (
                 <button className="link" type="button" onClick={startEdit} title="Edit message">✎ Edit</button>
               )}
@@ -820,17 +820,17 @@ function MessageRow({ m, modelLabel, busy, onEdit, onRegenerate }) {
           </div>
         )}
         {editing ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="message-editor">
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={Math.min(10, Math.max(2, draft.split('\n').length))}
-              style={{ width: '100%', resize: 'vertical' }}
+              className="message-editor-textarea"
             />
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="message-edit-actions">
               <button type="button" className="primary" onClick={saveEdit}>Save</button>
               <button type="button" className="link" onClick={() => setEditing(false)}>Cancel</button>
-              <span style={{ color: 'var(--muted, #888)', fontSize: 12, alignSelf: 'center' }}>
+              <span className="message-edit-tip">
                 Tip: after saving, click ⟳ Regenerate to re-roll the reply.
               </span>
             </div>
@@ -1959,7 +1959,7 @@ export default function App() {
 
   if (bootError && !user) {
     return (
-      <div style={{ padding: 40, color: 'var(--danger)' }}>
+      <div className="boot-error">
         <h2>Could not connect to API</h2>
         <pre>{bootError}</pre>
       </div>
@@ -1982,7 +1982,7 @@ export default function App() {
       <aside className="sidebar" id="conversation-sidebar" ref={sidebarRef} aria-label="Conversations">
         <div className="sidebar-header">
           <div className="brand-mark">N</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="sidebar-brand-copy">
             <div className="brand-text">AI Chat Hub</div>
             <div className="brand-sub">{models.length} models</div>
           </div>
@@ -2137,17 +2137,15 @@ export default function App() {
           {mode === 'chat' && active && (
             <>
               <button
-                className={`icon ${showConvoSettings ? 'active' : ''}`}
+                className={`icon convo-settings-toggle ${showConvoSettings ? 'active' : ''}`}
                 type="button"
                 onClick={() => setShowConvoSettings((v) => !v)}
                 title="Conversation settings (system prompt, temperature, max tokens)"
-                style={{ marginRight: 2 }}
               >🎛</button>
               <a
-                className="icon"
+                className="icon convo-export"
                 href={api.exportConversationUrl(active.id)}
                 title="Download conversation as Markdown"
-                style={{ marginRight: 6 }}
               >⬇</a>
             </>
           )}
@@ -2451,7 +2449,7 @@ export default function App() {
               accept={imageAccept}
               aria-label="Choose images"
               onChange={(event) => handlePickFiles(event, 'image')}
-              style={{ display: 'none' }}
+              className="file-input-hidden"
             />
             <input
               ref={documentInputRef}
@@ -2460,7 +2458,7 @@ export default function App() {
               accept=".pdf,.txt,.md,.docx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               aria-label="Choose documents"
               onChange={(event) => handlePickFiles(event, 'document')}
-              style={{ display: 'none' }}
+              className="file-input-hidden"
             />
             <button
               ref={attachButtonRef}

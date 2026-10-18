@@ -109,6 +109,7 @@ textarea { resize: none; line-height: 1.5; }
 }
 .brand-text { font-weight: 600; letter-spacing: .2px; }
 .brand-sub { font-size: 12px; color: var(--text-dim); }
+.sidebar-brand-copy, .message-content { flex: 1; min-width: 0; }
 
 .new-chat {
   margin: 12px;
@@ -270,6 +271,8 @@ textarea { resize: none; line-height: 1.5; }
   align-items: center;
   gap: 6px;
 }
+.convo-settings-toggle { margin-right: 2px; }
+.convo-export { margin-right: 6px; }
 .model-select-wrap {
   position: relative;
   min-width: 0;
@@ -676,6 +679,11 @@ textarea { resize: none; line-height: 1.5; }
   align-items: center;
   gap: 8px;
 }
+.message-actions { display: inline-flex; gap: 6px; margin-left: 8px; }
+.message-editor { display: flex; flex-direction: column; gap: 6px; }
+.message-editor-textarea { width: 100%; resize: vertical; }
+.message-edit-actions { display: flex; gap: 8px; }
+.message-edit-tip { align-self: center; color: var(--text-dim); font-size: 12px; }
 
 .copy-btn {
   font-size: 11px;
@@ -921,6 +929,7 @@ textarea { resize: none; line-height: 1.5; }
   color: var(--text-dim);
   font-size: 14px;
 }
+.boot-error { padding: 40px; color: var(--danger); }
 
 .login-wrap {
   height: 100vh;
@@ -994,11 +1003,13 @@ textarea { resize: none; line-height: 1.5; }
   line-height: 1.5;
   margin: 0;
 }
+.login-recipient { color: var(--text); }
 .login-toggle {
   text-align: center;
   font-size: 13px;
   color: var(--text-dim);
 }
+.forgot-password-row { margin-top: -4px; }
 button.link {
   border: none;
   padding: 0;
@@ -1148,6 +1159,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   font-size: 10px;
   line-height: 1.4;
 }
+.file-input-hidden { display: none; }
 
 .pending-row {
   max-width: 760px;
@@ -1552,6 +1564,12 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 }
 .settings-field { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; font-size: 13px; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.settings-form, .session-list { display: flex; flex-direction: column; gap: 8px; }
+.settings-form { max-width: 360px; }
+.selectable-secret { user-select: all; }
+.spaced-input { margin-top: 8px; }
+.session-meta { font-size: 12px; }
+.session-revoke-others { margin-top: 12px; }
 .two-factor-qr {
   display: block;
   width: 200px;
