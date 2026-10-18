@@ -193,8 +193,10 @@ timed evidence.
   requires password plus enabled 2FA, scheduling is idempotent and cannot extend
   a pending deadline, due cancellation fails closed, daily execution is bounded
   and excludes active generation owners before slicing, and all lifecycle events
-  enter the privacy-minimized alert path. Add a durable retry outbox for the rare
-  case where post-commit physical-file deletion fails.
+  enter the privacy-minimized alert path. Physical attachment deletion now uses a
+  durable transaction-coupled outbox: commit-time failures retain bounded retry
+  state, alert without a filename/path, and rotate behind untried work so a full
+  batch of permanent failures cannot starve the queue.
 - Image job history/gallery with cancel/retry/delete and preserved generation
   parameters.
 - **Versioned provider disclosure is shipped:** before the first chat,

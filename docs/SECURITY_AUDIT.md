@@ -75,7 +75,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
@@ -1802,10 +1802,9 @@ is required before describing those controls as complete.
 - Attachment storage deletion now runs only after database commit. A rollback
   therefore cannot restore a row whose physical file has already disappeared;
   regression coverage proves both rollback preservation and committed cascading
-  deletion. A post-commit storage failure still needs a durable retry outbox: the
-  maintenance unit fails and alerts, but an unreferenced private file can remain
-  until verified operator cleanup. This residual is explicit in the roadmap and
-  runbook rather than being mislabeled as guaranteed erasure.
+  deletion. At this rollout point, a post-commit storage failure still lacked a
+  durable retry outbox and could leave an unreferenced private file until verified
+  operator cleanup. The immediately following rollout closes that residual.
 - Schedule, cancellation and committed execution write fixed structured events.
   The six-minute monitor sends only event names/counts, never username, email,
   IP, prompt, filename, session identifier or authentication factor. The local
@@ -1870,6 +1869,73 @@ is required before describing those controls as complete.
   mandated evidence must be stated in the complete privacy/erasure schedule. A
   plausible unauthorized execution starts incident/privacy assessment at
   awareness and may trigger the GDPR 72-hour notification analysis.
+
+### Durable attachment-file deletion outbox rollout — 2026-10-18
+
+- Commit `6522259589aee8e69ff9627b43e7cb551c2f3fcc` couples every
+  `Attachment` deletion to a `PendingFileDeletion` row in the same database
+  transaction. Rollback removes the intent and preserves the file; commit invokes
+  storage deletion and clears the intent only after success. A process crash
+  between commit and callback, storage outage, or post-delete database failure
+  therefore leaves durable retry state instead of silently abandoning a private
+  object. Storage delete is idempotent, so repeating an operation whose object is
+  already absent is safe.
+- Failures increment only an attempt counter and timestamp and emit exactly
+  `attachment_file_delete_failed`; exception text, file name and storage path are
+  excluded from logs and Telegram. The read-only admin exposes only identifiers,
+  counters and timestamps. Daily maintenance reports queue size in dry-run and
+  retries at most `ATTACHMENT_FILE_DELETION_BATCH_SIZE` entries (default 1,000,
+  startup-bounded 1–10,000). Never-attempted entries sort ahead of failures and
+  failed entries rotate by last attempt, preventing a permanently failing full
+  batch from starving newer work.
+- Migration `0030_pendingfiledeletion` adds unique storage-name intent plus an
+  indexed creation time. The full stage-local contract passed 586 backend tests,
+  36 monitor tests, Django checks and migration drift, compilation, Bash syntax,
+  ShellCheck, immutable-Action pins, requirements/wheel-lock and deterministic
+  SBOM validation, and `pip-audit 2.10.1` with zero known vulnerabilities. The
+  unchanged frontend retained the immediately preceding green lint/build/audit
+  and 39-test Playwright run.
+- The pre-migration dump is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261018_163930_004442870.sql.gz`,
+  14,878 bytes, mode `0600 micu:micu`, SHA-256
+  `91c8ba0d31d4a8e228f0dedd73063ea00ecdb7f051a0f82fddf963b10e9d292f`.
+  Gzip validation passed, its ACL evidence hashes to
+  `417d903900e8f3ff4970410a75b0ed10102131856ba461b510ce48ca01cbbcb6`,
+  and neither `aichat` nor `aichat-monitor` can read it. Migration took one
+  second, preserved three users, six conversations, 16 messages and zero
+  attachments, and created an empty queue; live PostgreSQL introspection
+  confirmed storage-name uniqueness and the creation-time index.
+- Backend release
+  `/opt/aichat-backend-releases/release-20261018T133955_444721552` deployed in
+  12 seconds with a valid manifest and exact commit marker. Its scanner/parser
+  preflights passed. A rollback drill activated
+  `/opt/aichat-backend-releases/release-20261018T132221_973720049` in two seconds
+  and restored the new release in two seconds with all public/private probes
+  green. There was no frontend change or frontend deployment in this stage.
+- A real production-filesystem smoke used a content-free temporary owner and
+  forced storage deletion to fail after the attachment database deletion
+  committed. The queue retained one attempt while the private file remained;
+  the deployed retry then removed both, and cleanup left zero temporary users,
+  attachment rows, files or outbox rows. Final inventory returned exactly to
+  three users, six conversations and 16 messages. Maintenance dry-run reports
+  zero due accounts, zero pending files and valid audit integrity.
+- Final public/origin health is `200`; anonymous models/export and `/.env` are
+  `403`, direct media is `404`, TCP 8501 is closed, and the origin socket is
+  `0660 aichat:aichat-origin`. Backend, maintenance, model-probe, monitor and
+  config-watch timers/paths are active; backend and isolated parser have zero
+  automatic restarts; `aichat-clamd` is active. The installed monitor is
+  byte-identical to the repository, reports `active=[]`, and its state SHA-256 is
+  `6d5812e751fbfc00495a7293ecbb71e5248b09e31d1dbc2150086ebeab6ff2b6`.
+- Scoped CISO review treats silent residual personal-data retention as the main
+  threat, followed by queue starvation and sensitive path leakage. Transactional
+  intent, bounded fair retry and count-only sub-six-minute alerting reduce those
+  risks and cap each maintenance run. A compromised database/service identity can
+  still delete queue evidence, and a persistent storage outage delays physical
+  erasure; timer health, private media permissions, protected backups and incident
+  escalation remain mandatory. The outbox stores the private storage name because
+  deletion requires it, but it is absent from APIs/admin lists/logs and remains
+  under the existing database access boundary. No new NVIDIA transfer, processor
+  or data class is introduced.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
