@@ -86,6 +86,9 @@ AI_USER_DAILY_IMAGE_LIMIT=10
 AI_GLOBAL_DAILY_CHAT_LIMIT=500
 AI_GLOBAL_DAILY_IMAGE_LIMIT=50
 CHAT_RETENTION_DELETE_BATCH_SIZE=100
+ACCOUNT_DELETION_GRACE_DAYS=7
+ACCOUNT_DELETION_BATCH_SIZE=25
+ATTACHMENT_FILE_DELETION_BATCH_SIZE=1000
 CHAT_MAX_CONVERSATIONS_PER_USER=500
 CHAT_MAX_MESSAGES_PER_USER=10000
 CHAT_MAX_MESSAGES_PER_CONVERSATION=2000
@@ -267,8 +270,13 @@ with active generation work before applying the batch limit, then rechecks the
 deadline and lease state under the global-gate/owner lock order. Execution
 revokes every indexed session and cascades live account data; physical attachment
 deletion is deferred until database commit so rollback cannot strand restored
-rows without their files. Restricted operational backups expire independently
-under the backup policy (the local default keeps the newest seven dumps).
+rows without their files. The same transaction writes a durable deletion-outbox
+row first. A successful post-commit storage delete clears it; failures emit only
+`attachment_file_delete_failed` (never a path or filename) and daily maintenance
+retries oldest entries under `ATTACHMENT_FILE_DELETION_BATCH_SIZE` (default
+1,000, startup-bounded 1–10,000). Restricted operational backups expire
+independently under the backup policy (the local default keeps the newest seven
+dumps).
 
 Authenticated sessions keep Django's 14-day sliding cookie but are also bounded
 by a fixed 30-day lifetime from login. Rotations preserve that original deadline,
@@ -419,6 +427,8 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   Account-deletion schedule, cancellation and committed execution each raise a
   count-only alert; journal evidence contains numeric owner identifiers but no
   username, email, IP, prompt, filename, session key or authentication factor.
+  A committed attachment-storage deletion failure also alerts without its path
+  or filename while the durable maintenance outbox retains retry state.
 
 Deploy steps after a code change:
 

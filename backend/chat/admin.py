@@ -13,6 +13,7 @@ from .models import (
     DailyAIUsage,
     GlobalAIUsage,
     Message,
+    PendingFileDeletion,
     ProviderDisclosureAcceptance,
     RegistrationInvite,
 )
@@ -90,6 +91,13 @@ class AccountDeletionRequestAdmin(ReadOnlyUsageAdmin):
     list_filter = ('requested_at', 'execute_after')
     search_fields = ('user__username', 'user__email')
     date_hierarchy = 'execute_after'
+
+
+@admin.register(PendingFileDeletion)
+class PendingFileDeletionAdmin(ReadOnlyUsageAdmin):
+    list_display = ('id', 'attempts', 'created_at', 'last_attempt_at')
+    exclude = ('file_name',)
+    date_hierarchy = 'created_at'
 
 
 @admin.register(DailyAIUsage)

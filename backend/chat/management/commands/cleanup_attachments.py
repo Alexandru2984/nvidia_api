@@ -13,6 +13,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from chat.admin_audit import audit_event_is_valid, security_log
+from chat.file_deletions import retry_pending_file_deletion
 from chat.models import (
     AccountDeletionRequest,
     AdminAuditEvent,
@@ -27,6 +28,7 @@ from chat.models import (
     GenerationRequest,
     GlobalAIUsage,
     Message,
+    PendingFileDeletion,
     PasswordReset,
     RegistrationInvite,
 )
@@ -117,6 +119,16 @@ class Command(BaseCommand):
             execute_after__lte=now,
         )
         due_account_deletion_count = due_account_deletion_qs.count()
+        pending_file_deletion_qs = PendingFileDeletion.objects.all()
+        pending_file_deletion_count = pending_file_deletion_qs.count()
+        pending_file_deletion_ids = list(
+            pending_file_deletion_qs.order_by(
+                models.F('last_attempt_at').asc(nulls_first=True),
+                'created_at',
+                'id',
+            ).values_list('pk', flat=True)
+            [:settings.ATTACHMENT_FILE_DELETION_BATCH_SIZE]
+        )
         retention_filter = models.Q(pk__isnull=True)
         for retention_days in ChatHistoryRetention.DELETE_DAYS:
             retention_cutoff = now - timedelta(days=retention_days)
@@ -205,9 +217,21 @@ class Command(BaseCommand):
                 f'(batch limit {settings.ACCOUNT_DELETION_BATCH_SIZE})'
             )
             self.stdout.write(
+                f'  - {pending_file_deletion_count} pending attachment file deletions '
+                f'(batch limit {settings.ATTACHMENT_FILE_DELETION_BATCH_SIZE})'
+            )
+            self.stdout.write(
                 f'  - audit integrity: {invalid_audits} invalid, {missing_audits} missing'
             )
             return
+
+        file_deletions_retried = 0
+        file_deletion_failures = 0
+        for pending_id in pending_file_deletion_ids:
+            if retry_pending_file_deletion(pending_id):
+                file_deletions_retried += 1
+            else:
+                file_deletion_failures += 1
 
         for att in att_qs:
             att.delete()
@@ -391,5 +415,7 @@ class Command(BaseCommand):
             f'{deleted_global_usage_rows} expired aggregate AI usage rows, '
             f'{retained_conversations_deleted} retained archived conversations '
             f'({retained_messages_deleted} messages, {retained_bytes_deleted} bytes), '
-            f'{accounts_deleted} due accounts ({account_sessions_revoked} sessions revoked).'
+            f'{accounts_deleted} due accounts ({account_sessions_revoked} sessions revoked), '
+            f'{file_deletions_retried} pending attachment files retried '
+            f'({file_deletion_failures} failed).'
         ))

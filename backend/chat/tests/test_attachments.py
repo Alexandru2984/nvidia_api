@@ -17,7 +17,7 @@ from chat.attachments import (
     kind_for_mime,
 )
 from chat.malware import CLEAN, INFECTED, MalwareScanError
-from chat.models import Attachment, AttachmentUploadAttempt, Message
+from chat.models import Attachment, AttachmentUploadAttempt, Message, PendingFileDeletion
 
 
 def _png_bytes():
@@ -501,6 +501,7 @@ def test_attachment_file_survives_database_delete_rollback(user):
 
     assert Attachment.objects.filter(pk=attachment_id).exists()
     assert Path(attachment_path).exists()
+    assert not PendingFileDeletion.objects.exists()
 
 
 @pytest.mark.django_db

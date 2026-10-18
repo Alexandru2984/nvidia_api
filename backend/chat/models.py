@@ -3,7 +3,7 @@ import secrets
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -546,6 +546,18 @@ def _attachment_path(instance, filename):
     return f'attachments/{instance.user_id}/{rand}/{filename}'
 
 
+class PendingFileDeletion(models.Model):
+    """Durable outbox for storage deletion after the owning DB row commits."""
+
+    file_name = models.CharField(max_length=500, unique=True)
+    attempts = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'PendingFileDeletion(id={self.pk}, attempts={self.attempts})'
+
+
 class Attachment(models.Model):
     KIND_IMAGE = 'image'
     KIND_DOCUMENT = 'document'
@@ -653,11 +665,13 @@ class AttachmentUploadAttempt(models.Model):
 
 
 @receiver(pre_delete, sender=Attachment)
-def _attachment_pre_delete(sender, instance, **kwargs):
+def _attachment_pre_delete(sender, instance, using, **kwargs):
     if instance.file:
-        # Storage is outside the database transaction. Deleting immediately
-        # would leave a rolled-back row pointing at a missing file, so defer
-        # the irreversible side effect until the surrounding commit succeeds.
-        storage = instance.file.storage
-        name = instance.file.name
-        transaction.on_commit(lambda: storage.delete(name))
+        # Import lazily to avoid the helper's model import during app loading.
+        from .file_deletions import enqueue_file_deletion
+
+        enqueue_file_deletion(
+            instance.file.storage,
+            instance.file.name,
+            using=using,
+        )

@@ -713,6 +713,7 @@ def evaluate(
     attachment_rejections = journal.count('event=attachment_capability_rejected')
     malware_rejections = journal.count('event=attachment_malware_rejected')
     scanner_unavailable = journal.count('event=attachment_scanner_unavailable')
+    file_delete_failures = journal.count('event=attachment_file_delete_failed')
     parser_unavailable = journal.count('event=attachment_parser_unavailable')
     parser_failures = journal.count('event=document_parser_failure')
     provider_protocol_rejections = journal.count('event=provider_protocol_rejected')
@@ -791,6 +792,11 @@ def evaluate(
     if scanner_unavailable:
         issues['attachment_scanner_unavailable'] = (
             'Attachment malware scanning was unavailable during a request.'
+        )
+    if file_delete_failures:
+        issues['attachment_file_delete_failed'] = (
+            f'{file_delete_failures} committed attachment files could not be deleted '
+            'and remain queued for retry.'
         )
     if parser_unavailable:
         issues['attachment_parser_unavailable'] = (

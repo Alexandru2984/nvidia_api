@@ -383,6 +383,13 @@ if not 1 <= ACCOUNT_DELETION_BATCH_SIZE <= 100:
     raise ImproperlyConfigured(
         'ACCOUNT_DELETION_BATCH_SIZE must be between 1 and 100.',
     )
+ATTACHMENT_FILE_DELETION_BATCH_SIZE = _nonnegative_int_env(
+    'ATTACHMENT_FILE_DELETION_BATCH_SIZE', 1000,
+)
+if not 1 <= ATTACHMENT_FILE_DELETION_BATCH_SIZE <= 10_000:
+    raise ImproperlyConfigured(
+        'ATTACHMENT_FILE_DELETION_BATCH_SIZE must be between 1 and 10000.',
+    )
 AI_USER_USAGE_RETENTION_DAYS = _nonnegative_int_env(
     'AI_USER_USAGE_RETENTION_DAYS', 90,
 )

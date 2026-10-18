@@ -56,6 +56,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=attachment_capability_rejected'] * 5
             + ['event=attachment_malware_rejected source=upload user_id=4']
             + ['event=attachment_scanner_unavailable source=image user_id=4']
+            + ['event=attachment_file_delete_failed']
             + ['event=attachment_parser_unavailable user_id=4']
             + ['event=document_parser_failure type=pdf reason=timeout']
             + ['event=provider_protocol_rejected kind=chat reason=bounds_or_shape']
@@ -86,6 +87,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'session_registry_mismatch', 'session_limit_burst', 'invite_rejection_burst',
              'attachment_capability_burst',
              'attachment_malware', 'attachment_scanner_unavailable',
+             'attachment_file_delete_failed',
              'attachment_parser_unavailable', 'document_parser_failure',
              'provider_protocol_rejected', 'two_factor_key_error',
              'model_status_invalid',
@@ -103,6 +105,8 @@ class SecurityMonitorTests(unittest.TestCase):
         )
         self.assertNotIn('user_id', issues['account_export_completed'])
         self.assertNotIn('user_id', issues['account_export_bound_exceeded'])
+        self.assertNotIn('filename', issues['attachment_file_delete_failed'])
+        self.assertNotIn('user_id', issues['attachment_file_delete_failed'])
 
     def test_clamav_database_requires_recent_protected_daily_signatures(self):
         database_dir = self.root / 'clamav'
