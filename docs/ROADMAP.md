@@ -16,6 +16,12 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   browser traffic; the unchanged `script-src 'self'` correctly blocks both
   elements. Disable that injection in the Cloudflare dashboard rather than
   expanding the application's script policy.
+- **Memory-hard password storage is shipped:** new and changed credentials use
+  scrypt, existing PBKDF2 hashes upgrade only after complete password-plus-2FA
+  authentication, incomplete second-factor attempts cannot mutate credentials
+  or invalidate sessions, and the previous release remains able to verify the
+  new format. Re-benchmark authentication memory/latency before increasing
+  worker concurrency or materially opening registration traffic.
 - **Dedicated service identity:** the web process and application maintenance
   timers run as the non-login `aichat` Unix user, with an unprivileged app-only
   database role and app-owned media/cache. Keep this invariant in deployment

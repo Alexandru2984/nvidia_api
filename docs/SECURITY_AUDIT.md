@@ -87,6 +87,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
 | A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days; 90-day user-linked and 400-day aggregate-only AI-usage retention | Publish the operator-wide legal/default schedule before materially raising account or quota volume |
 | A-23 | Medium | React inline styles required a broad CSP style exception, leaving a weaker defense against injected markup | All application styles use static classes; ESLint forbids JSX `style` and `dangerouslySetInnerHTML`; deployed CSP is `style-src 'self'`; origin browser smoke reports zero inline styles/violations at 320 and 1440 px | Disable Cloudflare Browser Insights injection at the edge; keep its currently blocked scripts out of `script-src` and retain real-browser CSP regression probes |
+| A-24 | Medium | Passwords used a CPU-only PBKDF2 default, while Django's automatic lazy upgrade could rewrite a valid legacy credential before required 2FA and invalidate active sessions | Memory-hard scrypt is preferred; legacy PBKDF2 remains verifiable; upgrades are deferred until password plus required 2FA succeeds under an owner-row lock; failed/incomplete authentication is read-only; invalidated indexed sessions are removed explicitly | A database copy still enables offline guessing; retain strong-password policy and breach response, monitor authentication capacity, and benchmark parameters before materially increasing traffic or worker concurrency |
 
 ## Quantitative risk view
 
@@ -1991,6 +1992,69 @@ is required before describing those controls as complete.
   compromised same-origin release remains in policy, so manifest verification,
   origin-versus-edge browser probes and removal of Browser Insights remain
   necessary. No user data model or NVIDIA processing flow changed.
+
+### Memory-hard password rollout — 2026-10-19
+
+- Commit `907db5448f4ce31d42b2143e03d1e0e0c42f3f91` makes Django's
+  standard scrypt hasher the production preference while retaining the legacy
+  Django hasher order for stored-format and rollback compatibility.
+  The deployed scrypt parameters are Django 6.0.8 defaults: work factor 16,384,
+  block size 8 and parallelism 5. No new package, schema migration, secret or
+  external processor was introduced.
+- Password verification and hash mutation are now distinct operations. Login
+  verifies without a setter, locks and rechecks the exact user hash, completes
+  required TOTP/recovery verification, and only then writes the upgraded hash.
+  Reauthentication follows the same order, rotates and reindexes the current
+  session after an upgrade, and removes older indexed sessions that the changed
+  password-derived session signature invalidates. Unknown users still pay one
+  preferred-hasher operation to retain the existing enumeration resistance.
+  Wrong passwords, missing 2FA and invalid 2FA cannot rewrite the credential.
+- Six dedicated regressions cover the production hasher order, new-password
+  creation, legacy login upgrade, wrong-password immutability, incomplete-2FA
+  session preservation, complete-2FA upgrade and current-session preservation.
+  The full backend suite passed 593 tests. Django checks and migration-drift,
+  Python compile and package consistency, immutable Action pins, Bash/ShellCheck,
+  36 monitor tests, key/retention/SBOM operation tests and the Python dependency
+  audit all passed; the audit reported zero known runtime vulnerabilities.
+- Pre-rollout dump
+  `/home/micu/backups/nvidia_db/nvidia_db_20261019_001656_570109556.sql.gz`
+  is owner-only mode `0600`, passed gzip validation and has SHA-256
+  `bb7f4462689b60b58b8b119c1fc4e76018346e37b2cdeb86b0dc053cff8cb480`.
+  The production inventory contained three users and three PBKDF2-SHA256 hashes;
+  deployment deliberately did not bulk-rewrite them.
+- Root-owned backend release
+  `/opt/aichat-backend-releases/release-20261018T211701_986466991` carries the
+  exact commit marker and manifest SHA-256
+  `aae4aae1ac47c3e4364657e48bf4712f34ab30e193a2c9d072e9f98e9ab82c0d`.
+  Django/scanner/parser preflights passed. The sole deploy warning remains the
+  intentional absence of HSTS preload enrollment; the one-year HSTS policy is
+  unchanged.
+- A public HTTPS/Cloudflare smoke created one content-free temporary active user
+  with a PBKDF2 hash, established CSRF state, completed login, reached an
+  authenticated private route and proved that the stored hash became scrypt.
+  Its indexed session and user were then deleted; database verification found
+  zero smoke residue and the real aggregate returned to three PBKDF2-SHA256
+  users. The application security event contained only numeric user/session
+  counts, never the credential or hash.
+- The active pre-rollout release independently generated and verified a scrypt
+  hash before deployment. The formal rollback drill then activated
+  `/opt/aichat-backend-releases/release-20261018T133955_444721552` in three
+  seconds and restored the new release in two seconds. Final root/health are
+  `200`, anonymous private API and `/.env` are `403`, media is `404`, the backend
+  reports zero automatic restarts, and every persistent application service,
+  timer and watch path is active. The monitor succeeded and raised the expected
+  `protected_config_changed` issue for the planned unit/release installation;
+  it must clear naturally after its six-minute journal window.
+- Scoped CISO review ranks offline cracking after database theft first and
+  authentication resource exhaustion second. Memory hardness materially raises
+  attacker cost, while the existing IP limiter, 128-character input ceiling,
+  24-thread bound and 1/1.5 GiB service memory thresholds bound online pressure.
+  Deferred mutation closes the pre-2FA session-invalidation path. It does not
+  mitigate phishing, credential stuffing, a live application compromise or a
+  weak chosen password; incident containment, session revocation, 2FA and
+  private/off-site backup controls remain required. No new personal-data class or
+  NVIDIA data flow was created, so processor scope and GDPR breach escalation
+  remain unchanged.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
