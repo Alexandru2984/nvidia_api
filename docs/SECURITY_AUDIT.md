@@ -87,7 +87,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
 | A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days; 90-day user-linked and 400-day aggregate-only AI-usage retention | Publish the operator-wide legal/default schedule before materially raising account or quota volume |
 | A-23 | Medium | React inline styles required a broad CSP style exception, leaving a weaker defense against injected markup | All application styles use static classes; ESLint forbids JSX `style` and `dangerouslySetInnerHTML`; deployed CSP is `style-src 'self'`; origin browser smoke reports zero inline styles/violations at 320 and 1440 px | Disable Cloudflare Browser Insights injection at the edge; keep its currently blocked scripts out of `script-src` and retain real-browser CSP regression probes |
-| A-24 | Medium | Passwords used a CPU-only PBKDF2 default, while Django's automatic lazy upgrade could rewrite a valid legacy credential before required 2FA and invalidate active sessions | Memory-hard scrypt is preferred; legacy PBKDF2 remains verifiable; upgrades are deferred until password plus required 2FA succeeds under an owner-row lock; failed/incomplete authentication is read-only; invalidated indexed sessions are removed explicitly | A database copy still enables offline guessing; retain strong-password policy and breach response, monitor authentication capacity, and benchmark parameters before materially increasing traffic or worker concurrency |
+| A-24 | Medium | Passwords used a CPU-only PBKDF2 default, while Django's automatic lazy upgrade could rewrite a valid legacy credential before required 2FA and invalidate active sessions | Memory-hard scrypt is preferred; legacy PBKDF2 remains verifiable; a dedicated Django backend defers upgrades until password plus required 2FA succeeds under an owner-row lock while preserving failed-login signals; failed/incomplete authentication is read-only; invalidated indexed sessions are removed explicitly | A database copy still enables offline guessing; retain strong-password policy and breach response, monitor authentication capacity, and benchmark parameters before materially increasing traffic or worker concurrency |
 
 ## Quantitative risk view
 
@@ -2055,6 +2055,36 @@ is required before describing those controls as complete.
   private/off-site backup controls remain required. No new personal-data class or
   NVIDIA data flow was created, so processor scope and GDPR breach escalation
   remain unchanged.
+
+### Failed-login detection follow-up — 2026-10-19
+
+- Review immediately after the password rollout found that directly invoking
+  the deferred verifier bypassed Django's `authenticate()` dispatcher and its
+  `user_login_failed` signal. Invalid credentials still failed closed, but the
+  six-minute brute-force monitor would not have counted those failures. Commit
+  `e059b2ea7ec786159c4bfd8096ab5babb1bfca78` replaces that direct call with a
+  configured `DeferredPasswordUpgradeBackend`: Django again sets backend
+  attribution and emits its standard failure signal, while hash mutation remains
+  deferred until the view completes required 2FA.
+- A dedicated regression proves that one failed legacy-password login emits
+  exactly one pseudonymous `auth_failed` event and that neither submitted nor
+  valid password material enters the event. The complete backend suite now
+  passes 594 tests; Django/migration/compile, immutable Action pins, Bash,
+  ShellCheck, 36 monitor tests, key/retention/SBOM tests and the production lock
+  check also pass.
+- Root-owned release
+  `/opt/aichat-backend-releases/release-20261018T212153_465094940` deployed with
+  the exact commit marker. A public Cloudflare/CSRF probe for a nonexistent user
+  returned the generic `401` body and produced exactly one
+  `event=auth_failed actor=network:<pseudonym>` record without username or
+  password. No account or session was created. Rollback activated the preceding
+  scrypt-capable release in two seconds and restored the corrected release in two
+  seconds with all release/health/private-route gates green.
+- This follow-up narrows detection MTTD back below six minutes for online
+  password attacks; local or root-level journal deletion and distributed attacks
+  below thresholds remain residual risks. It also demonstrates why security
+  telemetry must be tested through the real endpoint rather than only by directly
+  firing its signal in unit tests.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
