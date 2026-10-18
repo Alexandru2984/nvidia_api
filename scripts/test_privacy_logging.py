@@ -17,7 +17,7 @@ class PrivacyLoggingTests(unittest.TestCase):
             line for line in unit.splitlines() if line.startswith('ExecStart=')
         )
         expected = (
-            "--access-logformat '[%%(t)s] \"%%(m)s %%(U)s %%(H)s\" "
+            "--access-logformat '%%(t)s \"%%(m)s %%(U)s %%(H)s\" "
             "%%(s)s %%(b)s %%(L)s'"
         )
         self.assertIn(expected, exec_start)

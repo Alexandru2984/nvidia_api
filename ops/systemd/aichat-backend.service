@@ -16,7 +16,7 @@ Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend
 # Keep operational request shape and latency without retaining client IP,
 # User-Agent, Referer, cookies or query strings. Literal percent signs must be
 # doubled for systemd and reach Gunicorn as single format markers.
-ExecStart=/opt/aichat-python-current/bin/python -m gunicorn nvidia_chat.wsgi:application --bind unix:/run/aichat-backend/gunicorn.sock --forwarded-allow-ips=* --worker-class gthread --workers 3 --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile - --access-logformat '[%%(t)s] "%%(m)s %%(U)s %%(H)s" %%(s)s %%(b)s %%(L)s' --error-logfile -
+ExecStart=/opt/aichat-python-current/bin/python -m gunicorn nvidia_chat.wsgi:application --bind unix:/run/aichat-backend/gunicorn.sock --forwarded-allow-ips=* --worker-class gthread --workers 3 --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile - --access-logformat '%%(t)s "%%(m)s %%(U)s %%(H)s" %%(s)s %%(b)s %%(L)s' --error-logfile -
 ExecStartPost=/opt/aichat-python-current/bin/python -m chat.prepare_origin_socket
 Restart=always
 RestartSec=5
