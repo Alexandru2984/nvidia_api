@@ -2,10 +2,12 @@
 import hashlib
 import hmac
 import uuid
+from pathlib import Path
 from unittest import mock
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import transaction
 
 from chat.attachments import (
     DocumentParserError,
@@ -477,6 +479,28 @@ class TestDeleteAttachment:
         r = other_client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
         d = auth_client.delete(f'/api/attachments/{r.json()["id"]}/')
         assert d.status_code == 404
+
+
+@pytest.mark.django_db(transaction=True)
+def test_attachment_file_survives_database_delete_rollback(user):
+    attachment = Attachment.objects.create(
+        user=user,
+        file=SimpleUploadedFile('rollback.txt', b'keep', content_type='text/plain'),
+        original_name='rollback.txt',
+        mime_type='text/plain',
+        size=4,
+        kind=Attachment.KIND_DOCUMENT,
+    )
+    attachment_id = attachment.pk
+    attachment_path = attachment.file.path
+
+    with pytest.raises(RuntimeError, match='force rollback'):
+        with transaction.atomic():
+            attachment.delete()
+            raise RuntimeError('force rollback')
+
+    assert Attachment.objects.filter(pk=attachment_id).exists()
+    assert Path(attachment_path).exists()
 
 
 @pytest.mark.django_db

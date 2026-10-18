@@ -3,7 +3,7 @@ import secrets
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -202,6 +202,30 @@ class ChatHistoryRetention(models.Model):
 
     def __str__(self):
         return f'ChatHistoryRetention(user={self.user_id}, days={self.archived_days})'
+
+
+class AccountDeletionRequest(models.Model):
+    """Owner-requested, cancelable deadline for complete live-account deletion."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name='account_deletion_request',
+        on_delete=models.CASCADE,
+        primary_key=True,
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+    execute_after = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(execute_after__gte=models.F('requested_at')),
+                name='chat_account_deletion_after_request',
+            ),
+        ]
+
+    def __str__(self):
+        return f'AccountDeletionRequest(user={self.user_id}, after={self.execute_after})'
 
 
 class Conversation(models.Model):
@@ -631,4 +655,9 @@ class AttachmentUploadAttempt(models.Model):
 @receiver(pre_delete, sender=Attachment)
 def _attachment_pre_delete(sender, instance, **kwargs):
     if instance.file:
-        instance.file.delete(save=False)
+        # Storage is outside the database transaction. Deleting immediately
+        # would leave a rolled-back row pointing at a missing file, so defer
+        # the irreversible side effect until the surrounding commit succeeds.
+        storage = instance.file.storage
+        name = instance.file.name
+        transaction.on_commit(lambda: storage.delete(name))

@@ -156,6 +156,9 @@ async function mockAPI(
         ],
         scope: 'archived_inactive_conversations',
       },
+      '/api/account/deletion/': {
+        scheduled: false, requested_at: null, execute_after: null, grace_days: 7,
+      },
       '/api/auth/2fa/status/': { enabled: false, recovery_codes_remaining: 0 },
       '/api/auth/sessions/': [{ id: 'opaque-handle', current: true, ua: 'Browser', ip: '198.51.100.1', expires_at: '2026-11-01T00:00:00Z' }],
     }[path]
@@ -395,6 +398,48 @@ test('account export reauthenticates and starts a download without mobile overfl
     href: 'http://127.0.0.1:5179/api/account/export/', download: '',
   })
   await expect(panel.getByLabel('Current password')).toHaveCount(0)
+  await expectNoPageOverflow(page)
+})
+
+test('scheduled account deletion can be created and canceled on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  let scheduled = false
+  const mutations = []
+  await page.route('**/api/account/deletion/', async (route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      return route.fulfill({ status: 200, json: {
+        scheduled, requested_at: scheduled ? '2026-10-18T00:00:00Z' : null,
+        execute_after: scheduled ? '2026-10-25T00:00:00Z' : null, grace_days: 7,
+      } })
+    }
+    mutations.push({ method, payload: route.request().postDataJSON() })
+    scheduled = method === 'POST'
+    return route.fulfill({ status: method === 'POST' ? 201 : 200, json: {
+      scheduled, requested_at: scheduled ? '2026-10-18T00:00:00Z' : null,
+      execute_after: scheduled ? '2026-10-25T00:00:00Z' : null, grace_days: 7,
+    } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Settings', { exact: true }).click()
+  const panel = page.getByRole('heading', { name: 'Danger zone' }).locator('..')
+  await panel.getByRole('button', { name: 'Schedule deletion…' }).click()
+  await panel.getByLabel('Scheduled deletion password').fill('correct-password')
+  page.once('dialog', (dialog) => dialog.accept())
+  await panel.getByRole('button', { name: 'Schedule account deletion' }).click()
+  await expect(panel.getByText(/eligible for permanent deletion after/)).toBeVisible()
+
+  await panel.getByRole('button', { name: 'Cancel scheduled deletion…' }).click()
+  await panel.getByLabel('Scheduled deletion password').fill('correct-password')
+  await panel.getByRole('button', { name: 'Keep my account' }).click()
+  await expect(panel.getByText(/Start a 7-day grace period/)).toBeVisible()
+  expect(mutations).toEqual([
+    { method: 'POST', payload: { password: 'correct-password' } },
+    { method: 'DELETE', payload: { password: 'correct-password' } },
+  ])
   await expectNoPageOverflow(page)
 })
 

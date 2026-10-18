@@ -129,6 +129,7 @@ class TestChatRetentionCleanup:
         self,
         user,
         settings,
+        django_capture_on_commit_callbacks,
     ):
         settings.CHAT_RETENTION_DELETE_BATCH_SIZE = 100
         ChatHistoryRetention.objects.create(user=user, archived_days=30)
@@ -157,7 +158,8 @@ class TestChatRetentionCleanup:
         Conversation.objects.filter(pk=active.pk).update(updated_at=old_time)
 
         output = StringIO()
-        call_command('cleanup_attachments', stdout=output)
+        with django_capture_on_commit_callbacks(execute=True):
+            call_command('cleanup_attachments', stdout=output)
 
         assert not Conversation.objects.filter(pk=old.pk).exists()
         assert Conversation.objects.filter(pk=recent.pk).exists()

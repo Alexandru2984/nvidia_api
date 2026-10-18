@@ -6,6 +6,7 @@ from django.contrib.auth.models import Group
 
 from .admin_audit import PrivacyAuditAdminMixin
 from .models import (
+    AccountDeletionRequest,
     AdminAuditEvent,
     ChatHistoryRetention,
     Conversation,
@@ -81,6 +82,14 @@ class ChatHistoryRetentionAdmin(ReadOnlyUsageAdmin):
     list_display = ('user', 'archived_days', 'updated_at')
     list_filter = ('archived_days',)
     search_fields = ('user__username', 'user__email')
+
+
+@admin.register(AccountDeletionRequest)
+class AccountDeletionRequestAdmin(ReadOnlyUsageAdmin):
+    list_display = ('user', 'requested_at', 'execute_after')
+    list_filter = ('requested_at', 'execute_after')
+    search_fields = ('user__username', 'user__email')
+    date_hierarchy = 'execute_after'
 
 
 @admin.register(DailyAIUsage)

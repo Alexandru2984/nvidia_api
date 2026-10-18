@@ -1,4 +1,4 @@
-"""Daily cleanup for expired uploads, auth metadata, chat retention, and leases.
+"""Daily cleanup for expired data, retention, leases, and due account deletion.
 
 Scheduled in production by `aichat-maintenance.timer`.
 """
@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from chat.admin_audit import audit_event_is_valid, security_log
 from chat.models import (
+    AccountDeletionRequest,
     AdminAuditEvent,
     Attachment,
     AttachmentUploadAttempt,
@@ -29,10 +30,14 @@ from chat.models import (
     PasswordReset,
     RegistrationInvite,
 )
+from chat.sessions import revoke_user_sessions
 
 
 class Command(BaseCommand):
-    help = 'Delete expired uploads, auth metadata, retained chats, audits, and leases.'
+    help = (
+        'Delete expired uploads/auth metadata/retained chats/audits/leases '
+        'and execute due account deletions.'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true', help='Show what would be deleted, but do not delete.')
@@ -108,6 +113,10 @@ class Command(BaseCommand):
             expired_global_usage_qs.order_by('day', 'id').values_list('pk', flat=True)
             [:usage_delete_batch_size]
         )
+        due_account_deletion_qs = AccountDeletionRequest.objects.filter(
+            execute_after__lte=now,
+        )
+        due_account_deletion_count = due_account_deletion_qs.count()
         retention_filter = models.Q(pk__isnull=True)
         for retention_days in ChatHistoryRetention.DELETE_DAYS:
             retention_cutoff = now - timedelta(days=retention_days)
@@ -190,6 +199,10 @@ class Command(BaseCommand):
                 f'({retention_message_usage["count"] or 0} messages, '
                 f'{(retention_message_usage["bytes"] or 0) / 1024 / 1024:.1f} MiB; '
                 f'batch limit {settings.CHAT_RETENTION_DELETE_BATCH_SIZE})'
+            )
+            self.stdout.write(
+                f'  - {due_account_deletion_count} due account deletions '
+                f'(batch limit {settings.ACCOUNT_DELETION_BATCH_SIZE})'
             )
             self.stdout.write(
                 f'  - audit integrity: {invalid_audits} invalid, {missing_audits} missing'
@@ -310,6 +323,60 @@ class Command(BaseCommand):
                 retained_bytes_deleted,
             )
 
+        accounts_deleted = 0
+        account_sessions_revoked = 0
+        # Expired generation leases were removed above. Exclude the remaining
+        # active owners before slicing so one long generation cannot consume a
+        # deletion batch slot and starve other due accounts.
+        active_owner_lease = ConversationGenerationLease.objects.filter(
+            conversation__user_id=models.OuterRef('user_id'),
+        )
+        account_deletion_candidates = list(
+            AccountDeletionRequest.objects.filter(execute_after__lte=timezone.now())
+            .annotate(has_generation_lease=models.Exists(active_owner_lease))
+            .filter(has_generation_lease=False)
+            .order_by('execute_after', 'user_id')
+            .values_list('user_id', flat=True)[:settings.ACCOUNT_DELETION_BATCH_SIZE]
+        )
+        for user_id in account_deletion_candidates:
+            executed = False
+            revoked = 0
+            with transaction.atomic():
+                # Match generation's global gate -> owner lock order and keep
+                # the deletion request recheck inside the irreversible section.
+                ChatStorageGate.objects.select_for_update().get(pk=1)
+                locked_user = User.objects.select_for_update().filter(pk=user_id).first()
+                if locked_user is None:
+                    continue
+                deletion = AccountDeletionRequest.objects.select_for_update().filter(
+                    user_id=user_id,
+                    execute_after__lte=timezone.now(),
+                ).first()
+                if deletion is None:
+                    continue
+                if ConversationGenerationLease.objects.filter(
+                    conversation__user_id=user_id,
+                ).exists():
+                    continue
+                revoked = revoke_user_sessions(locked_user)
+                locked_user.delete()
+                accounts_deleted += 1
+                account_sessions_revoked += revoked
+                executed = True
+            # Do not emit irreversible-success evidence until the database
+            # transaction has actually committed.
+            if executed:
+                transaction.on_commit(
+                    lambda deleted_user_id=user_id, revoked_count=revoked: (
+                        security_log.warning(
+                            'event=account_deletion_executed '
+                            'former_user_id=%s sessions_revoked=%s',
+                            deleted_user_id,
+                            revoked_count,
+                        )
+                    ),
+                )
+
         self.stdout.write(self.style.SUCCESS(
             f'Deleted {att_count} orphan attachments ({att_bytes / 1024 / 1024:.1f} MB), '
             f'{ev_count} expired email verifications, {pr_count} expired password resets, '
@@ -323,5 +390,6 @@ class Command(BaseCommand):
             f'{deleted_user_usage_rows} expired per-user AI usage rows, '
             f'{deleted_global_usage_rows} expired aggregate AI usage rows, '
             f'{retained_conversations_deleted} retained archived conversations '
-            f'({retained_messages_deleted} messages, {retained_bytes_deleted} bytes).'
+            f'({retained_messages_deleted} messages, {retained_bytes_deleted} bytes), '
+            f'{accounts_deleted} due accounts ({account_sessions_revoked} sessions revoked).'
         ))

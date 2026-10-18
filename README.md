@@ -156,6 +156,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles without decoding the global session table; revocation requires recent strong authentication. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
 | GET/PATCH | `/account/chat-retention/` | `{archived_days}` | session | Owner-scoped opt-in lifecycle. Accepts 0 (keep until manually deleted), 30, 90, 180, or 365 days; only inactive archived conversations qualify. |
+| GET/POST/DELETE | `/account/deletion/` | `{password, code?}` for mutations | session | Shows, schedules, or cancels owner-scoped account deletion. The default grace period is seven days; scheduling is idempotent and never extends an existing deadline. Cancellation closes at the deadline. |
 | GET | `/account/export/` | — | recent strong session | Owner-only JSON stream containing account/chat/preferences/usage data and an attachment manifest, never file bodies or authentication secrets. Limited to 2/day and rejected before streaming above the validated record/byte ceilings. |
 | POST | `/provider-disclosure/` | `{version}` | session | Records the current versioned NVIDIA data-flow acknowledgement; stale or non-integer versions fail closed. |
 | GET | `/models/` | — | session | Returns only currently available NVIDIA models, grouped-purpose and conservative `best_for` guidance, per-model input/attachment capabilities, rounded successful-probe performance, the selected default, probe timestamp, and global attachment limits. Private failure outcomes are never returned. |
@@ -253,6 +254,21 @@ revalidates policy, age and absence of a generation lease under the normal lock
 order before cascading their messages and linked files. Active chats and accounts
 without an explicit policy are kept until manual deletion. Session inventory/
 revocation and attachment/export egress have explicit rate limits.
+
+Owners can separately schedule complete live-account deletion with a default
+seven-day grace period. `ACCOUNT_DELETION_GRACE_DAYS` is startup-validated from
+1 through 30 days, and `ACCOUNT_DELETION_BATCH_SIZE` limits each daily run to
+1–100 accounts (default 25). Schedule/cancel mutations require the current
+password and enabled second factor, are limited to five attempts per hour, and
+serialize on the owner row. Scheduling is idempotent, cannot push an existing
+deadline forward, and cancellation fails closed once the deadline is due. The
+maintenance job removes expired generation leases first, excludes every owner
+with active generation work before applying the batch limit, then rechecks the
+deadline and lease state under the global-gate/owner lock order. Execution
+revokes every indexed session and cascades live account data; physical attachment
+deletion is deferred until database commit so rollback cannot strand restored
+rows without their files. Restricted operational backups expire independently
+under the backup policy (the local default keeps the newest seven dumps).
 
 Authenticated sessions keep Django's 14-day sliding cookie but are also bounded
 by a fixed 30-day lifetime from login. Rotations preserve that original deadline,
@@ -400,6 +416,9 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   read-only ACL permits listing/statting this app's backup directory and reading
   only the privacy-minimized restore status; mode-`0600` database dumps remain
   unreadable to the monitor.
+  Account-deletion schedule, cancellation and committed execution each raise a
+  count-only alert; journal evidence contains numeric owner identifiers but no
+  username, email, IP, prompt, filename, session key or authentication factor.
 
 Deploy steps after a code change:
 

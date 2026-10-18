@@ -1,6 +1,8 @@
 """Tests for the cleanup_attachments management command."""
+import uuid
 from datetime import timedelta
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from django.conf import settings
@@ -8,8 +10,10 @@ from django.contrib.sessions.models import Session
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from chat.models import (
+    AccountDeletionRequest,
     AdminAuditEvent,
     Attachment,
     AttachmentUploadAttempt,
@@ -40,6 +44,21 @@ def _make_att(user, days_old=0, linked=False):
         att.message = m
         att.save()
     return att
+
+
+def _due_account_deletion(user, *, days_overdue=1):
+    deletion = AccountDeletionRequest.objects.create(
+        user=user,
+        execute_after=timezone.now() + timedelta(days=1),
+    )
+    requested_at = timezone.now() - timedelta(days=days_overdue + 1)
+    execute_after = timezone.now() - timedelta(days=days_overdue)
+    AccountDeletionRequest.objects.filter(pk=deletion.pk).update(
+        requested_at=requested_at,
+        execute_after=execute_after,
+    )
+    deletion.refresh_from_db()
+    return deletion
 
 
 @pytest.mark.django_db
@@ -351,3 +370,118 @@ class TestCleanupAttachments:
 
         assert 'audit integrity: 0 invalid, 0 missing' in output.getvalue()
         assert AdminAuditEvent.objects.count() == 1
+
+    def test_executes_due_account_deletion_and_revokes_sessions(
+        self,
+        user,
+        other_user,
+        django_capture_on_commit_callbacks,
+        caplog,
+    ):
+        caplog.set_level('WARNING', logger='security')
+        user_id = user.pk
+        client = APIClient()
+        client.force_login(user)
+        client.get('/api/auth/me/')
+        session_key = client.session.session_key
+        Conversation.objects.create(
+            user=user,
+            title='scheduled deletion',
+            model_id=DEFAULT_MODEL_ID,
+        )
+        attachment = Attachment.objects.create(
+            user=user,
+            file=SimpleUploadedFile(
+                'account-data.txt', b'private', content_type='text/plain',
+            ),
+            original_name='account-data.txt',
+            mime_type='text/plain',
+            size=7,
+            kind=Attachment.KIND_DOCUMENT,
+        )
+        attachment_path = attachment.file.path
+        _due_account_deletion(user)
+        future = AccountDeletionRequest.objects.create(
+            user=other_user,
+            execute_after=timezone.now() + timedelta(days=1),
+        )
+        output = StringIO()
+
+        with django_capture_on_commit_callbacks(execute=True):
+            call_command('cleanup_attachments', stdout=output)
+
+        assert not type(user).objects.filter(pk=user.pk).exists()
+        assert not Session.objects.filter(session_key=session_key).exists()
+        assert not AuthenticatedSession.objects.filter(session_id=session_key).exists()
+        assert not Path(attachment_path).exists()
+        assert AccountDeletionRequest.objects.filter(pk=future.pk).exists()
+        assert type(other_user).objects.filter(pk=other_user.pk).exists()
+        assert '1 due accounts (1 sessions revoked)' in output.getvalue()
+        assert (
+            f'event=account_deletion_executed former_user_id={user_id} '
+            'sessions_revoked=1'
+        ) in '\n'.join(record.getMessage() for record in caplog.records)
+
+    def test_due_account_deletion_waits_for_active_generation(self, user, convo):
+        _due_account_deletion(user)
+        ConversationGenerationLease.objects.create(
+            conversation=convo,
+            token=uuid.uuid4(),
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        assert type(user).objects.filter(pk=user.pk).exists()
+        assert AccountDeletionRequest.objects.filter(user=user).exists()
+
+    def test_due_account_deletion_is_batched_and_dry_run_is_safe(
+        self,
+        user,
+        other_user,
+        settings,
+    ):
+        settings.ACCOUNT_DELETION_BATCH_SIZE = 1
+        _due_account_deletion(user, days_overdue=2)
+        _due_account_deletion(other_user, days_overdue=1)
+        output = StringIO()
+
+        call_command('cleanup_attachments', '--dry-run', stdout=output)
+
+        assert type(user).objects.filter(pk=user.pk).exists()
+        assert type(other_user).objects.filter(pk=other_user.pk).exists()
+        assert '2 due account deletions (batch limit 1)' in output.getvalue()
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        assert sum((
+            type(user).objects.filter(pk=user.pk).exists(),
+            type(other_user).objects.filter(pk=other_user.pk).exists(),
+        )) == 1
+        assert AccountDeletionRequest.objects.count() == 1
+
+    def test_active_generation_does_not_consume_an_eligible_batch_slot(
+        self,
+        user,
+        other_user,
+        settings,
+    ):
+        settings.ACCOUNT_DELETION_BATCH_SIZE = 1
+        _due_account_deletion(user, days_overdue=2)
+        _due_account_deletion(other_user, days_overdue=1)
+        active = Conversation.objects.create(
+            user=user,
+            title='active generation',
+            model_id=DEFAULT_MODEL_ID,
+        )
+        ConversationGenerationLease.objects.create(
+            conversation=active,
+            token=uuid.uuid4(),
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        call_command('cleanup_attachments', stdout=StringIO())
+
+        assert type(user).objects.filter(pk=user.pk).exists()
+        assert AccountDeletionRequest.objects.filter(user=user).exists()
+        assert not type(other_user).objects.filter(pk=other_user.pk).exists()

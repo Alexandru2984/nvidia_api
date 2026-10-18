@@ -9,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
 from chat.models import (
+    AccountDeletionRequest,
     Attachment,
     AuthenticatedSession,
     ChatHistoryRetention,
@@ -51,6 +52,10 @@ class TestAccountExport:
         other_user,
     ):
         ChatHistoryRetention.objects.create(user=user, archived_days=90)
+        deletion = AccountDeletionRequest.objects.create(
+            user=user,
+            execute_after=timezone.now() + timedelta(days=7),
+        )
         conversation = Conversation.objects.create(
             user=user,
             title='Private export',
@@ -119,6 +124,11 @@ class TestAccountExport:
         assert payload['schema_version'] == 1
         assert payload['account']['username'] == user.username
         assert payload['preferences_and_security']['archived_chat_retention_days'] == 90
+        assert payload['preferences_and_security']['account_deletion'] == {
+            'scheduled': True,
+            'requested_at': deletion.requested_at.isoformat().replace('+00:00', 'Z'),
+            'execute_after': deletion.execute_after.isoformat().replace('+00:00', 'Z'),
+        }
         assert payload['attachment_files_included'] is False
         assert payload['counts']['conversations'] == 1
         assert payload['counts']['messages'] == 1

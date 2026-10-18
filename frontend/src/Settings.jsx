@@ -400,12 +400,52 @@ function PasswordPanel() {
 
 
 function DangerPanel({ onLoggedOut }) {
+  const [deletion, setDeletion] = useState(null)
+  const [scheduledAction, setScheduledAction] = useState(null)
+  const [scheduledPassword, setScheduledPassword] = useState('')
+  const [scheduledCode, setScheduledCode] = useState('')
+  const [scheduledNeedsCode, setScheduledNeedsCode] = useState(false)
+  const [scheduledBusy, setScheduledBusy] = useState(false)
+  const [scheduledError, setScheduledError] = useState(null)
   const [open, setOpen] = useState(false)
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [needsCode, setNeedsCode] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.accountDeletion()
+      .then((status) => { if (!cancelled) setDeletion(status) })
+      .catch((e) => { if (!cancelled) setScheduledError(e.message) })
+    return () => { cancelled = true }
+  }, [])
+
+  async function changeScheduledDeletion(event) {
+    event.preventDefault()
+    if (scheduledAction === 'schedule' && !confirm(
+      `Schedule permanent account deletion in ${deletion.grace_days} days? You can cancel before the deadline.`,
+    )) return
+    setScheduledBusy(true); setScheduledError(null)
+    try {
+      const result = scheduledAction === 'schedule'
+        ? await api.scheduleAccountDeletion(
+          scheduledPassword, scheduledCode.trim() || undefined,
+        )
+        : await api.cancelAccountDeletion(
+          scheduledPassword, scheduledCode.trim() || undefined,
+        )
+      setDeletion(result); setScheduledAction(null); setScheduledCode('')
+      setScheduledNeedsCode(false)
+    } catch (e) {
+      if (e.body?.two_factor_required) setScheduledNeedsCode(true)
+      setScheduledError(e.message)
+    } finally {
+      setScheduledPassword('')
+      setScheduledBusy(false)
+    }
+  }
 
   async function doDelete() {
     if (!confirm('This permanently deletes your account, conversations and files. There is no undo. Continue?')) return
@@ -422,9 +462,59 @@ function DangerPanel({ onLoggedOut }) {
   return (
     <section className="settings-section">
       <h2>Danger zone</h2>
-      <p className="muted">Delete your account and every conversation, message and attachment that belongs to it.</p>
+      <p className="muted">Schedule a recoverable grace period or permanently delete your account now.</p>
+      <div className="deletion-card">
+        <h3>Scheduled deletion</h3>
+        {scheduledError && <div className="login-error" role="alert">{scheduledError}</div>}
+        {deletion ? <>
+          {deletion.scheduled ? <p role="status">
+            The account becomes eligible for permanent deletion after{' '}
+            <strong>{new Date(deletion.execute_after).toLocaleString()}</strong>.
+            You can cancel before that deadline.
+          </p> : <p className="muted">
+            Start a {deletion.grace_days}-day grace period. Your account remains available
+            until the deadline so you can cancel safely.
+          </p>}
+          {!scheduledAction ? <button className={`link ${deletion.scheduled ? '' : 'danger'}`}
+            onClick={() => {
+              setScheduledAction(deletion.scheduled ? 'cancel' : 'schedule')
+              setScheduledError(null)
+            }}>
+            {deletion.scheduled ? 'Cancel scheduled deletion…' : 'Schedule deletion…'}
+          </button> : <form onSubmit={changeScheduledDeletion}>
+            <label className="settings-field">
+              <span>Current password</span>
+              <input type="password" autoComplete="current-password"
+                aria-label="Scheduled deletion password"
+                value={scheduledPassword}
+                onChange={(event) => setScheduledPassword(event.target.value)} required />
+            </label>
+            {scheduledNeedsCode && <label className="settings-field">
+              <span>2FA or recovery code</span>
+              <input type="text" autoComplete="one-time-code" maxLength={17}
+                aria-label="Scheduled deletion 2FA or recovery code"
+                value={scheduledCode}
+                onChange={(event) => setScheduledCode(event.target.value)} required />
+            </label>}
+            <div className="export-actions">
+              <button className={`primary ${scheduledAction === 'schedule' ? 'danger' : ''}`}
+                type="submit" disabled={scheduledBusy || !scheduledPassword
+                  || (scheduledNeedsCode && !scheduledCode)}>
+                {scheduledBusy ? 'Confirming…' : scheduledAction === 'schedule'
+                  ? 'Schedule account deletion' : 'Keep my account'}
+              </button>
+              <button className="link" type="button" onClick={() => {
+                setScheduledAction(null); setScheduledPassword(''); setScheduledCode('')
+                setScheduledNeedsCode(false); setScheduledError(null)
+              }}>Cancel</button>
+            </div>
+          </form>}
+        </> : !scheduledError && <p role="status">Loading deletion status…</p>}
+      </div>
+      <h3>Delete immediately</h3>
+      <p className="muted">Permanently delete every conversation, message and attachment now. There is no undo.</p>
       {!open ? (
-        <button className="link danger" onClick={() => setOpen(true)}>Delete account…</button>
+        <button className="link danger" onClick={() => setOpen(true)}>Delete immediately…</button>
       ) : (
         <div className="enroll-card">
           {error && <div className="login-error">{error}</div>}

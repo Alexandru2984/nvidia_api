@@ -1,13 +1,18 @@
 """Tests for change-password and delete-account."""
+import uuid
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.models import Session
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from chat.models import (
     Attachment,
     AuthenticatedSession,
     Conversation,
+    ConversationGenerationLease,
     Message,
     TwoFactor,
 )
@@ -120,6 +125,23 @@ class TestDeleteAccount:
         assert not AuthenticatedSession.objects.filter(session_id__in=session_keys).exists()
         assert not get_user_model().objects.filter(pk=user.pk).exists()
         assert second.get('/api/models/').status_code in (401, 403)
+
+    def test_active_generation_blocks_irreversible_deletion(self, auth_client, user, convo):
+        ConversationGenerationLease.objects.create(
+            conversation=convo,
+            token=uuid.uuid4(),
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        response = auth_client.post(
+            self.URL,
+            {'password': 'Hunter2pass'},
+            format='json',
+        )
+
+        assert response.status_code == 409
+        assert response.json()['code'] == 'generation_in_progress'
+        assert get_user_model().objects.filter(pk=user.pk).exists()
 
     def test_2fa_required_when_enabled(self, auth_client, user):
         TwoFactor.objects.create(user=user, secret='irrelevant', enabled=True,

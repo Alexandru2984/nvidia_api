@@ -275,6 +275,15 @@ export const api = {
   // Account
   accountUsage: () => request('/account/usage/'),
   accountExportUrl: () => `${BASE}/account/export/`,
+  accountDeletion: () => request('/account/deletion/'),
+  scheduleAccountDeletion: (password, code) =>
+    request('/account/deletion/', {
+      method: 'POST', body: JSON.stringify({ password, ...(code ? { code } : {}) }),
+    }),
+  cancelAccountDeletion: (password, code) =>
+    request('/account/deletion/', {
+      method: 'DELETE', body: JSON.stringify({ password, ...(code ? { code } : {}) }),
+    }),
   chatRetention: () => request('/account/chat-retention/'),
   updateChatRetention: (archived_days) =>
     request('/account/chat-retention/', {

@@ -369,6 +369,20 @@ if not 1 <= CHAT_RETENTION_DELETE_BATCH_SIZE <= 1000:
     raise ImproperlyConfigured(
         'CHAT_RETENTION_DELETE_BATCH_SIZE must be between 1 and 1000.',
     )
+ACCOUNT_DELETION_GRACE_DAYS = _nonnegative_int_env(
+    'ACCOUNT_DELETION_GRACE_DAYS', 7,
+)
+ACCOUNT_DELETION_BATCH_SIZE = _nonnegative_int_env(
+    'ACCOUNT_DELETION_BATCH_SIZE', 25,
+)
+if not 1 <= ACCOUNT_DELETION_GRACE_DAYS <= 30:
+    raise ImproperlyConfigured(
+        'ACCOUNT_DELETION_GRACE_DAYS must be between 1 and 30.',
+    )
+if not 1 <= ACCOUNT_DELETION_BATCH_SIZE <= 100:
+    raise ImproperlyConfigured(
+        'ACCOUNT_DELETION_BATCH_SIZE must be between 1 and 100.',
+    )
 AI_USER_USAGE_RETENTION_DAYS = _nonnegative_int_env(
     'AI_USER_USAGE_RETENTION_DAYS', 90,
 )

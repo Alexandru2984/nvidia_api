@@ -62,6 +62,7 @@ from .nvidia_client import (
     iter_sse_data,
 )
 from .models import (
+    AccountDeletionRequest,
     Attachment,
     AttachmentUploadAttempt,
     AuthenticatedSession,
@@ -255,22 +256,40 @@ def auth_login(request):
     user = authenticate(request, username=username, password=password)
     if user is None:
         return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
-    verified_2fa = False
-    if login_requires_2fa(user):
-        code = (request.data.get('code') or '').strip()
-        if not code:
-            return Response({'error': 'Two-factor code required.', 'two_factor_required': True},
-                            status=status.HTTP_401_UNAUTHORIZED)
-        if not verify_for_login(user, code):
-            return Response({'error': 'Invalid 2FA code.', 'two_factor_required': True},
-                            status=status.HTTP_401_UNAUTHORIZED)
-        verified_2fa = True
-    django_login(request, user)
-    if verified_2fa:
-        mark_staff_2fa_verified(request, user)
-    stamp_session(request)
-    mark_recent_auth(request)
-    return Response(_authenticated_user_payload(user))
+    with transaction.atomic():
+        locked_user = get_user_model().objects.select_for_update().filter(
+            pk=user.pk,
+            is_active=True,
+        ).first()
+        if locked_user is None or not hmac.compare_digest(
+            user.password,
+            locked_user.password,
+        ):
+            return Response(
+                {'error': 'Invalid credentials'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        user = locked_user
+        verified_2fa = False
+        if login_requires_2fa(user):
+            code = (request.data.get('code') or '').strip()
+            if not code:
+                return Response({
+                    'error': 'Two-factor code required.',
+                    'two_factor_required': True,
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            if not verify_for_login(user, code):
+                return Response({
+                    'error': 'Invalid 2FA code.',
+                    'two_factor_required': True,
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            verified_2fa = True
+        django_login(request, user)
+        if verified_2fa:
+            mark_staff_2fa_verified(request, user)
+        stamp_session(request)
+        mark_recent_auth(request)
+        return Response(_authenticated_user_payload(user))
 
 
 @api_view(['POST'])
@@ -799,11 +818,20 @@ def auth_delete_account(request):
     user = request.user
     user_id = user.pk
     with transaction.atomic():
-        # revoke_user_sessions locks the owner; the outer transaction keeps that
-        # lock through the cascade so an indexed login cannot appear in between.
-        revoked = _revoke_user_sessions(user)
+        # Match generation's global gate -> owner order. This prevents a new
+        # lease between the active-work check and the irreversible cascade.
+        ChatStorageGate.objects.select_for_update().get(pk=1)
+        locked_user = get_user_model().objects.select_for_update().get(pk=user_id)
+        if ConversationGenerationLease.objects.filter(
+            conversation__user_id=user_id,
+        ).exists():
+            return Response({
+                'error': 'Wait for the active generation to finish before deleting the account.',
+                'code': 'generation_in_progress',
+            }, status=status.HTTP_409_CONFLICT)
+        revoked = _revoke_user_sessions(locked_user)
         django_logout(request)
-        user.delete()
+        locked_user.delete()
     security_log.warning(
         'event=account_deleted former_user_id=%s sessions_revoked=%s',
         user_id,
@@ -1437,6 +1465,80 @@ def account_chat_retention(request):
         archived_days,
     )
     return Response(_chat_retention_payload(retention))
+
+
+def _account_deletion_payload(deletion):
+    return {
+        'scheduled': deletion is not None,
+        'requested_at': deletion.requested_at if deletion else None,
+        'execute_after': deletion.execute_after if deletion else None,
+        'grace_days': settings.ACCOUNT_DELETION_GRACE_DAYS,
+    }
+
+
+@api_view(['GET', 'POST', 'DELETE'])
+@ratelimit(key='user', method='GET', rate='60/m', block=False)
+@ratelimit(key='user', method='POST', rate='5/h', block=False)
+@ratelimit(key='user', method='DELETE', rate='5/h', block=False)
+def account_deletion(request):
+    """Inspect, schedule, or cancel bounded delayed account deletion."""
+    if (r := _rate_limited(request)): return r
+    deletion = AccountDeletionRequest.objects.filter(user_id=request.user.pk).first()
+    if request.method == 'GET':
+        return Response(_account_deletion_payload(deletion))
+
+    response = confirm_recent_auth(
+        request,
+        request.data.get('password') or '',
+        request.data.get('code') or '',
+    )
+    if response is not None:
+        return response
+
+    user_id = request.user.pk
+    User = get_user_model()
+    with transaction.atomic():
+        locked_user = User.objects.select_for_update().get(pk=user_id)
+        deletion = AccountDeletionRequest.objects.select_for_update().filter(
+            user_id=user_id,
+        ).first()
+        if request.method == 'POST':
+            created = deletion is None
+            if created:
+                deletion = AccountDeletionRequest.objects.create(
+                    user=locked_user,
+                    execute_after=(
+                        timezone.now()
+                        + timedelta(days=settings.ACCOUNT_DELETION_GRACE_DAYS)
+                    ),
+                )
+        else:
+            created = False
+            canceled = deletion is not None
+            if deletion is not None:
+                if deletion.execute_after <= timezone.now():
+                    return Response({
+                        'error': 'The cancellation window has closed and deletion is pending.',
+                        'code': 'deletion_due',
+                        **_account_deletion_payload(deletion),
+                    }, status=status.HTTP_409_CONFLICT)
+                deletion.delete()
+                deletion = None
+
+    if request.method == 'POST':
+        if created:
+            security_log.warning(
+                'event=account_deletion_scheduled user_id=%s',
+                user_id,
+            )
+        return Response(
+            _account_deletion_payload(deletion),
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    if canceled:
+        security_log.warning('event=account_deletion_canceled user_id=%s', user_id)
+    return Response(_account_deletion_payload(None))
 
 
 def _attachment_capability_response(request, model_id, issue, response_status=400):
@@ -3760,6 +3862,9 @@ def export_account(request):
     invitation = RegistrationInvite.objects.filter(used_by_id=user_id).values(
         'used_at',
     ).first()
+    deletion = AccountDeletionRequest.objects.filter(user_id=user_id).values(
+        'requested_at', 'execute_after',
+    ).first()
     exported_at = timezone.now()
     prefix = {
         'schema_version': 1,
@@ -3798,6 +3903,15 @@ def export_account(request):
             'invitation_redeemed_at': (
                 _export_timestamp(invitation['used_at']) if invitation else None
             ),
+            'account_deletion': {
+                'scheduled': deletion is not None,
+                'requested_at': (
+                    _export_timestamp(deletion['requested_at']) if deletion else None
+                ),
+                'execute_after': (
+                    _export_timestamp(deletion['execute_after']) if deletion else None
+                ),
+            },
         },
         'counts': counts,
         'attachment_files_included': False,

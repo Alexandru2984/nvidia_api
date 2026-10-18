@@ -729,6 +729,9 @@ def evaluate(
     account_export_bound_failures = journal.count('event=account_export_bound_exceeded')
     invalid_proxy_client_ips = journal.count('event=proxy_client_ip_invalid')
     account_deletions = journal.count('event=account_deleted')
+    account_deletion_scheduled = journal.count('event=account_deletion_scheduled')
+    account_deletion_canceled = journal.count('event=account_deletion_canceled')
+    account_deletion_executed = journal.count('event=account_deletion_executed')
     maintenance_failures = journal.count(
         'aichat-maintenance.service: Failed with result'
     )
@@ -847,6 +850,21 @@ def evaluate(
     if account_deletions:
         issues['account_deleted'] = (
             f'{account_deletions} accounts were permanently deleted in six minutes.'
+        )
+    if account_deletion_scheduled:
+        issues['account_deletion_scheduled'] = (
+            f'{account_deletion_scheduled} delayed account deletions were scheduled '
+            'in six minutes.'
+        )
+    if account_deletion_canceled:
+        issues['account_deletion_canceled'] = (
+            f'{account_deletion_canceled} delayed account deletions were canceled '
+            'in six minutes.'
+        )
+    if account_deletion_executed:
+        issues['account_deletion_executed'] = (
+            f'{account_deletion_executed} delayed account deletions executed '
+            'in six minutes.'
         )
     if maintenance_failures:
         issues['maintenance_failed'] = (

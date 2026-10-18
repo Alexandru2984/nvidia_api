@@ -70,6 +70,9 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=account_export_bound_exceeded user_id=4']
             + ['event=proxy_client_ip_invalid']
             + ['event=account_deleted former_user_id=4 sessions_revoked=2']
+            + ['event=account_deletion_scheduled user_id=4']
+            + ['event=account_deletion_canceled user_id=4']
+            + ['event=account_deletion_executed former_user_id=4 sessions_revoked=2']
             + ["aichat-maintenance.service: Failed with result 'exit-code'."]
             + ['Internal Server Error:'] * 3
         )
@@ -93,6 +96,8 @@ class SecurityMonitorTests(unittest.TestCase):
              'account_export_completed', 'account_export_bound_exceeded',
              'proxy_client_ip_invalid',
              'account_deleted',
+             'account_deletion_scheduled', 'account_deletion_canceled',
+             'account_deletion_executed',
              'maintenance_failed',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
