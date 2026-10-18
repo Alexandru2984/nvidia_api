@@ -86,6 +86,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-20 | Medium | Users could send prompts, history and selected files to NVIDIA without a durable, current disclosure acknowledgement | A versioned, owner-bound timestamp is stored without prompt/file/IP data; chat, regeneration and image generation return `428` before leases, budget reservations, message writes or provider egress until the current disclosure is accepted. The keyboard-accessible mobile UI names each data class, links official NVIDIA privacy/terms pages and offers an equal cancel path | Obtain legal review of the actual processing basis, publish the complete operator privacy notice, confirm NVIDIA retention/training/DPA/region and production-entitlement terms, and bump the version when the data flow materially changes |
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
 | A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days; 90-day user-linked and 400-day aggregate-only AI-usage retention | Publish the operator-wide legal/default schedule before materially raising account or quota volume |
+| A-23 | Medium | React inline styles required a broad CSP style exception, leaving a weaker defense against injected markup | All application styles use static classes; ESLint forbids JSX `style` and `dangerouslySetInnerHTML`; deployed CSP is `style-src 'self'`; origin browser smoke reports zero inline styles/violations at 320 and 1440 px | Disable Cloudflare Browser Insights injection at the edge; keep its currently blocked scripts out of `script-src` and retain real-browser CSP regression probes |
 
 ## Quantitative risk view
 
@@ -1936,6 +1937,60 @@ is required before describing those controls as complete.
   deletion requires it, but it is absent from APIs/admin lists/logs and remains
   under the existing database access boundary. No new NVIDIA transfer, processor
   or data class is introduced.
+
+### Strict style CSP and responsive rollout — 2026-10-18
+
+- Commit `d246b8bfa165ce94a9e8925f61dd4ed32c776e37` removes every
+  application-owned JSX inline style and replaces it with named responsive CSS
+  classes. The ESLint AST gate now rejects both `style` and
+  `dangerouslySetInnerHTML` JSX attributes, preventing a routine UI change from
+  silently requiring CSP relaxation. Email-only HTML retains inline formatting
+  because it is never served into the web origin.
+- The nginx policy changed from `style-src 'self' 'unsafe-inline'` to
+  `style-src 'self'` without adding a nonce, hash, remote host or data scheme.
+  `script-src` remains `self` only. Frontend lint/build, source and entry-HTML
+  checks, `npm audit --audit-level=low` and all 39 Playwright flows passed; the
+  audit reported zero known vulnerabilities and responsive coverage spans
+  320/390/768/1440 px.
+- Frontend release
+  `/var/www/aichat-releases/release-20261018T134632_591255484` activated in one
+  second. Its manifest SHA-256 is
+  `6a0beafd66b1fbc2645fec025f865e24b2eff3ecdcfaa54f59e1f85e098cc184`.
+  The installed root-owned vhost is byte-identical to the committed template;
+  both SHA-256 values are
+  `51d02afcf410558ca9f39f339245fe38bf727f8583c7fa5d44e8483829cef67e`.
+  Two early rollout probes restored the prior vhost automatically: the first
+  sampled a draining nginx worker immediately after reload, while the second
+  used a `pipefail`/early-exit pipeline that falsely rejected a matching parsed
+  config. The corrected probe validates committed bytes, parsed config and two
+  consecutive strict-CSP responses before accepting activation.
+- Coordinated rollback relaxed CSP before activating frontend release
+  `/var/www/aichat-releases/release-20261018T132232_018494110`, then restored the
+  new frontend before reapplying strict CSP. Rollback and restore each took one
+  second; root/health returned `200`, anonymous private API `403`, and media
+  `404` throughout. This ordering is mandatory while an older rollback release
+  still contains React inline styles.
+- Real Chromium smoke against the direct nginx origin at 320 and 1440 px found
+  CSS applied, no horizontal overflow, no inline style attributes and zero CSP
+  violations. The Cloudflare edge also applied CSS with no style violations, but
+  injected a 456-character inline Browser Insights loader and a
+  `static.cloudflareinsights.com` module for browser traffic. Both are blocked by
+  the unchanged `script-src 'self'`, producing two expected script violations;
+  no external script was added to the release. The correct remediation is to
+  disable Browser Insights injection in Cloudflare, not weaken CSP.
+- Final public root/health are `200`; anonymous conversations and `/.env` are
+  `403`, media is `404`, nginx/backend have zero automatic restarts, and all
+  application/monitor timers and the config-watch path are active. The planned
+  vhost transition raised `protected_config_changed`, giving the expected
+  sub-six-minute detection evidence; it must clear naturally after the journal
+  window rather than by deleting operational evidence.
+- Scoped CISO review ranks CSP bypass and remotely mutable edge code above minor
+  visual rollback differences. The strict policy materially limits injected
+  markup, while class-only styling and a CI lint invariant keep the control
+  durable. Cloudflare can still mutate bytes delivered at the edge and a
+  compromised same-origin release remains in policy, so manifest verification,
+  origin-versus-edge browser probes and removal of Browser Insights remain
+  necessary. No user data model or NVIDIA processing flow changed.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

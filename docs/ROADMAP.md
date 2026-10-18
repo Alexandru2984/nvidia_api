@@ -9,6 +9,13 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Verified rollout:** apply the committed nginx/systemd templates, deny direct
   media access, correct existing backup modes, validate health and rollback, and
   capture evidence in the deployment log.
+- **Strict browser style boundary is shipped:** every React inline style was
+  replaced with a responsive CSS class, ESLint rejects future inline-style and
+  raw-HTML injection props, and production CSP now uses only `style-src 'self'`.
+  Cloudflare currently injects a Browser Insights inline/remote script for real
+  browser traffic; the unchanged `script-src 'self'` correctly blocks both
+  elements. Disable that injection in the Cloudflare dashboard rather than
+  expanding the application's script policy.
 - **Dedicated service identity:** the web process and application maintenance
   timers run as the non-login `aichat` Unix user, with an unprivileged app-only
   database role and app-owned media/cache. Keep this invariant in deployment
