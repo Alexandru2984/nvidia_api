@@ -409,21 +409,28 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   CPU and tasks. Invalid documents are never stored; service/protocol failure is
   a retryable fail-closed response.
 - **Scheduled jobs**: application jobs run as `aichat` through the sandboxed
-  `aichat-maintenance.timer` and `aichat-model-probe.timer`. Host-level backup
-  jobs remain in the administrator's cron:
+  `aichat-maintenance.timer` and `aichat-model-probe.timer`. The host-level
+  database backup remains in the administrator's cron:
   ```cron
   # Postgres backup, gzip, keeps newest 7 (daily)
   30 2 * * * /home/micu/nvidia/scripts/backup_db.sh
-  # Isolated restore/integrity drill (weekly)
-  15 5 * * 0 /home/micu/nvidia/scripts/backup_restore_drill.sh
   ```
+  Weekly recovery verification runs instead through the persistent,
+  root-owned `aichat-restore-drill.timer` at Sunday 05:15 with up to ten minutes
+  of jitter. Its sandboxed oneshot uses the active immutable application and
+  Python releases, restores only into a randomly named local scratch database,
+  verifies schema/migrations, always drops the scratch database, and appends a
+  privacy-minimized result to the private restore log. Install or reconcile the
+  timer and its monitor integration with `sudo scripts/install_security_monitor.sh`;
+  the installer removes only the exact legacy NVIDIA restore cron entry and
+  restores it on failed rollout.
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
   integrity, all three active root-owned release manifests, executable-release
   retention, generation lease interruptions and repeated mismatched idempotency
   keys, protected dotenv/vhost/unit/monitor changes, backup/restore
-  freshness, ClamAV health/signature freshness, scanner
+  freshness, immediate scheduled-restore failure, ClamAV health/signature freshness, scanner
   failures, malware rejections, parser socket health, parser failures and installed
   parser executable integrity against the manifest-verified backend release, plus
   redirected/malformed provider response rejections every five minutes. It uses the host's

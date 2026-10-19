@@ -60,16 +60,19 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   configuration through a systemd credential, can read restore status but not
   database dumps, and validates those exact ACL boundaries on every run. A
   systemd path unit now turns changes to protected dotenv, vhost, application
-  units, monitor units/identity or installed monitor code into a fixed
+  units, restore units/executable, monitor units/identity or installed monitor code into a fixed
   privacy-safe event within the same alert window. Routine request logging is now
   minimized too: nginx does not duplicate this vhost into the host-wide combined
   log, and Gunicorn excludes IP, User-Agent, Referer, cookies and query strings
   while retaining bounded request shape/status/latency. Add contract-spend
   correlation and an external log sink that preserves this field boundary and
   never logs prompts, cookies, OTPs, filenames, raw IPs, queries or secrets.
-- **Recoverability:** the repository includes an isolated database restore drill;
-  schedule and monitor it. Encrypt backups with a separately held key, keep a
-  tested off-site copy, alert on job failure, and document RPO/RTO.
+- **Recoverability:** the isolated database restore drill is now installed as a
+  persistent weekly systemd timer, runs against the active immutable releases,
+  is sandboxed to local PostgreSQL plus the private backup directory, and alerts
+  immediately on unit failure as well as missing/stale/malformed success evidence.
+  Encrypt backups with a separately held key, keep a tested immutable off-site
+  copy, restore from that copy on schedule, and document RPO/RTO.
 - **Versioned 2FA key lifecycle is shipped:** purpose-separated TOTP encryption,
   recovery HMACs and enrollment fingerprints use an independent bounded keyring;
   stored envelopes record their key ID, corrupt/unknown artifacts fail closed and

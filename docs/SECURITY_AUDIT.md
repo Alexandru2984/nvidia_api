@@ -75,7 +75,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, every authorized conversation export, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, every authorized conversation export, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance or restore-drill failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
@@ -2201,6 +2201,66 @@ is required before describing those controls as complete.
   72-hour assessment clock; the alert deliberately omits the data needed for
   substantive scoping, which responders obtain under the runbook from database
   metadata rather than Telegram.
+
+### Scheduled isolated restore verification rollout — 2026-10-19
+
+- A real `restore_stale` alert exposed that the legacy weekly cron had not
+  recorded a successful result since 11 October. Host journal evidence shows its
+  18 October invocation created and removed a scratch database but produced no
+  success record or failure notification. An immediate manual drill restored the
+  newest private dump and validated `48|3|6|16` migrations/users/conversations/
+  messages with zero scratch databases left behind.
+- Commit `9f3491e` adds a persistent Sunday 05:15 systemd timer with ten minutes
+  of jitter, a root-owned fixed runner and a resource/filesystem/network sandbox.
+  It runs as the interactive owner only because the existing explicit
+  passwordless-sudo risk exception is required for fixed local PostgreSQL
+  `createdb`/`dropdb` operations; that grant was neither added nor broadened.
+  The service can reach only loopback/Unix sockets, sees the runtime dotenv
+  read-only, writes only the NVIDIA backup directory and uses the active
+  root-owned application/Python releases. Its production exposure score is
+  `4.7 OK`.
+- Follow-ups `63b9107`, `f987d56`, `b790750` and `d16f456` make the installed
+  runner independent of its source location, keep migration verification from
+  initializing the runtime cache, clear rolled-back unit failure state, and
+  atomically migrate only the exact NVIDIA restore cron entry. The daily NVIDIA
+  backup cron and every unrelated crontab entry remain installed. On any rollout
+  error, the timer, files, ACL/state and legacy cron state are restored.
+- Commit `97ab924` adds the restore unit to the monitor's actual journal query;
+  a failed unit raises the count-free `restore_drill_failed` condition
+  immediately, while missing, malformed and older-than-eight-day success
+  evidence remains covered. The incident runbook explicitly forbids recovery
+  tests over production. The protected-change watcher now covers all three new
+  installed artifacts and has 15 exact targets.
+- Two initial production starts failed safely: first because the installed copy
+  tried to derive a checkout-relative runtime, then because Django attempted to
+  initialize its cache on a read-only mount. Both attempts automatically removed
+  the new timer/files, restored the monitor and watcher active states plus
+  `active=[]`, dropped their scratch databases, and left the application healthy.
+  After the fixes, an independent transient unit with the same sandbox passed in
+  3.129 seconds at 39.5 MiB peak before the installer was rerun.
+- The final installed job completed at `2026-10-19T14:02:32+03:00`, restored
+  `nvidia_db_20261019_050113_035789301.sql.gz`, validated `48|3|6|16`, returned
+  `Result=success`/status `0`, and left zero scratch databases. The next trigger
+  is 25 October at 05:17:31 EET. Installed runner/service/timer SHA-256 values are
+  `9b508c13410ff3047b50e9c64a62e64aae07984aa3fe3a1fe4f0c7e2adfc32a0`,
+  `76ec7f87e924b0cd2a5e6aeb3ae24f021757f75d8418250a45831615744cb9c8`, and
+  `09294642988a3a1d2c7d2beb269f4a115f7d078b60c74589317b55cec0a917c5`.
+  Every installed artifact byte-matches the repository and is root-owned.
+- The restore log remains `0640 micu:micu` with only a read ACL for the dedicated
+  monitor; the newest dump remains `0600 micu:micu` and a real one-byte monitor
+  probe is denied. The final monitor state is empty. Backend `595/595`, frontend
+  `40/40`, twenty repeated protected-export checks, 65 operational tests,
+  ShellCheck, builds, Django/migration/package checks and both advisory scans are
+  clean. Final public root/health are `200`, anonymous private API and `/.env`
+  are `403`, media is `404`; nginx syntax is valid and the application services
+  are active with zero backend restarts.
+- Scoped CISO review treats same-host destruction and privileged tampering as the
+  remaining recovery threats: this control proves local restorability but cannot
+  survive VPS loss, ransomware or root deletion of both dumps and evidence. No
+  new processor, network destination or supply-chain dependency was introduced.
+  Encrypted immutable off-site recovery with a separately held key and documented
+  RPO/RTO remains P0. Any indication that backup loss followed unauthorized data
+  access still starts incident scoping and the GDPR 72-hour assessment clock.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

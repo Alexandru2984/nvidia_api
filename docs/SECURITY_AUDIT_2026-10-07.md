@@ -379,15 +379,22 @@ Alert on pending security updates and reboot age.
 
 ### S-08 — High — recovery copies are local and unencrypted
 
-Evidence: database backups and restore drills are current and mode `0600` in a
-`0700` directory, but no encrypted off-site copy or separately held recovery key
-is evidenced.
+Evidence: database backups are mode `0600` in a `0700` directory. A persistent
+weekly systemd timer now restores the newest artifact into a random local scratch
+database, checks schema and migrations, always drops the scratch database, and
+alerts immediately on job failure plus missing/stale/malformed success evidence.
+No encrypted off-site copy or separately held recovery key is evidenced.
 
 Impact: disk/VPS loss, root compromise or ransomware can remove production and
 recovery data together; root compromise exposes the complete backup contents.
 
 Remediation: encrypt before leaving the host with a separately held key, keep an
 immutable/off-site copy, define RPO/RTO, and restore from that copy on schedule.
+
+Status: local recoverability is monitored and repeatedly proven, including a
+production systemd-sandbox run on 2026-10-19. Same-host destruction, root-level
+tampering and backup confidentiality remain unmitigated until the off-site gate
+above is completed.
 
 ### S-09 — Medium — loopback is treated as a trusted proxy boundary
 
@@ -520,7 +527,9 @@ Telegram configuration as an ephemeral systemd credential, cannot read database
 dumps or its source credential, and has exact monitored ACL access only to backup
 metadata and the privacy-minimized restore status. The remaining high-value
 signals are off-host retention, sudo/process identity and provider/mail cost
-anomalies.
+anomalies. Scheduled restore failure is now ingested from its own unit and alerts
+immediately; stale, missing or malformed success evidence remains latched through
+the existing recovery checks.
 
 ### S-14 — Low — dependency provenance remains incomplete
 
