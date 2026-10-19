@@ -728,6 +728,7 @@ def evaluate(
     generation_interruptions = journal.count('event=generation_request_interrupted')
     account_exports = journal.count('event=account_export_completed')
     account_export_bound_failures = journal.count('event=account_export_bound_exceeded')
+    conversation_exports = journal.count('event=conversation_export_authorized')
     invalid_proxy_client_ips = journal.count('event=proxy_client_ip_invalid')
     account_deletions = journal.count('event=account_deleted')
     account_deletion_scheduled = journal.count('event=account_deletion_scheduled')
@@ -847,6 +848,10 @@ def evaluate(
         issues['account_export_bound_exceeded'] = (
             f'{account_export_bound_failures} account data exports exceeded their validated '
             'streaming bound in six minutes.'
+        )
+    if conversation_exports:
+        issues['conversation_export_authorized'] = (
+            f'{conversation_exports} conversation data exports were authorized in six minutes.'
         )
     if invalid_proxy_client_ips:
         issues['proxy_client_ip_invalid'] = (

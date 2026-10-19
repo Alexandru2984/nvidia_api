@@ -69,6 +69,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=generation_request_interrupted']
             + ['event=account_export_completed user_id=4 records=6 bytes=2048']
             + ['event=account_export_bound_exceeded user_id=4']
+            + ['event=conversation_export_authorized user_id=4 conversation_id=8 messages=3']
             + ['event=proxy_client_ip_invalid']
             + ['event=account_deleted former_user_id=4 sessions_revoked=2']
             + ['event=account_deletion_scheduled user_id=4']
@@ -96,6 +97,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'protected_config_changed',
              'generation_idempotency_conflict', 'generation_interrupted',
              'account_export_completed', 'account_export_bound_exceeded',
+             'conversation_export_authorized',
              'proxy_client_ip_invalid',
              'account_deleted',
              'account_deletion_scheduled', 'account_deletion_canceled',
@@ -105,6 +107,8 @@ class SecurityMonitorTests(unittest.TestCase):
         )
         self.assertNotIn('user_id', issues['account_export_completed'])
         self.assertNotIn('user_id', issues['account_export_bound_exceeded'])
+        self.assertNotIn('user_id', issues['conversation_export_authorized'])
+        self.assertNotIn('conversation_id', issues['conversation_export_authorized'])
         self.assertNotIn('filename', issues['attachment_file_delete_failed'])
         self.assertNotIn('user_id', issues['attachment_file_delete_failed'])
 

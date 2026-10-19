@@ -167,7 +167,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/conversations/` | `{model_id?, title?}` | session | Enforces the durable per-user conversation limit atomically. |
 | GET/PATCH/DELETE | `/conversations/<id>/` | `{title?, model_id?, system_prompt?, temperature?, max_tokens?}` | session | 404 if not owned. Params: temp 0–1, tokens 64 through the selected model's advertised ceiling, prompt ≤4000 chars. |
 | POST | `/conversations/<id>/messages/` | `{content, model_id?, attachment_ids?}` | session | Atomically reserves both saved-message slots before proxying to NVIDIA. The effective model is validated before any override is saved; incompatible type, MIME, byte size, image count, storage quota, or output bound fails closed. |
-| GET | `/conversations/<id>/export/` | — | session | Owner-scoped Markdown stream; limited to 10/hour and rejected before streaming when its conservative estimate exceeds `CHAT_MAX_EXPORT_BYTES`. |
+| GET | `/conversations/<id>/export/` | — | recent strong session | Owner-scoped Markdown stream; limited to 10/hour and rejected before streaming when its conservative estimate exceeds `CHAT_MAX_EXPORT_BYTES`. |
 | GET | `/attachments/?kind=` | — | session | List user's attachments (optionally filter by `image`/`document`/`generated_image`). |
 | POST | `/attachments/upload/` | `multipart` fields `file`, `model_id?` | session | Global whitelist: jpg/png/webp/gif, pdf, txt, md, docx; the selected model further restricts image types/count/size. 10 MB/file, 100 MB/user. Bytes are streamed to local ClamAV before type inspection, extraction, deduplication or storage. PDF/DOCX extraction then runs serially under the credential-free, network-denied `aichat-parser` identity; scanner/parser ambiguity or outage fails closed. Empty or image-only documents are rejected. An identical pending upload for the same owner is reused with `deduplicated: true`. |
 | DELETE | `/attachments/<id>/` | — | session | Only unlinked attachments can be deleted. |
@@ -243,9 +243,11 @@ transaction gate additionally enforce 16 MiB/conversation, 64 MiB/user and 1
 GiB/service message-text ceilings. Sends reserve the exact prompt plus the
 worst-case assistant size before provider work; regeneration reserves only its
 maximum net growth. Assistant output is capped at 64,000 characters, Markdown
-exports are streamed under a conservative 25 MiB ceiling, and quota blocks are
-security-monitored. The responsive Storage panel exposes current counts, text
-bytes and owner-visible limits without disclosing global tenant usage. Its full
+exports are streamed under a conservative 25 MiB ceiling, require fresh password
+plus 2FA confirmation when enabled, and emit a privacy-minimized security alert;
+quota blocks are security-monitored. The responsive Storage panel exposes current
+counts, text bytes and owner-visible limits without disclosing global tenant
+usage. Its full
 account export requires a fresh password plus 2FA when enabled, streams only the
 owner's portable JSON under `ACCOUNT_EXPORT_MAX_BYTES` and
 `ACCOUNT_EXPORT_MAX_RECORDS`, and omits file bodies, extracted text, hashes,

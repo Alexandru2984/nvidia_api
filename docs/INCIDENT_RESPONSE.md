@@ -38,7 +38,9 @@ generation lease raises `generation_interrupted`; three mismatched reuses of an
 `Idempotency-Key` within six minutes raise `generation_idempotency_conflict`.
 Every completed full-account export raises `account_export_completed`; any
 unexpected hard streaming-bound breach raises `account_export_bound_exceeded`.
-Neither alert includes the owner, IP, exported fields, filenames, or content.
+Every authorized conversation export raises `conversation_export_authorized`.
+These alerts include only aggregate counts: never the owner, conversation, IP,
+exported fields, filenames, or content.
 Any Unix-socket request missing a valid nginx-provided client address raises
 `proxy_client_ip_invalid`; investigate the proxy/socket trust boundary before
 restoring affected authentication paths.
@@ -98,6 +100,13 @@ acknowledging the alert.
   saved chat text, email, usage and session IP metadata; start legal/privacy
   assessment and the GDPR 72-hour awareness clock when unauthorized disclosure
   is plausible.
+- For an unexpected `conversation_export_authorized`, preserve the event and
+  authentication window, revoke suspicious sessions and require fresh password
+  plus 2FA verification from a known-clean device. Scope the potentially exposed
+  data from owner/conversation metadata in the database without copying message
+  text, filenames or exported Markdown into Telegram or the incident channel.
+  Start legal/privacy assessment and the GDPR 72-hour awareness clock when
+  unauthorized disclosure is plausible.
 - For an unexpected `account_deleted`, immediately preserve the authentication,
   nginx and deletion-event window plus the newest pre-event backup identity and
   hash. Confirm that every session was revoked and contain any credential/control-
@@ -246,8 +255,9 @@ inventory.
 - Quarterly: tabletop for credential theft plus private-attachment disclosure.
 - Quarterly: alert-path test for availability, authentication abuse, and NVIDIA
   spend.
-- Quarterly: controlled account-export alert followed by session containment,
-  privacy scoping, and confirmation that the temporary account leaves no residue.
+- Quarterly: controlled account/conversation-export alerts followed by session
+  containment, privacy scoping, and confirmation that the temporary account
+  leaves no residue.
 - Quarterly: exercise a failed-maintenance/retention scenario, including dry-run
   scope validation and recovery decision authority.
 - At least twice yearly: restore a selected encrypted backup into an isolated
