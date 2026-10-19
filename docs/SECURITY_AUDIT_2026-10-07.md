@@ -531,7 +531,10 @@ metadata and the privacy-minimized restore status. Model availability is now
 produced by a second dedicated non-login identity with only its provider/signing
 credentials; `aichat` has read-only/public-key access to exact-owner/mode Ed25519-
 verified state, and a crashed probe alerts immediately rather than waiting for
-the eight-day freshness deadline. The remaining high-value
+the eight-day freshness deadline. A credential-free checker now re-verifies the
+signed state independently every five minutes from manifest-checked code and
+dependencies; deploys reject a missing or unsafe identity/key/state boundary
+before switching releases. The remaining high-value
 signals are off-host retention, sudo/process identity and provider/mail cost
 anomalies. Scheduled restore failure is now ingested from its own unit and alerts
 immediately; stale, missing or malformed success evidence remains latched through

@@ -73,10 +73,11 @@ tampering: preserve the journal timestamp, compare the root-owned installed file
 to its committed source without copying secret contents, and contain before
 acknowledging the alert.
 
-For `model_probe_failed`, `model_probe_degraded`, `model_probe_authorization` or
-`model_status_invalid`, preserve the unit journal and signed status metadata but
-never paste provider bodies or credentials into the incident channel. Keep model
-selection fail-closed. If the `aichat-model-probe` identity or signing key may be
+For `model_probe_failed`, `model_probe_degraded`, `model_probe_authorization`,
+`model_status_invalid` or `model_status_health`, preserve the unit journal and
+signed status metadata but never paste provider bodies or credentials into the
+incident channel. Keep model selection fail-closed. If the
+`aichat-model-probe` identity or signing key may be
 compromised, revoke/replace the NVIDIA credential, then rotate the signing pair
 with `sudo scripts/install_model_probe_identity.sh --rotate-signing-key` and run
 `sudo systemctl start aichat-model-probe.service`. Rotation intentionally makes

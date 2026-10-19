@@ -119,9 +119,12 @@ timed evidence.
   probe, and alerts degraded, authorization-failed or crashed probes without
   leaking provider error details. The probe now runs under a dedicated non-login
   identity with only its NVIDIA and Ed25519 credentials; `aichat` can read but
-  cannot forge the exact-owner/mode, signature-verified state. Provider egress is
-  pinned to approved NVIDIA HTTPS endpoints; redirects are disabled and streamed
-  SSE/image responses have aggregate, line, shape and wall-clock bounds. The
+  cannot forge the exact-owner/mode, signature-verified state. A credential-free
+  five-minute check verifies it independently from user traffic, and backend
+  deployment refuses an absent/stale identity, key or permission boundary before
+  switching releases. Provider egress is pinned to approved NVIDIA HTTPS
+  endpoints; redirects are disabled and streamed SSE/image responses have
+  aggregate, line, shape and wall-clock bounds. The
   October 2026 catalog tracks 20 documented endpoints, while the authenticated
   contract reports the changing verified/degraded aggregate rather than promising
   a fixed live count. Model-specific temperature/output-token contracts are

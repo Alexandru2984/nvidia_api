@@ -353,7 +353,10 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   exact ownership/mode, schema, size, model IDs, outcome vocabulary, latency,
   attempts, timezone and freshness are validated when read. Missing, unsigned,
   stale, future-dated, symlinked, permission-drifted or malformed state fails
-  closed and triggers the security monitor.
+  closed and triggers the security monitor. Every five minutes, the monitor also
+  runs a credential-free verifier from the manifest-checked backend with the
+  hash-locked Python environment, so detection does not wait for a user to open
+  the model picker.
 - Definitive endpoint failures (`404/410`) and payload-contract rejection
   (`400/422`) mark a model unavailable. Authentication/entitlement failures,
   throttling, timeouts, network/protocol errors, ambiguous 4xx and provider 5xx responses
@@ -616,6 +619,7 @@ sudo chgrp aichat backend/.env && sudo chmod 0640 backend/.env
 sudo chown -R aichat:aichat backend/media backend/.cache
 sudo chmod 0700 backend/media backend/.cache
 sudo scripts/install_model_probe_identity.sh
+sudo scripts/deploy_backend.sh --check-model-probe-boundary
 sudo scripts/deploy_backend.sh --bootstrap
 sudo scripts/deploy_python_env.sh --bootstrap
 sudo scripts/deploy_backend.sh
