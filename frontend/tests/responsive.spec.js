@@ -394,7 +394,9 @@ test('account export reauthenticates and starts a download without mobile overfl
   await panel.getByRole('button', { name: 'Verify and download' }).click()
 
   expect(reauthPayloads).toEqual([{ password: 'correct-password' }])
-  expect(await page.evaluate(() => window.__accountExportDownload)).toEqual({
+  await expect.poll(
+    () => page.evaluate(() => window.__accountExportDownload),
+  ).toEqual({
     href: 'http://127.0.0.1:5179/api/account/export/', download: '',
   })
   await expect(panel.getByLabel('Current password')).toHaveCount(0)
@@ -440,7 +442,9 @@ test('conversation export requires reauthentication and stays usable on mobile',
     { password: 'correct-password' },
     { password: 'correct-password', code: 'aaaa1111-bbbb2222' },
   ])
-  expect(await page.evaluate(() => window.__conversationExportDownload)).toEqual({
+  await expect.poll(
+    () => page.evaluate(() => window.__conversationExportDownload),
+  ).toEqual({
     href: 'http://127.0.0.1:5179/api/conversations/1/export/', download: '',
   })
   await expect(dialog).toHaveCount(0)
