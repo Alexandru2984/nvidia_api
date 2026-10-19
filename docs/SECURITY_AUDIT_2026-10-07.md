@@ -597,9 +597,16 @@ hash-binds those wheel artifacts, the lockfile and repository commit. Frontend
 build output records and deploy-time validates its exact commit and Git tree,
 while its immutable release manifest binds every served byte. This prevents
 normal stale/dirty release activation but is not a signed builder-provenance
-attestation. No signed provenance or controlled dependency-update evidence
-exists. The workflow token is correctly restricted to `contents: read`, and no
-production deployment secret is used.
+attestation. Commit `76e3ab8` adds bounded weekly Dependabot proposals for the
+frontend npm tree, Python runtime tree and GitHub Actions, plus a CI regression
+gate and an explicit review policy. The policy prohibits auto-merge/deploy,
+moving Action refs, credential or permission expansion and hash relaxation; it
+requires upstream provenance review, green CI, exact Python hash-lock repair and
+a manual commit-bound rollout. The workflow token remains restricted to
+`contents: read`, and no production deployment secret is used. Because this
+commit has not been pushed, GitHub has not yet ingested the updater configuration;
+repository-side branch protection and required-review settings also remain
+account-side evidence to verify. Signed builder provenance is still absent.
 
 Impact: a silently moved Action tag can no longer alter CI execution, and a
 changed wheel cannot satisfy the committed lock. An incorrectly reviewed new pin
@@ -608,7 +615,10 @@ independent provenance evidence. Blast radius remains reduced by read-only
 permissions and lack of deploy.
 
 Remediation: use a controlled updater with explicit upstream review, and
-produce/retain signed builder provenance for each dependency release.
+produce/retain signed builder provenance for each dependency release. After an
+authorized push, verify that all three updater entries are active, security
+updates target the default branch, and branch protection requires human review
+plus the `CI` workflow before considering the updater control operational.
 
 ### S-15 — Low/Medium — privacy/governance evidence is incomplete
 
@@ -772,8 +782,11 @@ than exporting historical combined-log fields.
    logs are now content-minimized; preserve that field boundary in any external
    sink rather than exporting raw IP, User-Agent, Referer, cookie or query data.
 6. CI Actions are pinned to reviewed full commit SHAs and Python production
-   artifacts are locked by hash. Preserve both gates through a controlled update
-   process.
+   artifacts are locked by hash. A review-only, rate-bounded Dependabot policy is
+   committed for npm, Python and Actions, with a regression test covering its
+   trust boundary. Push it through the authorized repository path, verify the
+   GitHub-side updater/branch-protection state, and retain upstream review
+   evidence for every accepted update.
 
 ### P2 — after the verdict returns to yellow/green
 

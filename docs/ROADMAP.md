@@ -218,7 +218,12 @@ timed evidence.
   signed builder provenance and define an encrypted off-site/expiry lifecycle
   for those supplemental archives.
   CI's remote Actions are pinned to reviewed full commit SHAs, with a regression
-  gate rejecting moving refs; updates must preserve that review trail.
+  gate rejecting moving refs; updates must preserve that review trail. A bounded
+  weekly Dependabot proposal policy for npm, Python and Actions is committed,
+  prohibits automated merge/deploy authority, and is CI-checked against weakened
+  review boundaries. It becomes operational only after an authorized push and
+  verification of GitHub-side required review/CI settings. Signed builder
+  provenance remains the next supply-chain control.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page
