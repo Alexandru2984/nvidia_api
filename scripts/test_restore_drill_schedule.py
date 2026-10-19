@@ -53,6 +53,10 @@ class RestoreDrillScheduleTests(unittest.TestCase):
             'systemctl enable --now aichat-restore-drill.timer',
             'systemctl start aichat-restore-drill.service',
             'systemctl reset-failed aichat-restore-drill.service',
+            "LEGACY_RESTORE_CRON='15 5 * * 0 umask 077; /home/micu/nvidia/scripts/backup_restore_drill.sh",
+            'remove_legacy_restore_cron',
+            'restore_legacy_restore_cron',
+            'crontab -u "$CRONTAB_USER"',
         ):
             self.assertIn(required, installer)
 

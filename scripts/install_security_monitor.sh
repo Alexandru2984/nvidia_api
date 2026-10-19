@@ -30,14 +30,18 @@ RESTORE_LOG="$BACKUP_DIR/restore-drill.log"
 STATE_DIR='/var/lib/aichat-security-monitor'
 STATE_FILE="$STATE_DIR/state.json"
 MONITOR_USER='aichat-monitor'
+CRONTAB_USER='micu'
+LEGACY_RESTORE_COMMENT='# Isolated restore/integrity drill (weekly)'
+LEGACY_RESTORE_CRON='15 5 * * 0 umask 077; /home/micu/nvidia/scripts/backup_restore_drill.sh >> /home/micu/backups/nvidia_db/restore-drill.log 2>&1'
 temporary=''
 completed=0
+legacy_restore_removed=0
 
 if (( EUID != 0 )); then
   echo 'ERROR: security-monitor installation must run as root' >&2
   exit 1
 fi
-for command in getfacl setfacl systemctl systemd-sysusers install runuser git getent python3 cmp; do
+for command in getfacl setfacl systemctl systemd-sysusers install runuser git getent python3 cmp crontab; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
@@ -48,6 +52,14 @@ if ! git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" diff --quiet -- \
   echo 'ERROR: tracked repository changes must be committed before installation' >&2
   exit 1
 fi
+legacy_restore_count="$(
+  crontab -u "$CRONTAB_USER" -l 2>/dev/null \
+    | grep -Fxc -- "$LEGACY_RESTORE_CRON" || true
+)"
+(( legacy_restore_count <= 1 )) || {
+  echo 'ERROR: duplicate legacy restore cron entries require manual review' >&2
+  exit 1
+}
 for source in \
   "$SOURCE_MONITOR" "$SOURCE_SERVICE" "$SOURCE_TIMER" "$SOURCE_SYSUSERS" \
   "$SOURCE_CONFIG_SERVICE" "$SOURCE_CONFIG_PATH" "$SOURCE_RESTORE_DRILL" \
@@ -131,6 +143,53 @@ restore_target() {
   fi
 }
 
+remove_legacy_restore_cron() {
+  (( legacy_restore_count == 1 )) || return 0
+  crontab -u "$CRONTAB_USER" -l > "$temporary/crontab.current"
+  python3 - \
+    "$temporary/crontab.current" "$temporary/crontab.updated" \
+    "$LEGACY_RESTORE_COMMENT" "$LEGACY_RESTORE_CRON" <<'PY'
+from pathlib import Path
+import sys
+
+source, target = map(Path, sys.argv[1:3])
+comment, command = sys.argv[3:5]
+output = []
+for line in source.read_text(encoding='utf-8').splitlines():
+    if line == command:
+        if output and output[-1] == comment:
+            output.pop()
+        continue
+    output.append(line)
+target.write_text('\n'.join(output).rstrip() + '\n', encoding='utf-8')
+PY
+  crontab -u "$CRONTAB_USER" "$temporary/crontab.updated"
+  legacy_restore_removed=1
+}
+
+restore_legacy_restore_cron() {
+  (( legacy_restore_removed == 1 )) || return 0
+  crontab -u "$CRONTAB_USER" -l > "$temporary/crontab.current" 2>/dev/null \
+    || : > "$temporary/crontab.current"
+  if grep -Fqx -- "$LEGACY_RESTORE_CRON" "$temporary/crontab.current"; then
+    return 0
+  fi
+  python3 - \
+    "$temporary/crontab.current" "$temporary/crontab.updated" \
+    "$LEGACY_RESTORE_COMMENT" "$LEGACY_RESTORE_CRON" <<'PY'
+from pathlib import Path
+import sys
+
+source, target = map(Path, sys.argv[1:3])
+content = source.read_text(encoding='utf-8').rstrip()
+if content:
+    content += '\n'
+content += f'{sys.argv[3]}\n{sys.argv[4]}\n'
+target.write_text(content, encoding='utf-8')
+PY
+  crontab -u "$CRONTAB_USER" "$temporary/crontab.updated"
+}
+
 rollback() {
   local status="${1:-1}" uid gid mode
   trap - ERR INT TERM
@@ -150,6 +209,7 @@ rollback() {
   restore_target restore_drill "$TARGET_RESTORE_DRILL"
   restore_target restore_service "$TARGET_RESTORE_SERVICE"
   restore_target restore_timer "$TARGET_RESTORE_TIMER"
+  restore_legacy_restore_cron || true
   setfacl --restore="$temporary/backup.acl" >/dev/null 2>&1 || true
   IFS=: read -r uid gid mode <<< "$state_dir_owner"
   chown "$uid:$gid" -- "$STATE_DIR" 2>/dev/null || true
@@ -239,6 +299,7 @@ if [[ -f "$STATE_FILE" ]]; then
   chmod 0600 -- "$STATE_FILE"
 fi
 
+remove_legacy_restore_cron
 systemctl daemon-reload
 systemctl enable --now aichat-config-watch.path
 systemctl enable --now aichat-security-monitor.timer
@@ -254,6 +315,11 @@ systemctl start aichat-security-monitor.service
 [[ "$(systemctl is-active aichat-config-watch.path)" == active ]]
 [[ "$(systemctl is-enabled aichat-restore-drill.timer)" == enabled ]]
 [[ "$(systemctl is-active aichat-restore-drill.timer)" == active ]]
+if crontab -u "$CRONTAB_USER" -l 2>/dev/null \
+  | grep -Fqx -- "$LEGACY_RESTORE_CRON"; then
+  echo 'ERROR: legacy restore cron entry is still installed' >&2
+  false
+fi
 [[ "$(stat -c '%u:%g:%a' -- "$STATE_DIR")" == "$monitor_uid:$monitor_gid:700" ]]
 if [[ -f "$STATE_FILE" ]]; then
   [[ "$(stat -c '%u:%g:%a' -- "$STATE_FILE")" == "$monitor_uid:$monitor_gid:600" ]]
