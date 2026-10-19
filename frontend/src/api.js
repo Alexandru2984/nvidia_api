@@ -48,10 +48,22 @@ async function request(path, opts = {}) {
 }
 
 export const MEDIA_BASE = ''
+
+const PRIVATE_ATTACHMENT_PATH = /^\/api\/attachments\/[1-9]\d*\/download\/$/
+
 export function mediaUrl(url) {
-  if (!url) return ''
-  if (url.startsWith('http')) return url
-  return MEDIA_BASE + url
+  if (typeof url !== 'string' || !url) return ''
+  try {
+    const parsed = new URL(url, window.location.origin)
+    if (parsed.origin !== window.location.origin
+        || parsed.username || parsed.password || parsed.search || parsed.hash
+        || !PRIVATE_ATTACHMENT_PATH.test(parsed.pathname)) {
+      return ''
+    }
+    return MEDIA_BASE + parsed.pathname
+  } catch {
+    return ''
+  }
 }
 
 export const api = {

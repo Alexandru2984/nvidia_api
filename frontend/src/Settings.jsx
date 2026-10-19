@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from './api'
+import { api, mediaUrl } from './api'
 
 
 function normalizeAttachmentPage(page) {
@@ -750,10 +750,21 @@ function StoragePanel() {
       </div>}
       <div className="file-library">
         {files.length === 0 && <p className="muted">No files uploaded yet.</p>}
-        {files.map((file) => <div className="library-row" key={file.id}>
-          <div><a href={file.url} download>{file.original_name}</a><small>{Math.max(1, Math.round(file.size / 1024))} KB · {file.deletable ? 'Unattached' : 'Linked to a conversation'}</small></div>
-          {file.deletable && <button className="link danger" disabled={busy} onClick={() => remove(file)} aria-label={`Delete ${file.original_name}`}>Delete</button>}
-        </div>)}
+        {files.map((file) => {
+          const url = mediaUrl(file.url)
+          return <div className="library-row" key={file.id}>
+            <div>
+              {url
+                ? <a href={url} download>{file.original_name}</a>
+                : <span className="attachment-url-unavailable">{file.original_name}</span>}
+              <small>
+                {Math.max(1, Math.round(file.size / 1024))} KB · {file.deletable ? 'Unattached' : 'Linked to a conversation'}
+                {!url && ' · File link unavailable'}
+              </small>
+            </div>
+            {file.deletable && <button className="link danger" disabled={busy} onClick={() => remove(file)} aria-label={`Delete ${file.original_name}`}>Delete</button>}
+          </div>
+        })}
         {nextCursor && (
           <button className="library-load-more" onClick={loadMore} disabled={loadingMore}>
             {loadingMore ? 'Loading…' : 'Load more files'}

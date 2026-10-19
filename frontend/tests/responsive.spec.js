@@ -17,7 +17,10 @@ async function mockAPI(
     messages: [
       { id: 1, role: 'user', content: 'Explain this code', attachments: [] },
       { id: 2, role: 'assistant', content: '```js\nconst value = 42\n```\n\n' + 'longword'.repeat(70)
-        + '\n\n![tracker](https://tracker.invalid/pixel)\n\n| A | B |\n|---|---|\n| first | second |', attachments: [] },
+        + '\n\n![tracker](https://tracker.invalid/pixel)'
+        + '\n\n[blocked script](javascript:window.__markdownExecuted=true)'
+        + '\n\n![inline tracker](data:image/svg+xml;base64,PHN2Zy8+)'
+        + '\n\n| A | B |\n|---|---|\n| first | second |', attachments: [] },
     ],
   }
   await page.route('**/api/**', (route) => {
@@ -170,6 +173,77 @@ test('application shell contains no cross-origin scripts', async ({ page }) => {
   await mockAPI(page)
   await page.goto('/')
   await expect(page.locator('script[src^="http://"], script[src^="https://"]')).toHaveCount(0)
+})
+
+test('private file library rejects fabricated attachment URLs', async ({ page }) => {
+  await mockAPI(page)
+  await page.route('**/api/attachments/**', (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname !== '/api/attachments/' || route.request().method() !== 'GET') {
+      return route.fallback()
+    }
+    return route.fulfill({ status: 200, json: {
+      results: [
+        {
+          id: 701, kind: 'document', original_name: 'safe.txt', mime_type: 'text/plain',
+          size: 12, url: '/api/attachments/701/download/', has_text: true, deletable: false,
+        },
+        {
+          id: 702, kind: 'document', original_name: 'cross-origin.txt', mime_type: 'text/plain',
+          size: 12, url: 'https://attacker.invalid/private', has_text: true, deletable: false,
+        },
+        {
+          id: 703, kind: 'document', original_name: 'script.txt', mime_type: 'text/plain',
+          size: 12, url: 'javascript:window.__attachmentExecuted=true', has_text: true, deletable: false,
+        },
+        {
+          id: 704, kind: 'document', original_name: 'query.txt', mime_type: 'text/plain',
+          size: 12, url: '/api/attachments/704/download/?next=https://attacker.invalid',
+          has_text: true, deletable: false,
+        },
+      ],
+      next_cursor: null,
+    } })
+  })
+
+  await page.goto('/')
+  await page.getByTitle('Settings', { exact: true }).click()
+  await expect(page.getByRole('link', { name: 'safe.txt' })).toHaveAttribute(
+    'href', '/api/attachments/701/download/',
+  )
+  for (const name of ['cross-origin.txt', 'script.txt', 'query.txt']) {
+    await expect(page.getByText(name, { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name })).toHaveCount(0)
+  }
+  await expect(page.getByText('File link unavailable', { exact: false })).toHaveCount(3)
+  await expect(page.locator('[href^="javascript:"], [href*="attacker.invalid"]')).toHaveCount(0)
+  expect(await page.evaluate(() => window.__attachmentExecuted)).toBeUndefined()
+})
+
+test('message attachments never load cross-origin URLs from API data', async ({ page }) => {
+  await mockAPI(page)
+  const crossOriginRequests = []
+  page.on('request', (request) => {
+    if (request.url().includes('attacker.invalid')) crossOriginRequests.push(request.url())
+  })
+  await page.route(/\/api\/conversations\/1\/(?:\?.*)?$/, (route) => route.fulfill({ status: 200, json: {
+    id: 1, title: 'A useful conversation', model_id: 'test/model', message_count: 1,
+    is_pinned: false, archived_at: null,
+    created_at: '2026-10-05T12:00:00Z', updated_at: '2026-10-05T12:00:00Z',
+    messages: [{
+      id: 1, role: 'user', content: 'untrusted attachment response',
+      attachments: [{
+        id: 705, kind: 'image', original_name: 'remote.png', mime_type: 'image/png',
+        size: 68, url: 'https://attacker.invalid/pixel', has_text: false, deletable: false,
+      }],
+    }],
+  } }))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await expect(page.getByText('File link unavailable', { exact: true })).toBeVisible()
+  await expect(page.locator('img[src*="attacker.invalid"], a[href*="attacker.invalid"]')).toHaveCount(0)
+  expect(crossOriginRequests).toEqual([])
 })
 
 test('provider disclosure gates the first request and remains usable on mobile', async ({ page }) => {
@@ -551,6 +625,11 @@ for (const width of [320, 390, 768, 1440]) {
     await page.getByRole('button', { name: /A useful conversation/ }).click()
     await expect(page.getByText('Open image: tracker', { exact: true })).toBeVisible()
     await expect(page.locator('img[src*="tracker.invalid"]')).toHaveCount(0)
+    await expect(page.getByText('blocked script', { exact: true })).toBeVisible()
+    await expect(page.getByText('blocked script', { exact: true })).not.toHaveAttribute('href')
+    await expect(page.getByText('Blocked image: inline tracker', { exact: true })).toBeVisible()
+    await expect(page.locator('[href^="javascript:"], [href^="data:"]')).toHaveCount(0)
+    expect(await page.evaluate(() => window.__markdownExecuted)).toBeUndefined()
     await expectNoPageOverflow(page)
     await page.screenshot({ path: `test-results/chat-${width}.png` })
     if (width <= 760) await page.getByRole('button', { name: 'Open conversations' }).click()

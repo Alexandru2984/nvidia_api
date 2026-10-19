@@ -633,9 +633,11 @@ function AttachmentTile({ att, onRemove, compact, included = true, onToggle, onP
   if (isImage) {
     return (
       <div className={`att-tile image ${compact ? 'compact' : ''} ${included ? '' : 'excluded'}`}>
-        <a href={url} target="_blank" rel="noreferrer">
-          <img src={url} alt={att.original_name} />
-        </a>
+        {url ? (
+          <a href={url} target="_blank" rel="noreferrer">
+            <img src={url} alt={att.original_name} />
+          </a>
+        ) : <span className="attachment-url-unavailable">File link unavailable</span>}
         {onToggle && (
           <label className="att-include" title={included ? 'Exclude from next message' : 'Include in next message'}>
             <input
@@ -656,7 +658,9 @@ function AttachmentTile({ att, onRemove, compact, included = true, onToggle, onP
     <div className={`att-tile doc ${compact ? 'compact' : ''} ${included ? '' : 'excluded'}`}>
       <div className="att-doc-icon">{(fileExt(att.original_name) || 'DOC').toUpperCase()}</div>
       <div className="att-doc-meta">
-        <a className="att-doc-name" href={url} title={att.original_name} download>{att.original_name}</a>
+        {url
+          ? <a className="att-doc-name" href={url} title={att.original_name} download>{att.original_name}</a>
+          : <span className="att-doc-name attachment-url-unavailable" title={att.original_name}>{att.original_name}</span>}
         <div className="att-doc-size">{humanSize(att.size)}{att.has_text ? ' · text extracted' : ''}</div>
         {onPreview && att.has_text && (
           <button
@@ -2639,11 +2643,18 @@ export default function App() {
               {imageGallery.length === 0 ? (
                 <div className="empty-list">No generations yet. Describe an image above.</div>
               ) : (
-                imageGallery.map((a) => (
-                  <a key={a.id} href={mediaUrl(a.url)} target="_blank" rel="noreferrer" className="gallery-tile">
-                    <img src={mediaUrl(a.url)} alt={a.original_name} loading="lazy" />
-                  </a>
-                ))
+                imageGallery.map((a) => {
+                  const url = mediaUrl(a.url)
+                  return url ? (
+                    <a key={a.id} href={url} target="_blank" rel="noreferrer" className="gallery-tile">
+                      <img src={url} alt={a.original_name} loading="lazy" />
+                    </a>
+                  ) : (
+                    <div key={a.id} className="gallery-tile unavailable">
+                      <span className="attachment-url-unavailable">File link unavailable</span>
+                    </div>
+                  )
+                })
               )}
             </div>
             {imageGalleryNextCursor && (
