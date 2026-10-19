@@ -13,7 +13,16 @@ LIVE_PATH='/opt/aichat-backend-current'
 SERVICE='aichat-backend.service'
 RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
 LOCK_FILE='/run/aichat-release-operation.lock'
+MODEL_PROBE_USER='aichat-model-probe'
+MODEL_PROBE_CONFIG_DIR='/etc/aichat'
+MODEL_PROBE_API_KEY="$MODEL_PROBE_CONFIG_DIR/model-probe-api-key"
+MODEL_PROBE_PRIVATE_KEY="$MODEL_PROBE_CONFIG_DIR/model-status-private.pem"
+MODEL_PROBE_PUBLIC_KEY="$MODEL_PROBE_CONFIG_DIR/model-status-public.pem"
+MODEL_PROBE_STATE_DIR='/var/lib/aichat-model-probe'
+MODEL_PROBE_STATUS="$MODEL_PROBE_STATE_DIR/model_status.json"
+MODEL_PROBE_SYSUSERS='/etc/sysusers.d/aichat-model-probe.conf'
 BOOTSTRAP=0
+CHECK_MODEL_PROBE_BOUNDARY_ONLY=0
 
 UNIT_SOURCES=(
   'ops/systemd/aichat-backend.service'
@@ -39,7 +48,7 @@ activation_started=0
 units_backed_up=0
 
 usage() {
-  echo 'Usage: sudo scripts/deploy_backend.sh [--bootstrap]' >&2
+  echo 'Usage: sudo scripts/deploy_backend.sh [--bootstrap|--check-model-probe-boundary]' >&2
 }
 
 git_read() {
@@ -64,6 +73,90 @@ full_probes() {
   private_code="$(origin_curl --output /dev/null --write-out '%{http_code}' \
     "https://$DOMAIN/api/conversations/")" || return 1
   [[ "$private_code" == '403' ]] || return 1
+}
+
+validate_model_probe_boundary() {
+  local probe_group probe_home probe_shell path size
+
+  id "$MODEL_PROBE_USER" >/dev/null 2>&1 || {
+    echo 'ERROR: isolated model-probe identity is missing' >&2
+    return 1
+  }
+  probe_group="$(id -gn "$MODEL_PROBE_USER")"
+  probe_home="$(getent passwd "$MODEL_PROBE_USER" | cut -d: -f6)"
+  probe_shell="$(getent passwd "$MODEL_PROBE_USER" | cut -d: -f7)"
+  [[ "$probe_group" == "$MODEL_PROBE_USER" \
+     && "$probe_home" == "$MODEL_PROBE_STATE_DIR" \
+     && "$probe_shell" == '/usr/sbin/nologin' ]] || {
+    echo 'ERROR: isolated model-probe identity has an unsafe shape' >&2
+    return 1
+  }
+  [[ -d "$MODEL_PROBE_CONFIG_DIR" && ! -L "$MODEL_PROBE_CONFIG_DIR" \
+     && "$(stat -c '%a:%U:%G' "$MODEL_PROBE_CONFIG_DIR")" == '750:root:aichat' ]] || {
+    echo 'ERROR: model-probe configuration directory is unsafe' >&2
+    return 1
+  }
+  [[ -f "$REPO_DIR/ops/sysusers.d/aichat-model-probe.conf" \
+     && ! -L "$REPO_DIR/ops/sysusers.d/aichat-model-probe.conf" \
+     && -f "$MODEL_PROBE_SYSUSERS" && ! -L "$MODEL_PROBE_SYSUSERS" \
+     && "$(stat -c '%a:%U:%G' "$MODEL_PROBE_SYSUSERS")" == '644:root:root' ]] || {
+    echo 'ERROR: installed model-probe sysusers definition is unsafe or stale' >&2
+    return 1
+  }
+  cmp --silent -- "$REPO_DIR/ops/sysusers.d/aichat-model-probe.conf" \
+    "$MODEL_PROBE_SYSUSERS" || {
+      echo 'ERROR: installed model-probe sysusers definition is unsafe or stale' >&2
+      return 1
+    }
+  for path in "$MODEL_PROBE_API_KEY" "$MODEL_PROBE_PRIVATE_KEY"; do
+    [[ -f "$path" && ! -L "$path" \
+       && "$(stat -c '%a:%U:%G' "$path")" == '600:root:root' ]] || {
+      echo 'ERROR: private model-probe credential is missing or unsafe' >&2
+      return 1
+    }
+    size="$(stat -c '%s' "$path")"
+    (( size >= 1 && size <= 4096 )) || {
+      echo 'ERROR: private model-probe credential has an unsafe size' >&2
+      return 1
+    }
+  done
+  [[ -f "$MODEL_PROBE_PUBLIC_KEY" && ! -L "$MODEL_PROBE_PUBLIC_KEY" \
+     && "$(stat -c '%a:%U:%G' "$MODEL_PROBE_PUBLIC_KEY")" == '640:root:aichat' ]] || {
+    echo 'ERROR: model-status public key is missing or unsafe' >&2
+    return 1
+  }
+  size="$(stat -c '%s' "$MODEL_PROBE_PUBLIC_KEY")"
+  (( size >= 1 && size <= 4096 )) || {
+    echo 'ERROR: model-status public key has an unsafe size' >&2
+    return 1
+  }
+  openssl pkey -in "$MODEL_PROBE_PRIVATE_KEY" -pubout 2>/dev/null \
+    | cmp --silent - "$MODEL_PROBE_PUBLIC_KEY" || {
+      echo 'ERROR: model-status signing keys do not match' >&2
+      return 1
+    }
+  runuser --user aichat -- sh -c '
+    test -r /etc/aichat/model-status-public.pem \
+      && test ! -w /etc/aichat/model-status-public.pem \
+      && test ! -r /etc/aichat/model-status-private.pem \
+      && test ! -r /etc/aichat/model-probe-api-key
+  ' || {
+    echo 'ERROR: backend model-probe credential boundary is unsafe' >&2
+    return 1
+  }
+  if [[ -e "$MODEL_PROBE_STATUS" || -L "$MODEL_PROBE_STATUS" ]]; then
+    [[ -f "$MODEL_PROBE_STATUS" && ! -L "$MODEL_PROBE_STATUS" \
+       && "$(stat -c '%a:%U:%G' "$MODEL_PROBE_STATUS")" \
+          == '640:aichat-model-probe:aichat' ]] || {
+      echo 'ERROR: existing signed model status has unsafe ownership or mode' >&2
+      return 1
+    }
+    size="$(stat -c '%s' "$MODEL_PROBE_STATUS")"
+    (( size >= 1 && size <= 524288 )) || {
+      echo 'ERROR: existing signed model status has an unsafe size' >&2
+      return 1
+    }
+  fi
 }
 
 wait_for_release() {
@@ -174,6 +267,9 @@ handle_error() {
 if [[ "${1:-}" == '--bootstrap' ]]; then
   BOOTSTRAP=1
   shift
+elif [[ "${1:-}" == '--check-model-probe-boundary' ]]; then
+  CHECK_MODEL_PROBE_BOUNDARY_ONLY=1
+  shift
 fi
 if (( $# != 0 )); then
   usage
@@ -183,7 +279,8 @@ if (( EUID != 0 )); then
   echo 'ERROR: backend deployment must run as root' >&2
   exit 1
 fi
-for command in flock git tar sha256sum runuser curl systemctl readlink; do
+for command in flock git tar sha256sum runuser curl systemctl readlink \
+  getent id stat openssl cmp; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
@@ -206,6 +303,11 @@ fi
 if ! git_read diff --quiet -- || ! git_read diff --cached --quiet --; then
   echo 'ERROR: tracked worktree changes must be committed before deployment' >&2
   exit 1
+fi
+validate_model_probe_boundary
+if (( CHECK_MODEL_PROBE_BOUNDARY_ONLY )); then
+  echo 'Model-probe deployment boundary is valid.'
+  exit 0
 fi
 
 commit="$(git_read rev-parse --verify 'HEAD^{commit}')"

@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SERVICE = ROOT / 'ops/systemd/aichat-model-probe.service'
 SYSUSERS = ROOT / 'ops/sysusers.d/aichat-model-probe.conf'
 INSTALLER = ROOT / 'scripts/install_model_probe_identity.sh'
+DEPLOYER = ROOT / 'scripts/deploy_backend.sh'
 PROBE_SETTINGS = ROOT / 'backend/nvidia_chat/probe_settings.py'
 CHECK_SETTINGS = ROOT / 'backend/nvidia_chat/model_status_check_settings.py'
 MAIN_SETTINGS = ROOT / 'backend/nvidia_chat/settings.py'
@@ -81,6 +82,16 @@ class ModelProbeIsolationTests(unittest.TestCase):
         self.assertIn("PRIVATE_KEY=\"$CONFIG_DIR/model-status-private.pem\"", installer)
         self.assertIn("PUBLIC_KEY=\"$CONFIG_DIR/model-status-public.pem\"", installer)
         self.assertIn('tracked repository changes must be committed', installer)
+
+    def test_backend_deploy_fails_closed_on_missing_probe_boundary(self):
+        deployer = DEPLOYER.read_text(encoding='utf-8')
+        self.assertIn('validate_model_probe_boundary() {', deployer)
+        self.assertIn('validate_model_probe_boundary\n', deployer)
+        self.assertIn("'--check-model-probe-boundary'", deployer)
+        self.assertIn("MODEL_PROBE_USER='aichat-model-probe'", deployer)
+        self.assertIn('openssl pkey -in "$MODEL_PROBE_PRIVATE_KEY" -pubout', deployer)
+        self.assertIn("runuser --user aichat -- sh -c '", deployer)
+        self.assertIn("== '640:aichat-model-probe:aichat'", deployer)
 
     def test_sysusers_identity_is_non_login(self):
         line = SYSUSERS.read_text(encoding='utf-8').strip()
