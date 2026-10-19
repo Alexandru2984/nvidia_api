@@ -82,6 +82,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   persistent weekly systemd timer, runs against the active immutable releases,
   is sandboxed to local PostgreSQL plus the private backup directory, and alerts
   immediately on unit failure as well as missing/stale/malformed success evidence.
+  Backend, Python-runtime and frontend release families also have a common
+  lock-held rollback/restore drill with family-specific provenance and continuity
+  checks; static frontend recovery does not restart the backend.
   Encrypt backups with a separately held key, keep a tested immutable off-site
   copy, restore from that copy on schedule, and document RPO/RTO.
 - **Versioned 2FA key lifecycle is shipped:** purpose-separated TOTP encryption,

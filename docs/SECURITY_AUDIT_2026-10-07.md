@@ -234,6 +234,17 @@ secret values are reproduced here.
   ownership/modes and origin/edge boundaries passed. A lock-held live rollback
   and exact restoration both completed within one second, followed by a clean
   independent monitor run.
+- 2026-10-20: commit `7c2f0a7` added frontend to the common production rollback
+  drill. It verifies the active and candidate immutable manifests, exact static
+  modes, direct trusted-root symlinks and commit/tree correspondence when those
+  markers exist; the one transitional unmarked candidate remains eligible only
+  after full manifest validation. The static switch never restarts the backend,
+  asserts its PID/restart continuity, runs the same bounded public/private/media
+  probes after rollback and restore, and guarantees restoration on errors or
+  signals. Frontend plus unchanged backend/Python preflights passed. The first
+  automated live frontend drill rolled back in under one second, restored the
+  exact commit-bound release in one second, and the subsequent monitor run
+  finished successfully with no active issue.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -691,6 +702,9 @@ than exporting historical combined-log fields.
 - Backups are private, recent and gzip-tested; the latest recorded isolated
   restore drill succeeded. The monitor ran clean and the backend showed zero
   errors in the sampled 24-hour journal window.
+- Backend, Python-runtime and frontend immutable releases have common lock-held,
+  fail-safe rollback drills; the frontend path additionally proves a static
+  switch does not restart the backend process.
 
 ## Verification evidence
 
