@@ -8,7 +8,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 
 - **Verified rollout:** apply the committed nginx/systemd templates, deny direct
   media access, correct existing backup modes, validate health and rollback, and
-  capture evidence in the deployment log.
+  capture evidence in the deployment log. Frontend release builds now refuse
+  dirty/untracked or ignored environment input, bind output to the exact commit
+  and frontend Git tree, and must pass a bounded root-side preflight. Frontend,
+  backend, Python and rollback operations share one fail-closed exclusive lock.
 - **Safe deployment trigger:** the broken legacy NVIDIA `push` webhook is
   disabled. It targeted a removed service, ran before CI completion and did not
   use immutable release or migration gates. Keep manual atomic deployments until

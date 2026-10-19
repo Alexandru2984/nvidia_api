@@ -216,6 +216,24 @@ secret values are reproduced here.
   `/var/www/aichat-releases/release-20261019T111601_121301894` and restoration of
   the new release both completed within one second, after which the independent
   monitor finished successfully with no active issue.
+- 2026-10-20: frontend release delivery was hardened in commit `e771db0` and
+  production. The unprivileged builder now refuses dirty/untracked source,
+  ignored environment files outside bounded build/test directories and ambient
+  `VITE_*` values, strips Node preload variables, and records exact repository
+  commit plus frontend Git-tree identities. Root deployment requires both
+  identities to match committed `HEAD`, rejects symlinks, special or oversized
+  input/release trees, verifies the active manifest and direct release symlink,
+  and shares the backend/Python/rollback exclusive lock. CI exercises the same
+  builder and five negative/positive regressions. A stale build and a contending
+  deployment both failed closed without a production mutation; 80 operational
+  checks, ShellCheck, ESLint and zero-advisory npm audit passed. Commit-bound
+  release `/var/www/aichat-releases/release-20261019T223629_840187089` records
+  commit
+  `e771db0638f00471068717b2752262da82022140` and frontend tree
+  `0b92e12329af843412ee4c0856c739dfb1cbee68`; its complete manifest, exact
+  ownership/modes and origin/edge boundaries passed. A lock-held live rollback
+  and exact restoration both completed within one second, followed by a clean
+  independent monitor run.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -564,10 +582,13 @@ and a tested CI guard rejects moving tags, branches and short SHAs. Python
 production requirements are exactly versioned and SHA-256 locked to selected
 binary wheels, enforced by pip `--require-hashes` and a CI structural check. Each
 Python release now embeds a deterministic CycloneDX 1.7 SBOM that records and
-hash-binds those wheel artifacts, the lockfile and repository commit. No signed
-builder-provenance attestation or controlled dependency-update evidence exists.
-The workflow token is correctly restricted to `contents: read`, and no production
-deployment secret is used.
+hash-binds those wheel artifacts, the lockfile and repository commit. Frontend
+build output records and deploy-time validates its exact commit and Git tree,
+while its immutable release manifest binds every served byte. This prevents
+normal stale/dirty release activation but is not a signed builder-provenance
+attestation. No signed provenance or controlled dependency-update evidence
+exists. The workflow token is correctly restricted to `contents: read`, and no
+production deployment secret is used.
 
 Impact: a silently moved Action tag can no longer alter CI execution, and a
 changed wheel cannot satisfy the committed lock. An incorrectly reviewed new pin
