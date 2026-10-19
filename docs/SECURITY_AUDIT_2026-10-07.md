@@ -185,6 +185,13 @@ secret values are reproduced here.
   installed monitor executable. Any change emits only the fixed
   `protected_config_changed` event for the five-minute alert path. The watcher
   is enabled and waiting with 12 exact targets; no bootstrap event was emitted.
+- 2026-10-19: S-16 was remediated in commits `11bfe93` and `feae7d0`, then
+  deployed. nginx no longer copies this application's requests into the shared
+  raw-IP access log. Gunicorn retains only timestamp, method, path without query,
+  HTTP version, status, response bytes and latency; IP, User-Agent, Referer,
+  cookies and query strings are excluded by a CI regression gate. Public canary
+  metadata was absent from both retained destinations, and backend plus vhost
+  rollback/restore drills passed.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -540,6 +547,35 @@ Remediation: document all data flows and retention, present provider disclosure
 before first generation, publish the privacy notice, record vendor/DPA and
 production-entitlement decisions, and provide export/deletion status.
 
+### S-16 — Remediated — routine request logs retained excess client metadata
+
+Pre-fix evidence: nginx inherited the host-wide combined access log, retaining
+raw client IP, Referer and User-Agent under 14 rotations. Gunicorn duplicated
+those fields in journald and included the raw request URI, so a conversation-list
+search query could enter routine logs. Security events already used a secret-
+keyed network pseudonym, making the duplicate raw fields unnecessary for their
+correlation purpose.
+
+Impact: read access to nginx logs or the backend journal exposed linkable network
+and device metadata for every request and could include user-supplied query text.
+That enlarged incident/privacy scope without improving application authorization.
+
+Remediation and status: the application vhost explicitly disables inherited
+nginx access logging. Gunicorn's systemd-escaped format retains only timestamp,
+method, normalized path without query, HTTP version, status, byte count and
+latency. A standalone CI test rejects client-IP, authenticated-user, User-Agent,
+Referer, raw-request, query, forwarded-IP and cookie atoms and requires both
+nginx server blocks to opt out. Existing rotated evidence was not deleted and
+expires under the host's normal lifecycle.
+
+Public HTTPS probes containing unique query, User-Agent and Referer canaries
+returned the expected response but left none of those values in the backend
+journal or nginx access log. Application security events retain HMAC-pseudonymous
+actor correlation. Residual tradeoff: static/edge traffic no longer has a local
+per-request record, while API/admin shape and latency remain available through
+Gunicorn. Any future off-host retention must preserve this minimization rather
+than exporting historical combined-log fields.
+
 ## Controls verified as effective
 
 - Every private conversation, message and attachment object lookup reviewed is
@@ -649,7 +685,9 @@ production-entitlement decisions, and provide export/deletion status.
    an encrypted off-site/expiry lifecycle for supplemental retired-release
    archives.
 5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
-   detection; run the tabletop in `INCIDENT_RESPONSE.md`.
+   detection; run the tabletop in `INCIDENT_RESPONSE.md`. Routine local request
+   logs are now content-minimized; preserve that field boundary in any external
+   sink rather than exporting raw IP, User-Agent, Referer, cookie or query data.
 6. CI Actions are pinned to reviewed full commit SHAs and Python production
    artifacts are locked by hash. Preserve both gates through a controlled update
    process.

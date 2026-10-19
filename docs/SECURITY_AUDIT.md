@@ -88,6 +88,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days; 90-day user-linked and 400-day aggregate-only AI-usage retention | Publish the operator-wide legal/default schedule before materially raising account or quota volume |
 | A-23 | Medium | React inline styles required a broad CSP style exception, leaving a weaker defense against injected markup | All application styles use static classes; ESLint forbids JSX `style` and `dangerouslySetInnerHTML`; deployed CSP is `style-src 'self'`; origin browser smoke reports zero inline styles/violations at 320 and 1440 px | Disable Cloudflare Browser Insights injection at the edge; keep its currently blocked scripts out of `script-src` and retain real-browser CSP regression probes |
 | A-24 | Medium | Passwords used a CPU-only PBKDF2 default, while Django's automatic lazy upgrade could rewrite a valid legacy credential before required 2FA and invalidate active sessions | Memory-hard scrypt is preferred; legacy PBKDF2 remains verifiable; a dedicated Django backend defers upgrades until password plus required 2FA succeeds under an owner-row lock while preserving failed-login signals; failed/incomplete authentication is read-only; invalidated indexed sessions are removed explicitly | A database copy still enables offline guessing; retain strong-password policy and breach response, monitor authentication capacity, and benchmark parameters before materially increasing traffic or worker concurrency |
+| A-25 | Low/Medium | Routine nginx/Gunicorn access logs duplicated raw IP, User-Agent, Referer and query data, increasing privacy and incident scope | This vhost opts out of the shared combined log; Gunicorn keeps only time, method, path without query, protocol, status, bytes and latency; CI rejects sensitive access-log atoms | Preserve the minimized field set in any external sink; static/edge traffic has no local per-request record, so document the intended external evidence and retention boundary |
 
 ## Quantitative risk view
 
@@ -2085,6 +2086,56 @@ is required before describing those controls as complete.
   below thresholds remain residual risks. It also demonstrates why security
   telemetry must be tested through the real endpoint rather than only by directly
   firing its signal in unit tests.
+
+### Privacy-minimized request logging rollout — 2026-10-19
+
+- Commit `11bfe93023571db156567799a14f436234d81c34` disables inherited
+  combined access logging in both HTTPS and redirect servers for this vhost and
+  replaces Gunicorn's combined record with timestamp, method, `PATH_INFO`, HTTP
+  version, status, response bytes and latency. Commit
+  `feae7d00e7da07a41f263fe059880739bb03484c` removes redundant timestamp
+  brackets. Client IP, authenticated-user atom, query, raw request URI,
+  User-Agent, Referer, forwarded-IP and cookie metadata are absent. Application
+  security events continue to correlate unauthenticated actors through a
+  secret-keyed 16-hex pseudonym.
+- `scripts/test_privacy_logging.py` enforces both nginx and systemd invariants in
+  CI. Its two tests, all 594 backend tests, 36 monitor tests, immutable Action
+  pins, Python lock/SBOM/key/retention tests, Bash syntax and ShellCheck passed.
+  Systemd 259 parsed the doubled-percent unit template successfully; inspection
+  of installed Gunicorn 25.3.0 confirmed `%U` maps to `PATH_INFO`, while `%q` and
+  `%r` are the excluded query/raw-URI atoms.
+- Root-owned backend release
+  `/opt/aichat-backend-releases/release-20261018T212637_063270843` is active at
+  exact commit `feae7d00e7da07a41f263fe059880739bb03484c`; its manifest file
+  SHA-256 is
+  `4fed9be5de881eb2c2e9650096c5c0baeff967b2f1451f98a87db2d23fc2db46`.
+  The installed unit is byte-identical to the repository at SHA-256
+  `e274fd85cadfbd4e9dde755b8b19842fed074c676010bed2bb4de1847721c3a2`.
+  The installed vhost is likewise exact at SHA-256
+  `c6f0a51a3900c7f0b4ef2e2b6b0a28c55510a5e5f9b47dd75c67a7f8744a7581`;
+  `nginx -t` passed.
+- A public request carried unique query, User-Agent and Referer canaries. It
+  returned the expected `403`; none of the three canaries appeared in the
+  post-rollout backend journal or shared nginx access log. The resulting
+  Gunicorn record contained only `GET /api/conversations/ HTTP/1.1`, status,
+  bytes and latency. Historical raw logs were deliberately retained as incident
+  evidence and expire through the existing daily/14-rotation host policy.
+- Backend rollback activated the immediately preceding privacy-safe release in
+  two seconds and restored the normalized release in two seconds. An independent
+  vhost drill installed the exact pre-control config, passed root/health/private/
+  media probes, and restored the minimized vhost in one second/under one second.
+  Final public root/health are `200`, anonymous private API and `/.env` are
+  `403`, media is `404`, nginx/backend are active with zero automatic restarts,
+  and the expected protected-configuration alert remains within its six-minute
+  journal window.
+- Scoped CISO review treats quiet aggregation of IP/device/query metadata as the
+  primary threat and loss of edge forensic detail as the control's tradeoff.
+  API/admin operational shape, latency and HMAC-pseudonymous security events
+  remain locally available; static/edge attribution requires separately governed
+  external evidence. A compromised root can still change logging or erase local
+  journals, so off-host integrity and retention remain open. The change reduces
+  breach-notification data scope but does not alter the GDPR 72-hour assessment
+  clock, NVIDIA processing, authentication, authorization or supply chain.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

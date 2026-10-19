@@ -59,9 +59,12 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   database dumps, and validates those exact ACL boundaries on every run. A
   systemd path unit now turns changes to protected dotenv, vhost, application
   units, monitor units/identity or installed monitor code into a fixed
-  privacy-safe event within the same alert window. Add contract-spend correlation
-  and an external log sink without logging prompts, cookies, OTPs, filenames,
-  raw IPs, or secrets.
+  privacy-safe event within the same alert window. Routine request logging is now
+  minimized too: nginx does not duplicate this vhost into the host-wide combined
+  log, and Gunicorn excludes IP, User-Agent, Referer, cookies and query strings
+  while retaining bounded request shape/status/latency. Add contract-spend
+  correlation and an external log sink that preserves this field boundary and
+  never logs prompts, cookies, OTPs, filenames, raw IPs, queries or secrets.
 - **Recoverability:** the repository includes an isolated database restore drill;
   schedule and monitor it. Encrypt backups with a separately held key, keep a
   tested off-site copy, alert on job failure, and document RPO/RTO.
