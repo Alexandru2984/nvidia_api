@@ -17,6 +17,7 @@ urlpatterns = [
     path('auth/login/', views.auth_login),
     path('auth/logout/', views.auth_logout),
     path('auth/reauthenticate/', views.auth_reauthenticate),
+    path('auth/admin-reauthenticate/', views.auth_admin_reauthenticate),
     path('auth/register/', views.auth_register),
     path('auth/verify/', views.auth_verify),
     path('auth/resend/', views.auth_resend),

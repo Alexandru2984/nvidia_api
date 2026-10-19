@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
+import AdminReauthenticationDialog from './AdminReauthenticationDialog'
 import ConversationExportDialog from './ConversationExportDialog'
 import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
@@ -22,6 +23,21 @@ const PURPOSE_GROUPS = [
   ['specialized', 'Specialized'],
 ]
 const PURPOSE_LABELS = Object.fromEntries(PURPOSE_GROUPS)
+
+function requestedAdminTarget() {
+  const parameters = new URLSearchParams(window.location.search)
+  if (parameters.get('admin_reauth') !== '1') return null
+  const rawTarget = parameters.get('next') || '/admin/'
+  try {
+    const target = new URL(rawTarget, window.location.origin)
+    if (target.origin !== window.location.origin || !target.pathname.startsWith('/admin/')) {
+      return '/admin/'
+    }
+    return target.pathname
+  } catch {
+    return '/admin/'
+  }
+}
 
 function newUploadAttemptId() {
   return globalThis.crypto.randomUUID()
@@ -879,6 +895,7 @@ export default function App() {
   const [conversationMenuId, setConversationMenuId] = useState(null)
   const [conversationNotice, setConversationNotice] = useState(null)
   const [conversationExport, setConversationExport] = useState(null)
+  const [adminReauthTarget, setAdminReauthTarget] = useState(requestedAdminTarget)
   const [showConvoSettings, setShowConvoSettings] = useState(false)
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
@@ -1955,6 +1972,14 @@ export default function App() {
     requestAnimationFrame(() => conversationExportReturnFocusRef.current?.focus())
   }
 
+  function cancelAdminReauthentication() {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('admin_reauth')
+    url.searchParams.delete('next')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    setAdminReauthTarget(null)
+  }
+
   function onKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
@@ -1987,6 +2012,13 @@ export default function App() {
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
+
+      {adminReauthTarget && (
+        <AdminReauthenticationDialog
+          onCancel={cancelAdminReauthentication}
+          onComplete={() => window.location.assign(adminReauthTarget)}
+        />
+      )}
 
       <aside className="sidebar" id="conversation-sidebar" ref={sidebarRef} aria-label="Conversations">
         <div className="sidebar-header">

@@ -113,6 +113,7 @@ from .twofactor import (
     _revoke_user_sessions,
     login_requires_2fa,
     mark_staff_2fa_verified,
+    staff_2fa_verified,
     verify_for_login,
 )
 from .usage import (
@@ -322,6 +323,32 @@ def auth_reauthenticate(request):
     )
     if response is not None:
         return response
+    return Response({
+        'authenticated': True,
+        'valid_for_seconds': settings.RECENT_AUTH_MAX_AGE_SECONDS,
+    })
+
+
+@api_view(['POST'])
+@ratelimit(key='user', rate='10/h', block=False)
+def auth_admin_reauthenticate(request):
+    """Refresh the short-lived staff elevation window without exposing admin login."""
+    if not staff_2fa_verified(request):
+        security_log.warning(
+            'event=admin_access_denied actor=%s',
+            actor_for_request(request),
+        )
+        return Response({'error': 'Admin access is unavailable.'}, status=403)
+    if (r := _rate_limited(request)): return r
+    response = confirm_recent_auth(
+        request,
+        request.data.get('password') or '',
+        request.data.get('code') or '',
+    )
+    if response is not None:
+        return response
+    # Force one privacy-minimized access event for every new elevation window.
+    request.session.pop('admin_access_logged', None)
     return Response({
         'authenticated': True,
         'valid_for_seconds': settings.RECENT_AUTH_MAX_AGE_SECONDS,

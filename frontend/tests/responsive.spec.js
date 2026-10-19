@@ -452,6 +452,49 @@ test('conversation export requires reauthentication and stays usable on mobile',
   await expectNoPageOverflow(page)
 })
 
+test('expired admin access requires responsive password and 2FA step-up', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  const payloads = []
+  await page.route('**/api/auth/admin-reauthenticate/', async (route) => {
+    payloads.push(route.request().postDataJSON())
+    await route.fulfill({
+      status: 200,
+      json: { authenticated: true, valid_for_seconds: 300 },
+    })
+  })
+
+  await page.goto('/?admin_reauth=1&next=%2Fadmin%2Fchat%2F')
+  const dialog = page.getByRole('dialog', { name: 'Confirm admin access' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByLabel('Current password')).toBeFocused()
+  await dialog.getByLabel('Current password').fill('correct-password')
+  await dialog.getByLabel('2FA or recovery code').fill('aaaa1111-bbbb2222')
+  await page.screenshot({ path: 'test-results/admin-reauth-320.png' })
+  await expectNoPageOverflow(page)
+  await dialog.getByRole('button', { name: 'Verify and open admin' }).click()
+
+  await expect.poll(() => payloads).toEqual([{
+    password: 'correct-password', code: 'aaaa1111-bbbb2222',
+  }])
+  await page.waitForURL('**/admin/chat/')
+  await expect(dialog).toHaveCount(0)
+})
+
+test('admin step-up rejects an external return target and can be canceled', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  await page.goto('/?admin_reauth=1&next=https%3A%2F%2Fattacker.invalid%2F')
+
+  const dialog = page.getByRole('dialog', { name: 'Confirm admin access' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => window.location.pathname + window.location.search)).toBe('/')
+  await expectNoPageOverflow(page)
+})
+
 test('scheduled account deletion can be created and canceled on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 })
   await mockAPI(page)

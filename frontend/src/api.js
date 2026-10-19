@@ -293,6 +293,10 @@ export const api = {
     request('/auth/reauthenticate/', {
       method: 'POST', body: JSON.stringify({ password, ...(code ? { code } : {}) }),
     }),
+  reauthenticateAdmin: (password, code) =>
+    request('/auth/admin-reauthenticate/', {
+      method: 'POST', body: JSON.stringify({ password, code }),
+    }),
   changePassword: (current_password, new_password, code) =>
     request('/auth/password/', {
       method: 'POST',
