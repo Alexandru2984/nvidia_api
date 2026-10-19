@@ -453,6 +453,15 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
 
 Deploy steps after a code change:
 
+The repository's legacy GitHub `push` webhook is deliberately disabled. It only
+performed `git pull` plus a restart of the removed `nvidia-chat.service`, ran
+before CI completed, and bypassed the immutable release/migration/rollback
+contract below. Keep NVIDIA deployments manual until a dedicated handler is
+triggered only by a successful `CI` workflow completion, pins that exact commit,
+and invokes the same backup, compatibility, release and rollback gates without
+executing checkout tooling as root. Do not re-enable the shared legacy mapping or
+weaken its sandbox.
+
 ```bash
 # One-time local scanner prerequisite (Ubuntu repository packages only)
 sudo apt-get install --no-install-recommends clamav-daemon clamav-freshclam

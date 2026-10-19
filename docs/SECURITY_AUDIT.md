@@ -2262,6 +2262,39 @@ is required before describing those controls as complete.
   RPO/RTO remains P0. Any indication that backup loss followed unauthorized data
   access still starts incident scoping and the GDPR 72-hour assessment clock.
 
+### Unsafe legacy NVIDIA webhook containment — 2026-10-19
+
+- Read-only host inspection found `webhook-deploy@nvidia.service` failed on every
+  observed attempt since 12 October. Its shared legacy worker performed only a
+  fast-forward pull and `sudo systemctl restart nvidia-chat.service`; the target
+  no longer exists, the sandbox prevents the privilege transition, and the flow
+  has no immutable application/Python release, migration, backup, health or
+  rollback contract. The repository's latest remote CI run `39187411931` for
+  `9de6b72` is green; this was a separate deployment failure, not a failed GitHub
+  check.
+- The GitHub hook was subscribed directly to `push`, so merely relaxing
+  `RestrictSUIDSGID`/capability bounds would let remote changes reach a broad
+  passwordless-sudo identity before CI completed. The NVIDIA hook is now inactive
+  at GitHub, its local queue is empty, and its stale failed unit state is reset.
+  The receiver and every non-NVIDIA hook/configuration remain untouched. Manual
+  deployments continue through the committed atomic scripts and their existing
+  preflight/rollback gates.
+- During configuration inspection the NVIDIA hook credential entered command
+  output and was therefore treated as compromised. A new 256-bit value was
+  generated without printing it, updated through GitHub's hook-config API and
+  installed locally as `0640 root:webhook-cicd`; the receiver restarted healthy
+  and a GitHub ping delivery returned `200`. The invalidated root-only rollback
+  copy is
+  `/home/micu/backups/nvidia_config/hooks.json.before-nvidia-secret-20261019T110716Z`.
+- Re-enablement requires a NVIDIA-only design triggered by successful completion
+  of the named `CI` workflow, bound to its exact reviewed SHA, with clean/divergent
+  worktree rejection and the current database backup, migration compatibility,
+  immutable release, public/private health and rollback gates. It must not execute
+  npm, repository scripts or newly pulled code with root merely because a signed
+  push event arrived. Until that exists, fail-closed manual delivery has less
+  availability than automation but materially smaller host-wide elevation and
+  supply-chain blast radius.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

@@ -9,6 +9,12 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Verified rollout:** apply the committed nginx/systemd templates, deny direct
   media access, correct existing backup modes, validate health and rollback, and
   capture evidence in the deployment log.
+- **Safe deployment trigger:** the broken legacy NVIDIA `push` webhook is
+  disabled. It targeted a removed service, ran before CI completion and did not
+  use immutable release or migration gates. Keep manual atomic deployments until
+  a NVIDIA-only handler consumes an exact successful `CI` workflow-run commit,
+  refuses dirty/divergent state, and preserves the existing backup, compatibility,
+  health and rollback contract without making remote checkout tooling root.
 - **Strict browser style boundary is shipped:** every React inline style was
   replaced with a responsive CSS class, ESLint rejects future inline-style and
   raw-HTML injection props, and production CSP now uses only `style-src 'self'`.
