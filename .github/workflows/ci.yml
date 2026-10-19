@@ -60,6 +60,7 @@ jobs:
           python ../scripts/test_configure_two_factor_keys.py
           python ../scripts/test_archive_release_retention.py
           python ../scripts/test_build_frontend_release.py
+          python ../scripts/test_dependency_update_policy.py
           python ../scripts/test_generate_python_sbom.py
           python ../scripts/generate_python_sbom.py requirements.lock \
             --commit "$GITHUB_SHA" --output /tmp/aichat-python.cdx.json

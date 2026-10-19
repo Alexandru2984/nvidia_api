@@ -566,6 +566,13 @@ probes the backend, restoring the prior environment on failure. Use
 CI validates lockfile structure, and the five-minute monitor validates the active
 release manifest and requires the SBOM artifacts.
 
+Dependabot checks npm, Python and GitHub Actions weekly under
+`.github/dependabot.yml`. It only proposes review branches: no auto-merge or
+deployment authority is granted. Normal updates have a cooldown and bounded PR
+count; security updates retain GitHub's immediate path. Every update must follow
+the upstream-provenance, immutable-Action, hash-lock, CI and manual-rollout gates
+in [docs/DEPENDENCY_UPDATE_POLICY.md](docs/DEPENDENCY_UPDATE_POLICY.md).
+
 Every successful deploy keeps the active release and the two newest inactive
 rollback targets in its executable release root. Older releases and any converted
 legacy frontend tree are frozen to root ownership, archived below the private
