@@ -585,14 +585,17 @@ an encrypted off-site lifecycle before treating them as durable backups.
 Frontend, backend and Python deploys share an exclusive release-operation lock
 with the rollback drill, so their validation, retention and atomic symlink
 changes cannot overlap. Exercise each
-rollback family independently, first read-only and then with two brief service
-restarts:
+rollback family independently, first read-only and then live. Backend and Python
+drills use two brief service restarts; the frontend switch does not restart the
+backend:
 
 ```bash
 sudo scripts/release_rollback_drill.sh --family backend --preflight-only
 sudo scripts/release_rollback_drill.sh --family backend
 sudo scripts/release_rollback_drill.sh --family python --preflight-only
 sudo scripts/release_rollback_drill.sh --family python
+sudo scripts/release_rollback_drill.sh --family frontend --preflight-only
+sudo scripts/release_rollback_drill.sh --family frontend
 ```
 
 The drill chooses the newest inactive release, verifies root ownership, safe
@@ -601,7 +604,9 @@ Python candidates must additionally have exact lock/checksum/SBOM evidence, pass
 `pip check`, and use the same requirements lock as the active environment. Each
 activation is tied to the service PID's real working directory or executable and
 must pass root, health, `security.txt`, private API, source/config and media
-boundary probes within 60 seconds. An exit/signal trap always switches back to
+boundary probes within 60 seconds. Frontend candidates require complete immutable
+manifests and, once present, matching commit/tree markers; no backend restart is
+performed for a static-web rollback. An exit/signal trap always switches back to
 the exact original target and verifies it. The drill never runs migrations,
 contacts the model provider or writes application data.
 

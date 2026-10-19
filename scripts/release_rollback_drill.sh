@@ -10,6 +10,9 @@ BACKEND_ROOT='/opt/aichat-backend-releases'
 BACKEND_LIVE='/opt/aichat-backend-current'
 PYTHON_ROOT='/opt/aichat-python-envs'
 PYTHON_LIVE='/opt/aichat-python-current'
+FRONTEND_ROOT='/var/www/aichat-releases'
+FRONTEND_LIVE='/var/www/aichat.micutu.com'
+REPO_DIR='/home/micu/nvidia'
 SERVICE='aichat-backend.service'
 SBOM_TOOL='/home/micu/nvidia/scripts/generate_python_sbom.py'
 SYSTEM_PYTHON='/usr/bin/python3.14'
@@ -29,7 +32,7 @@ restored_pid=''
 original_restarts=''
 
 usage() {
-  echo 'Usage: sudo scripts/release_rollback_drill.sh --family backend|python [--preflight-only]' >&2
+  echo 'Usage: sudo scripts/release_rollback_drill.sh --family backend|python|frontend [--preflight-only]' >&2
 }
 
 origin_code() {
@@ -114,11 +117,15 @@ atomic_switch() {
 
 restore_original() {
   atomic_switch "$original_target"
-  systemctl restart "$SERVICE"
-  restored_pid="$(wait_for_target "$original_target")"
-  if [[ "$restored_pid" == "$rollback_pid" && -n "$rollback_pid" ]]; then
-    echo 'ERROR: service PID did not change while restoring the original release' >&2
-    return 1
+  if [[ "$family" == 'frontend' ]]; then
+    full_probes
+  else
+    systemctl restart "$SERVICE"
+    restored_pid="$(wait_for_target "$original_target")"
+    if [[ "$restored_pid" == "$rollback_pid" && -n "$rollback_pid" ]]; then
+      echo 'ERROR: service PID did not change while restoring the original release' >&2
+      return 1
+    fi
   fi
   restore_required=0
 }
@@ -132,9 +139,7 @@ cleanup() {
   fi
   if (( restore_required )) && [[ -n "$original_target" ]]; then
     echo 'Restoring the original release after an interrupted or failed drill...' >&2
-    if ! atomic_switch "$original_target" \
-      || ! systemctl restart "$SERVICE" \
-      || ! wait_for_target "$original_target" >/dev/null; then
+    if ! restore_original >/dev/null; then
       echo 'CRITICAL: automatic drill restoration did not restore verified service health' >&2
       status=1
     else
@@ -142,6 +147,10 @@ cleanup() {
     fi
   fi
   exit "$status"
+}
+
+git_read() {
+  git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" "$@"
 }
 
 validate_release_tree() {
@@ -180,7 +189,7 @@ validate_commit_marker() {
     return 1
   }
   commit="$(tr -d '\n' < "$release/.release-commit")"
-  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || {
+  [[ "$commit" =~ ^[0-9a-f]{40,64}$ ]] || {
     echo "ERROR: invalid release commit marker: $release" >&2
     return 1
   }
@@ -208,6 +217,48 @@ validate_python_release() {
   runuser --user aichat -- env HOME=/nonexistent PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1 \
     "$release/bin/python" -m pip check
+}
+
+validate_frontend_release() {
+  local release="$1" require_provenance="$2" commit frontend_tree expected_tree
+
+  validate_release_tree "$release"
+  if find "$release" -xdev -type d ! -perm 0755 -print -quit | grep -q . \
+    || find "$release" -xdev -type f ! -perm 0644 -print -quit | grep -q .; then
+    echo "ERROR: frontend release has an unexpected file mode: $release" >&2
+    return 1
+  fi
+  if [[ ! -e "$release/.release-commit" && ! -L "$release/.release-commit" \
+    && ! -e "$release/.release-frontend-tree" \
+    && ! -L "$release/.release-frontend-tree" ]]; then
+    if (( require_provenance )); then
+      echo "ERROR: active frontend release predates required provenance: $release" >&2
+      return 1
+    fi
+    echo "NOTICE: rollback frontend release predates commit/tree markers: $release" >&2
+    return 0
+  fi
+  validate_commit_marker "$release"
+  [[ -f "$release/.release-frontend-tree" \
+    && ! -L "$release/.release-frontend-tree" ]] || {
+    echo "ERROR: frontend tree marker is missing or unsafe: $release" >&2
+    return 1
+  }
+  frontend_tree="$(tr -d '\n' < "$release/.release-frontend-tree")"
+  [[ "$frontend_tree" =~ ^[0-9a-f]{40,64}$ ]] || {
+    echo "ERROR: invalid frontend tree marker: $release" >&2
+    return 1
+  }
+  commit="$(tr -d '\n' < "$release/.release-commit")"
+  git_read cat-file -e "$commit^{commit}" 2>/dev/null || {
+    echo "ERROR: frontend release commit is not available locally: $release" >&2
+    return 1
+  }
+  expected_tree="$(git_read rev-parse --verify "$commit:frontend")"
+  [[ "$frontend_tree" == "$expected_tree" ]] || {
+    echo "ERROR: frontend release tree does not match its commit: $release" >&2
+    return 1
+  }
 }
 
 select_rollback_target() {
@@ -311,23 +362,36 @@ case "$family" in
     release_root="$PYTHON_ROOT"
     live_path="$PYTHON_LIVE"
     ;;
+  frontend)
+    release_root="$FRONTEND_ROOT"
+    live_path="$FRONTEND_LIVE"
+    ;;
   *)
     usage
     exit 2
     ;;
 esac
 
-for command in cmp curl find flock grep ln mv readlink runuser sha256sum stat systemctl \
-  "$SYSTEM_PYTHON"; do
+for command in curl find flock git grep ln mv readlink sha256sum stat systemctl; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
   }
 done
-[[ -f "$SBOM_TOOL" && ! -L "$SBOM_TOOL" ]] || {
-  echo 'ERROR: SBOM validation tool is missing or unsafe' >&2
-  exit 1
-}
+if [[ "$family" != 'frontend' ]]; then
+  for command in cmp runuser "$SYSTEM_PYTHON"; do
+    command -v "$command" >/dev/null || {
+      echo "ERROR: required command is missing: $command" >&2
+      exit 1
+    }
+  done
+fi
+if [[ "$family" == 'python' ]]; then
+  [[ -f "$SBOM_TOOL" && ! -L "$SBOM_TOOL" ]] || {
+    echo 'ERROR: SBOM validation tool is missing or unsafe' >&2
+    exit 1
+  }
+fi
 [[ -d "$release_root" && ! -L "$release_root" \
   && "$(stat -c '%u:%g' -- "$release_root")" == '0:0' ]] || {
   echo "ERROR: release root is missing, linked, or not root-owned: $release_root" >&2
@@ -354,17 +418,24 @@ direct_target="$(readlink -- "$live_path")"
 }
 rollback_target="$(select_rollback_target)"
 
-if [[ "$family" == 'backend' ]]; then
-  validate_release_tree "$original_target"
-  validate_commit_marker "$original_target"
-  validate_release_tree "$rollback_target"
-  validate_commit_marker "$rollback_target"
-  preflight_backend
-else
-  validate_python_release "$original_target"
-  validate_python_release "$rollback_target"
-  preflight_python
-fi
+case "$family" in
+  backend)
+    validate_release_tree "$original_target"
+    validate_commit_marker "$original_target"
+    validate_release_tree "$rollback_target"
+    validate_commit_marker "$rollback_target"
+    preflight_backend
+    ;;
+  python)
+    validate_python_release "$original_target"
+    validate_python_release "$rollback_target"
+    preflight_python
+    ;;
+  frontend)
+    validate_frontend_release "$original_target" 1
+    validate_frontend_release "$rollback_target" 0
+    ;;
+esac
 
 systemctl is-active --quiet "$SERVICE" || {
   echo 'ERROR: refusing drill while the backend service is not active' >&2
@@ -376,10 +447,12 @@ original_pid="$(systemctl show --property=MainPID --value "$SERVICE")"
   echo 'ERROR: backend service has no valid main PID' >&2
   exit 1
 }
-[[ "$(target_for_pid "$original_pid")" == "$(expected_process_target "$original_target")" ]] || {
-  echo 'ERROR: running process does not use the active release target' >&2
-  exit 1
-}
+if [[ "$family" != 'frontend' ]]; then
+  [[ "$(target_for_pid "$original_pid")" == "$(expected_process_target "$original_target")" ]] || {
+    echo 'ERROR: running process does not use the active release target' >&2
+    exit 1
+  }
+fi
 original_restarts="$(systemctl show --property=NRestarts --value "$SERVICE")"
 [[ "$original_restarts" =~ ^[0-9]+$ ]] || {
   echo 'ERROR: backend service has no valid restart counter' >&2
@@ -395,12 +468,20 @@ fi
 started_at="$SECONDS"
 restore_required=1
 atomic_switch "$rollback_target"
-systemctl restart "$SERVICE"
-rollback_pid="$(wait_for_target "$rollback_target")"
-[[ "$rollback_pid" != "$original_pid" ]] || {
-  echo 'ERROR: service PID did not change during rollback activation' >&2
-  exit 1
-}
+if [[ "$family" == 'frontend' ]]; then
+  [[ "$(readlink -- "$live_path")" == "$rollback_target" ]] || {
+    echo 'ERROR: frontend rollback target was not activated exactly' >&2
+    exit 1
+  }
+  full_probes
+else
+  systemctl restart "$SERVICE"
+  rollback_pid="$(wait_for_target "$rollback_target")"
+  [[ "$rollback_pid" != "$original_pid" ]] || {
+    echo 'ERROR: service PID did not change during rollback activation' >&2
+    exit 1
+  }
+fi
 rollback_seconds=$((SECONDS - started_at))
 
 restore_started_at="$SECONDS"
@@ -415,8 +496,20 @@ final_restarts="$(systemctl show --property=NRestarts --value "$SERVICE")"
   echo "ERROR: automatic restart counter changed from $original_restarts to $final_restarts" >&2
   exit 1
 }
+if [[ "$family" == 'frontend' ]]; then
+  final_pid="$(systemctl show --property=MainPID --value "$SERVICE")"
+  [[ "$final_pid" == "$original_pid" ]] || {
+    echo 'ERROR: backend PID changed during the static frontend drill' >&2
+    exit 1
+  }
+fi
 full_probes
 
-printf 'Rollback drill passed: family=%s rollback_pid=%s restored_pid=%s rollback_seconds=%s restore_seconds=%s active=%s\n' \
-  "$family" "$rollback_pid" "$restored_pid" "$rollback_seconds" "$restore_seconds" \
-  "$original_target"
+if [[ "$family" == 'frontend' ]]; then
+  printf 'Rollback drill passed: family=%s rollback_seconds=%s restore_seconds=%s active=%s\n' \
+    "$family" "$rollback_seconds" "$restore_seconds" "$original_target"
+else
+  printf 'Rollback drill passed: family=%s rollback_pid=%s restored_pid=%s rollback_seconds=%s restore_seconds=%s active=%s\n' \
+    "$family" "$rollback_pid" "$restored_pid" "$rollback_seconds" "$restore_seconds" \
+    "$original_target"
+fi
