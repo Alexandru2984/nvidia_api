@@ -3,6 +3,7 @@ import hashlib
 import os
 import socket
 import stat
+import subprocess
 import tempfile
 import time
 import unittest
@@ -443,6 +444,12 @@ class SecurityMonitorTests(unittest.TestCase):
         ).read_text(encoding='utf-8')
         self.assertIn('User=aichat-monitor\n', unit)
         self.assertIn('Group=aichat-monitor\n', unit)
+        self.assertIn(
+            'SupplementaryGroups=systemd-journal clamav aichat-parser '
+            'aichat-origin aichat\n',
+            unit,
+        )
+        self.assertIn('ProtectHome=tmpfs\n', unit)
         self.assertIn('LoadCredential=telegram.env:/home/micu/scripts/.env\n', unit)
         self.assertIn('--credentials=%d/telegram.env', unit)
         self.assertNotIn('User=micu\n', unit)
@@ -554,18 +561,20 @@ class SecurityMonitorTests(unittest.TestCase):
         release_root.chmod(0o755)
         release.chmod(0o755)
         manage = release / 'manage.py'
+        status_check = release / monitor.MODEL_STATUS_CHECK_RELATIVE
         module = package / 'models.py'
         commit = release / '.release-commit'
         manage.write_text('raise SystemExit(0)\n', encoding='utf-8')
+        status_check.write_text('raise SystemExit(0)\n', encoding='utf-8')
         module.write_text('DEPLOYED = True\n', encoding='utf-8')
         commit.write_text('a' * 40 + '\n', encoding='ascii')
-        for path in (manage, module, commit):
+        for path in (manage, status_check, module, commit):
             path.chmod(0o644)
         manifest = release / monitor.RELEASE_MANIFEST
         manifest.write_text(
             ''.join(
                 f'{hashlib.sha256(path.read_bytes()).hexdigest()}  ./{path.relative_to(release)}\n'
-                for path in (commit, module, manage)
+                for path in (commit, module, manage, status_check)
             ),
             encoding='ascii',
         )
@@ -696,6 +705,52 @@ class SecurityMonitorTests(unittest.TestCase):
             python_environment_live=self.root / 'missing',
         )
         self.assertIn('python_environment_integrity', issues)
+
+    def test_model_status_health_uses_only_immutable_paths_and_minimal_env(self):
+        backend_live, _, _ = self.create_backend_release()
+        python_live, _, python = self.create_python_environment_release()
+        completed = mock.Mock(
+            returncode=0,
+            stdout='model_status=degraded\n',
+            stderr='',
+        )
+        with mock.patch.object(monitor.subprocess, 'run', return_value=completed) as run:
+            self.assertEqual(
+                monitor.evaluate_model_status_health(backend_live, python_live),
+                {},
+            )
+        expected_checker = backend_live.resolve() / monitor.MODEL_STATUS_CHECK_RELATIVE
+        self.assertEqual(run.call_args.args[0], [str(python), str(expected_checker)])
+        self.assertEqual(run.call_args.kwargs['cwd'], backend_live.resolve())
+        self.assertNotIn('CREDENTIALS_DIRECTORY', run.call_args.kwargs['env'])
+        self.assertNotIn('NVIDIA_API_KEY', run.call_args.kwargs['env'])
+
+    def test_model_status_health_fails_closed_on_error_or_timeout(self):
+        backend_live, _, _ = self.create_backend_release()
+        python_live, _, _ = self.create_python_environment_release()
+        failed = mock.Mock(returncode=1, stdout='', stderr='private diagnostic')
+        with mock.patch.object(monitor.subprocess, 'run', return_value=failed):
+            issues = monitor.evaluate_model_status_health(backend_live, python_live)
+        self.assertEqual(
+            issues,
+            {'model_status_health': 'The signed runtime model status failed independent verification.'},
+        )
+        with mock.patch.object(
+            monitor.subprocess,
+            'run',
+            side_effect=subprocess.TimeoutExpired('checker', 15),
+        ):
+            issues = monitor.evaluate_model_status_health(backend_live, python_live)
+        self.assertIn('model_status_health', issues)
+
+    def test_evaluate_requires_both_releases_for_model_status_health(self):
+        issues = monitor.evaluate(
+            self.backups,
+            self.restore_log,
+            '',
+            model_status_check=True,
+        )
+        self.assertIn('model_status_health', issues)
 
 
 if __name__ == '__main__':

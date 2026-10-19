@@ -6,9 +6,10 @@ After=network-online.target aichat-backend.service aichat-clamd.service aichat-d
 Type=oneshot
 User=aichat-monitor
 Group=aichat-monitor
-# Grant journal and local socket visibility only inside this dedicated,
-# non-login monitor process.
-SupplementaryGroups=systemd-journal clamav aichat-parser aichat-origin
+# Grant journal, health-socket and read-only signed-model-state visibility only
+# inside this dedicated, non-login monitor process. ProtectHome hides every
+# aichat-group application runtime/secret below /home.
+SupplementaryGroups=systemd-journal clamav aichat-parser aichat-origin aichat
 LoadCredential=telegram.env:/home/micu/scripts/.env
 ExecStart=/usr/local/libexec/aichat-security-monitor --credentials=%d/telegram.env
 UMask=0077

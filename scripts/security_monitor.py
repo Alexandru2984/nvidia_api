@@ -52,6 +52,8 @@ PARSER_REQUEST = struct.Struct('!4sBII')
 PARSER_RESPONSE = struct.Struct('!4sBI')
 JOURNALCTL_PATH = '/usr/bin/journalctl'
 GETFACL_PATH = '/usr/bin/getfacl'
+MODEL_STATUS_CHECK_RELATIVE = 'check_model_status.py'
+MODEL_STATUS_CHECK_TIMEOUT_SECONDS = 15
 
 
 def _hash_file(path):
@@ -254,6 +256,52 @@ def evaluate_python_environment_release(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
+
+
+def evaluate_model_status_health(backend_live, python_environment_live):
+    """Verify signed model state with immutable code and locked dependencies."""
+    issue = {
+        'model_status_health': (
+            'The signed runtime model status failed independent verification.'
+        ),
+    }
+    try:
+        backend = Path(backend_live).resolve(strict=True)
+        python_environment = Path(python_environment_live).resolve(strict=True)
+        checker = backend / MODEL_STATUS_CHECK_RELATIVE
+        interpreter = python_environment / 'bin/python'
+        checker_info = checker.lstat()
+        interpreter_info = interpreter.lstat()
+        if (
+            not stat.S_ISREG(checker_info.st_mode)
+            or stat.S_ISLNK(checker_info.st_mode)
+            or stat.S_IMODE(checker_info.st_mode) != 0o644
+            or not stat.S_ISREG(interpreter_info.st_mode)
+            or stat.S_ISLNK(interpreter_info.st_mode)
+            or stat.S_IMODE(interpreter_info.st_mode) != 0o755
+        ):
+            return issue
+        result = subprocess.run(
+            [os.fspath(interpreter), os.fspath(checker)],
+            cwd=backend,
+            env={
+                'DJANGO_SETTINGS_MODULE': 'nvidia_chat.model_status_check_settings',
+                'LANG': 'C.UTF-8',
+                'PATH': '/usr/bin:/bin',
+                'PYTHONDONTWRITEBYTECODE': '1',
+            },
+            capture_output=True,
+            text=True,
+            timeout=MODEL_STATUS_CHECK_TIMEOUT_SECONDS,
+            check=False,
+        )
+        if result.returncode != 0 or result.stdout.strip() not in {
+            'model_status=verified', 'model_status=degraded',
+        }:
+            return issue
+        return {}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return issue
 
 
 def evaluate_release_retention(live_path, release_root, *, issue_key):
@@ -515,6 +563,7 @@ def evaluate(
     python_environment_release_root=None,
     python_environment_expected_uid=0,
     python_environment_expected_gid=0,
+    model_status_check=False,
     scanner_database_dir=None,
     scanner_socket=None,
     document_parser_socket=None,
@@ -610,6 +659,20 @@ def evaluate(
                 python_environment_live,
                 python_environment_release_root,
                 issue_key='python_environment_release_retention',
+            ))
+
+    if model_status_check:
+        if backend_live is None or python_environment_live is None:
+            issues['model_status_health'] = (
+                'The signed model-status health monitor is misconfigured.'
+            )
+        elif (
+            'backend_integrity' not in issues
+            and 'python_environment_integrity' not in issues
+        ):
+            issues.update(evaluate_model_status_health(
+                backend_live,
+                python_environment_live,
             ))
 
     if not backup_dir.is_dir() or backup_dir.is_symlink():
@@ -1081,6 +1144,7 @@ def main():
             forbidden_backend_tcp=('127.0.0.1', args.forbidden_backend_port),
             python_environment_live=args.python_environment_live,
             python_environment_release_root=args.python_environment_release_root,
+            model_status_check=True,
             scanner_database_dir=args.scanner_database_dir,
             scanner_socket=args.scanner_socket,
             document_parser_socket=args.document_parser_socket,

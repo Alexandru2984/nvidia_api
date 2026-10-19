@@ -9,6 +9,7 @@ SERVICE = ROOT / 'ops/systemd/aichat-model-probe.service'
 SYSUSERS = ROOT / 'ops/sysusers.d/aichat-model-probe.conf'
 INSTALLER = ROOT / 'scripts/install_model_probe_identity.sh'
 PROBE_SETTINGS = ROOT / 'backend/nvidia_chat/probe_settings.py'
+CHECK_SETTINGS = ROOT / 'backend/nvidia_chat/model_status_check_settings.py'
 MAIN_SETTINGS = ROOT / 'backend/nvidia_chat/settings.py'
 
 
@@ -60,6 +61,14 @@ class ModelProbeIsolationTests(unittest.TestCase):
         self.assertIn("'MODEL_STATUS_SIGNATURE_REQUIRED', not DEBUG", settings)
         self.assertIn("'MODEL_STATUS_EXPECTED_OWNER', 'aichat-model-probe'", settings)
         self.assertIn("'MODEL_STATUS_EXPECTED_GROUP', 'aichat'", settings)
+
+    def test_independent_checker_settings_are_credential_free(self):
+        settings = CHECK_SETTINGS.read_text(encoding='utf-8')
+        self.assertNotIn('NVIDIA_API_KEY', settings)
+        self.assertNotIn('CREDENTIALS_DIRECTORY', settings)
+        self.assertNotIn('load_dotenv', settings)
+        self.assertIn('MODEL_STATUS_SIGNATURE_REQUIRED = True\n', settings)
+        self.assertIn('MODEL_STATUS_REQUIRED = True\n', settings)
 
     def test_installer_extracts_only_provider_key_and_preserves_keypair(self):
         installer = INSTALLER.read_text(encoding='utf-8')
