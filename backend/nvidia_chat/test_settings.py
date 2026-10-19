@@ -59,5 +59,9 @@ NVIDIA_API_KEY = 'test-nvidia-key'
 # Keep tests away from the real model_status.json the weekly cron writes.
 MODEL_STATUS_FILE = tempfile.gettempdir() + '/nvidia_test_model_status_does_not_exist.json'
 MODEL_STATUS_REQUIRED = False
+MODEL_STATUS_SIGNATURE_REQUIRED = False
+MODEL_STATUS_SECURE_PERMISSIONS_REQUIRED = False
+MODEL_STATUS_PRIVATE_KEY_FILE = ''
+MODEL_STATUS_WRITE_MODE = 0o600
 ATTACHMENT_MALWARE_SCAN_REQUIRED = False
 DOCUMENT_PARSER_REQUIRED = False

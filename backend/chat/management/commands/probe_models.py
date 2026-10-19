@@ -82,6 +82,10 @@ def resolve_unavailable(results, previous_status):
 
 class Command(BaseCommand):
     help = 'Probe catalog models against the NVIDIA API; write model_status.json with the unavailable set.'
+    # The production runner deliberately has no installed Django applications or
+    # database configuration. This command imports only the pure probe/catalog
+    # modules and must never widen that credential boundary through app checks.
+    requires_system_checks = []
 
     def add_arguments(self, parser):
         parser.add_argument('--timeout', type=int, default=45, help='Per-request timeout in seconds.')

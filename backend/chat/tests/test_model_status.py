@@ -1,12 +1,16 @@
 """Tests for the probe_models command and the /models/ availability filter."""
 import json
 import os
+import pwd
+import grp
 import stat
 from datetime import timedelta
 from unittest import mock
 
 import pytest
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from django.core.management import call_command
 from django.utils import timezone
 
@@ -19,6 +23,29 @@ from chat.models_catalog import DEFAULT_MODEL_ID, MODEL_IDS
 def status_file(settings, tmp_path):
     settings.MODEL_STATUS_FILE = str(tmp_path / 'model_status.json')
     return settings.MODEL_STATUS_FILE
+
+
+@pytest.fixture
+def signing_keys(settings, tmp_path):
+    private = Ed25519PrivateKey.generate()
+    private_path = tmp_path / 'model-status-private.pem'
+    public_path = tmp_path / 'model-status-public.pem'
+    private_path.write_bytes(private.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ))
+    public_path.write_bytes(private.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    ))
+    private_path.chmod(0o600)
+    public_path.chmod(0o600)
+    settings.MODEL_STATUS_PRIVATE_KEY_FILE = str(private_path)
+    settings.MODEL_STATUS_PUBLIC_KEY_FILE = str(public_path)
+    settings.MODEL_STATUS_SIGNATURE_REQUIRED = True
+    settings.MODEL_STATUS_SECURE_PERMISSIONS_REQUIRED = False
+    return private_path, public_path
 
 
 def complete_results(unavailable=()):
@@ -203,6 +230,90 @@ class TestModelsEndpoint:
         assert DEFAULT_MODEL_ID not in runtime.get('results', {})
         assert DEFAULT_MODEL_ID in runtime['unavailable']
         assert runtime['unverified_models'] == len(MODEL_IDS)
+
+    def test_status_symlink_fails_closed(self, settings, tmp_path):
+        target = tmp_path / 'target.json'
+        target.write_text(json.dumps({
+            'checked_at': timezone.now().isoformat(),
+            'unavailable': [],
+            'results': complete_results(),
+        }), encoding='utf-8')
+        status = tmp_path / 'model_status.json'
+        status.symlink_to(target)
+        settings.MODEL_STATUS_FILE = str(status)
+
+        assert get_status()['state'] == 'invalid'
+
+    def test_signed_status_is_verified_but_signature_is_not_exposed(
+        self, auth_client, status_file, signing_keys,
+    ):
+        write_status([], timezone.now().isoformat(), results=complete_results())
+
+        stored = json.loads(open(status_file, encoding='utf-8').read())
+        assert isinstance(stored['signature'], str)
+        assert len(stored['signature']) == 88
+        response = auth_client.get('/api/models/')
+        assert response.json()['availability']['state'] == 'verified'
+        assert 'signature' not in json.dumps(response.json())
+
+    def test_required_unsigned_status_fails_closed(
+        self, status_file, signing_keys,
+    ):
+        with open(status_file, 'w', encoding='utf-8') as status:
+            json.dump({
+                'checked_at': timezone.now().isoformat(),
+                'unavailable': [],
+                'results': complete_results(),
+            }, status)
+
+        assert get_status()['state'] == 'invalid'
+
+    @pytest.mark.parametrize('mutation', ['unavailable', 'result', 'extra'])
+    def test_signed_status_tampering_fails_closed(
+        self, status_file, signing_keys, mutation,
+    ):
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        with open(status_file, encoding='utf-8') as status:
+            data = json.load(status)
+        if mutation == 'unavailable':
+            data['unavailable'] = [DEFAULT_MODEL_ID]
+        elif mutation == 'result':
+            data['results'][DEFAULT_MODEL_ID]['latency_ms'] += 1
+        else:
+            data['unsigned_extra'] = True
+        with open(status_file, 'w', encoding='utf-8') as status:
+            json.dump(data, status)
+
+        assert get_status()['state'] == 'invalid'
+        assert set(get_status()['unavailable']) == MODEL_IDS
+
+    def test_public_key_rotation_invalidates_cached_status(
+        self, status_file, signing_keys,
+    ):
+        _, public_path = signing_keys
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        assert get_status()['state'] == 'verified'
+        replacement = Ed25519PrivateKey.generate().public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        public_path.write_bytes(replacement)
+        public_path.chmod(0o600)
+
+        assert get_status()['state'] == 'invalid'
+
+    def test_status_permission_drift_fails_closed(
+        self, settings, status_file, signing_keys,
+    ):
+        settings.MODEL_STATUS_SECURE_PERMISSIONS_REQUIRED = True
+        settings.MODEL_STATUS_EXPECTED_OWNER = pwd.getpwuid(os.getuid()).pw_name
+        settings.MODEL_STATUS_EXPECTED_GROUP = grp.getgrgid(os.getgid()).gr_name
+        settings.MODEL_STATUS_EXPECTED_MODE = 0o600
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        assert get_status()['state'] == 'verified'
+
+        os.chmod(status_file, 0o640)
+        assert get_status()['state'] == 'invalid'
 
     def test_legacy_runtime_status_infers_bounded_streak(self, status_file):
         with open(status_file, 'w') as status:

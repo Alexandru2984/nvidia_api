@@ -68,7 +68,7 @@ class RestoreDrillScheduleTests(unittest.TestCase):
             '/usr/local/libexec/aichat-restore-drill',
         ):
             self.assertIn(f'PathChanged={target}\n', path_unit)
-        self.assertEqual(path_unit.count('PathChanged='), 15)
+        self.assertEqual(path_unit.count('PathChanged='), 20)
 
     def test_drill_accepts_only_explicit_production_path_overrides(self):
         drill = DRILL.read_text(encoding='utf-8')

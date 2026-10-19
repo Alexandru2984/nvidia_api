@@ -6,21 +6,24 @@ After=network-online.target
 [Service]
 Type=oneshot
 TimeoutStartSec=6min
-User=aichat
+User=aichat-model-probe
 Group=aichat
 WorkingDirectory=/opt/aichat-backend-current
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend
-ExecStart=/opt/aichat-python-current/bin/python /opt/aichat-backend-current/manage.py probe_models
-UMask=0077
+Environment=DJANGO_SETTINGS_MODULE=nvidia_chat.probe_settings
+LoadCredential=nvidia-api-key:/etc/aichat/model-probe-api-key
+LoadCredential=model-status-private-key:/etc/aichat/model-status-private.pem
+ExecStart=/opt/aichat-python-current/bin/python /opt/aichat-backend-current/probe_models.py
+StateDirectory=aichat-model-probe
+StateDirectoryMode=0750
+UMask=0027
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindReadOnlyPaths=/home/micu/nvidia/backend/.env
-BindPaths=/home/micu/nvidia/backend/.cache
-ReadWritePaths=/home/micu/nvidia/backend/.cache
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -31,8 +34,10 @@ RestrictSUIDSGID=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 LockPersonality=yes
+MemoryDenyWriteExecute=yes
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SocketBindDeny=any
 SystemCallArchitectures=native
 LimitCORE=0
 TasksMax=32

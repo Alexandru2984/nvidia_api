@@ -266,9 +266,16 @@ CACHES = {
     },
 }
 
-# Mutable provider availability belongs with the private runtime cache rather
-# than alongside deployable source. The dedicated service identity owns it.
-MODEL_STATUS_FILE = RUNTIME_DIR / '.cache' / 'model_status.json'
+# Mutable provider availability is produced outside the backend identity. In
+# production, a dedicated non-login probe owns this path and signs every update;
+# local development retains the historical runtime-cache location.
+MODEL_STATUS_FILE = Path(os.environ.get(
+    'MODEL_STATUS_FILE',
+    str(
+        RUNTIME_DIR / '.cache' / 'model_status.json'
+        if DEBUG else Path('/var/lib/aichat-model-probe/model_status.json')
+    ),
+))
 
 CHAT_MAX_MESSAGE_CHARS = 8000
 CHAT_HISTORY_MAX_MESSAGES = 30
@@ -357,6 +364,32 @@ ATTACHMENT_UPLOAD_ATTEMPT_TTL_HOURS = _nonnegative_int_env(
 MODEL_STATUS_REQUIRED = os.environ.get(
     'MODEL_STATUS_REQUIRED', str(not DEBUG),
 ).lower() == 'true'
+MODEL_STATUS_SIGNATURE_REQUIRED = _boolean_env(
+    'MODEL_STATUS_SIGNATURE_REQUIRED', not DEBUG,
+)
+MODEL_STATUS_SECURE_PERMISSIONS_REQUIRED = _boolean_env(
+    'MODEL_STATUS_SECURE_PERMISSIONS_REQUIRED', not DEBUG,
+)
+MODEL_STATUS_PUBLIC_KEY_FILE = os.environ.get(
+    'MODEL_STATUS_PUBLIC_KEY_FILE', '/etc/aichat/model-status-public.pem',
+).strip()
+MODEL_STATUS_PRIVATE_KEY_FILE = os.environ.get(
+    'MODEL_STATUS_PRIVATE_KEY_FILE', '',
+).strip()
+MODEL_STATUS_EXPECTED_OWNER = os.environ.get(
+    'MODEL_STATUS_EXPECTED_OWNER', 'aichat-model-probe',
+).strip()
+MODEL_STATUS_EXPECTED_GROUP = os.environ.get(
+    'MODEL_STATUS_EXPECTED_GROUP', 'aichat',
+).strip()
+MODEL_STATUS_EXPECTED_MODE = 0o640
+MODEL_STATUS_WRITE_MODE = 0o640 if not DEBUG else 0o600
+if not MODEL_STATUS_FILE.is_absolute():
+    raise ImproperlyConfigured('MODEL_STATUS_FILE must be an absolute path.')
+if MODEL_STATUS_SIGNATURE_REQUIRED and not Path(MODEL_STATUS_PUBLIC_KEY_FILE).is_absolute():
+    raise ImproperlyConfigured('MODEL_STATUS_PUBLIC_KEY_FILE must be an absolute path.')
+if MODEL_STATUS_PRIVATE_KEY_FILE and not Path(MODEL_STATUS_PRIVATE_KEY_FILE).is_absolute():
+    raise ImproperlyConfigured('MODEL_STATUS_PRIVATE_KEY_FILE must be an absolute path.')
 MODEL_STATUS_MAX_AGE_SECONDS = _nonnegative_int_env(
     'MODEL_STATUS_MAX_AGE_SECONDS', 8 * 24 * 60 * 60,
 )

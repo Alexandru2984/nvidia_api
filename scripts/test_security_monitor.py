@@ -452,6 +452,8 @@ class SecurityMonitorTests(unittest.TestCase):
         ).read_text(encoding='utf-8')
         self.assertIn('PathChanged=/home/micu/nvidia/backend/.env\n', path_unit)
         self.assertIn('PathChanged=/etc/nginx/sites-available/aichat.micutu.com\n', path_unit)
+        self.assertIn('PathChanged=/etc/aichat/model-status-private.pem\n', path_unit)
+        self.assertIn('PathChanged=/etc/aichat/model-status-public.pem\n', path_unit)
         self.assertIn('PathChanged=/usr/local/libexec/aichat-security-monitor\n', path_unit)
 
     def create_frontend_release(self):
