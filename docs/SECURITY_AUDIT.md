@@ -75,13 +75,13 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, every authorized conversation export, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance or restore-drill failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, every authorized conversation export, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, failed/degraded/unauthorized model probes, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance or restore-drill failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only access is denied; current staff session must verify application 2FA and refresh a five-minute password-plus-2FA window; expired mutations fail closed; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; retain malware/ownership/cache/XSS regressions |
-| A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week or leave permanently broken models trusted forever, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability. Transient outcomes retain the last trusted decision for two consecutive runs, fail closed on the third and recover on success; the bounded private streak is backward compatible and monitored. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
+| A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week or leave permanently broken models trusted forever, leak provider failure details, or present volatile latency as model quality | A dedicated credential-minimal identity writes exact-owner/mode `0640` state signed with Ed25519; the web identity has only read/public-key access. Signature, file shape, schema/catalog/range/time and eight-day freshness fail closed and alert. Definitive failures change availability; transient outcomes preserve a trusted decision twice, hide on the third and recover on success. The API exposes only aggregate state and rounded successful samples labeled as synthetic | A compromised probe/signing key can forge availability and consume the shared provider credential; rotate both after compromise, move the signing root to a hardware/external trust boundary before multi-host scaling, and never treat one sample as an SLA or quality score |
 | A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, bound executable roots to the active plus two rollbacks, and have passed a controlled production rollback/restore drill for both release families | Add signed builder provenance and define the supplemental-archive lifecycle plus off-host evidence retention |
 | A-20 | Medium | Users could send prompts, history and selected files to NVIDIA without a durable, current disclosure acknowledgement | A versioned, owner-bound timestamp is stored without prompt/file/IP data; chat, regeneration and image generation return `428` before leases, budget reservations, message writes or provider egress until the current disclosure is accepted. The keyboard-accessible mobile UI names each data class, links official NVIDIA privacy/terms pages and offers an equal cancel path | Obtain legal review of the actual processing basis, publish the complete operator privacy notice, confirm NVIDIA retention/training/DPA/region and production-entitlement terms, and bump the version when the data flow materially changes |
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
@@ -2353,6 +2353,87 @@ is required before describing those controls as complete.
   processor or supply-chain dependency was introduced. A plausible unauthorized
   admin access or change still starts containment, privacy scoping and the GDPR
   72-hour assessment clock.
+
+### Signed isolated model-availability rollout — 2026-10-19
+
+- Commits `3fd5b9b` and `038ca5f` move the twice-weekly NVIDIA probe from the
+  web identity to non-login `aichat-model-probe`. Its minimal settings have no
+  installed Django applications, database, SMTP, session, 2FA or audit secrets.
+  systemd exposes only the NVIDIA API key and an Ed25519 private key through the
+  unit's ephemeral credential mount; `ProtectHome=tmpfs`, an empty capability
+  set, `NoNewPrivileges`, strict filesystem protection and a socket-bind deny
+  constrain the process to provider egress and its private state directory.
+- The probe owns `/var/lib/aichat-model-probe/model_status.json` with mode `0640`
+  and owner/group `aichat-model-probe:aichat`; the backend can read but cannot
+  write it or read either root-owned credential source. It verifies a canonical Ed25519
+  signature using only `/etc/aichat/model-status-public.pem`, plus regular-file,
+  exact owner/group/mode, size, schema, catalog, range, time and freshness
+  constraints. Missing/unsigned state, symlinks, permission drift, content
+  changes and public-key rotation fail closed. Explicit signing-key rotation is
+  available for incident response and never enables an unsigned compatibility
+  window.
+- Commit `acccc4a` adds immediate `model_probe_failed` detection in addition to
+  existing degraded, authorization and invalid-status alerts. The installed
+  monitor SHA-256 is
+  `c3f924ccde77f66f63706962b69e5ecdc6864c229d307efef835ada7964513bc`;
+  its config watcher SHA-256 is
+  `08e2dfdd87ab4f40a2f1047897e6dfee677933d71e4e4738c5051ef70f2d0888`
+  and covers exactly 20 paths, including the probe credential, signing keys,
+  sysusers definition, service and timer.
+- Backend `608/608` and 70 operational tests passed, including missing and
+  modified signatures, changed results, unsigned extra fields, public-key
+  replacement, symlink state, permission drift, minimal-settings startup,
+  credential scope and unit hardening. Bash syntax, ShellCheck, Python compile,
+  migration drift, Django checks, immutable Action pins and `pip check` passed;
+  `pip-audit` and npm audit found no known vulnerabilities. The only production
+  check warning remains the deliberate domain-wide HSTS-preload decision. No new
+  package or processor was introduced; Ed25519 uses the already locked
+  `cryptography` runtime.
+- The gzip-valid pre-deploy database backup is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261019_185440_032232347.sql.gz`, mode
+  `0600 micu:micu`, 16,307 bytes, SHA-256
+  `bc9d9ae16aec345cf3794d6b5c79ea5a3ad45e46ee3b4020c5874035507511c0`.
+  Active backend release
+  `/opt/aichat-backend-releases/release-20261019T155531_510720445` records exact
+  commit `038ca5f62afbaa440f6b0aaa507ae40367a855d9`; its manifest file SHA-256 is
+  `9319378f1c78289475f8438bb70b7eb6a776a8437021e130ca18e6b85a0dfba1`.
+  A controlled backend drill activated the immediately preceding compatible
+  release and restored the exact active release in two seconds/two seconds with
+  a new verified PID and `NRestarts=0`.
+- The real isolated full-stream probe completed in 2m26s with a 51 MB peak and
+  signed all 20 catalog outcomes. Independent public-key verification passed.
+  The signed state SHA-256 is
+  `3514c6632c8635259100b4346e72d1dc3eaefbcc739dc44f3557df077752ab37`.
+  The fresh-trust baseline conservatively exposes 7 models and hides 13: one
+  definitive retirement and 12 inconclusive timeout/network/protocol outcomes.
+  An HTTPS canary logged in through the real CSRF/session boundary, received
+  `200` from `/api/models/`, saw the same `degraded` 20/7/13 aggregate and no
+  signature or private outcome; its user/session residue is zero. The next
+  persistent probe is scheduled for Thursday 2026-10-22 near 04:00 EEST.
+- The first service activation failed before writing state because a default
+  expression eagerly referenced `BASE_DIR`, which the deliberately minimal
+  settings omit. Models remained fail-closed and public health stayed `200`;
+  commit `038ca5f` made the fallback lazy, and the second activation succeeded.
+  The first monitor-install attempt then refused an expected live rollout alert
+  and transactionally restored its previous files/state. A scheduled alert send
+  also failed closed during a transient Telegram outage without advancing state;
+  the post-window monitor rerun succeeded with `active=[]`, the second installer
+  completed, and a credential-isolated notification test subsequently sent.
+  Restore validation passed twice against the retained backup with counts
+  `48|3|6|16`; database dumps remain unreadable to the monitor identity.
+- Final root/health return `200`, anonymous private API and `/.env` return `403`,
+  arbitrary media returns `404`, nginx syntax is valid, all model/monitor/
+  config-watch/restore timers or paths are enabled and active, and every related
+  oneshot reports success. The NVIDIA GitHub push hook remains disabled.
+- Scoped CISO review treats web-worker takeover, probe takeover and signing-key
+  theft as distinct threats. The change prevents `aichat` alone from forging the
+  picker, but a compromised probe can still sign arbitrary availability and use
+  the shared provider credential; rotate both credentials after compromise and
+  move signing to an external/hardware trust boundary before multi-host scale.
+  Status contains no user content or identifier, but journals and alert delivery
+  remain local/vendor-dependent. Preserve evidence, assess prompt/provider data
+  scope, and start the GDPR 72-hour assessment clock if an incident plausibly
+  reaches personal data rather than only public model metadata.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

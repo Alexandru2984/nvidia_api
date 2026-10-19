@@ -116,15 +116,17 @@ timed evidence.
   eight-day trust window, refreshes every Monday and Thursday, preserves verified
   decisions across two transient provider runs, hides them on the third consecutive
   failure, restores them on success, blocks newly added IDs until their first successful
-  probe, and alerts degraded or authorization-failed probes without leaking provider
-  error details. Provider egress is pinned to approved NVIDIA HTTPS endpoints;
-  redirects are disabled and streamed SSE/image responses have aggregate, line,
-  shape and wall-clock bounds.
-  The October 2026 catalog tracks 20 current documented endpoints; its deployed
-  full-stream probe currently exposes 13, including six verified image-capable
-  models. Model-specific temperature/output-token contracts are enforced by API,
-  responsive controls and database constraints; incomplete or unmetered streams
-  fail closed without exposing provider details.
+  probe, and alerts degraded, authorization-failed or crashed probes without
+  leaking provider error details. The probe now runs under a dedicated non-login
+  identity with only its NVIDIA and Ed25519 credentials; `aichat` can read but
+  cannot forge the exact-owner/mode, signature-verified state. Provider egress is
+  pinned to approved NVIDIA HTTPS endpoints; redirects are disabled and streamed
+  SSE/image responses have aggregate, line, shape and wall-clock bounds. The
+  October 2026 catalog tracks 20 documented endpoints, while the authenticated
+  contract reports the changing verified/degraded aggregate rather than promising
+  a fixed live count. Model-specific temperature/output-token contracts are
+  enforced by API, responsive controls and database constraints; incomplete or
+  unmetered streams fail closed without exposing provider details.
   Expose reasoning, tool use, structured output, and output modality controls only
   when verified and declared by the selected model.
 - **Resilient attachment intake is shipped:** picker, drag/drop, clipboard image
@@ -186,7 +188,8 @@ timed evidence.
 - **Immutable backend application delivery is shipped:** production imports only
   a committed, root-owned, manifest-verified release selected through one atomic
   symlink. Staging excludes secrets, media, cache and dependencies; preflight runs
-  as `aichat`; backend, maintenance and model-probe units share the same release;
+  as `aichat`; backend, maintenance and the isolated probe read the same
+  immutable release;
   health/private-route failures restore both code and systemd configuration. The
   five-minute monitor verifies the active manifest. The production Python
   environment is also a separately versioned root-owned release, built without

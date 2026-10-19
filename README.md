@@ -337,24 +337,31 @@ endpoints. It was built by:
 
 NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both directions, so availability is re-checked automatically:
 
-- `python manage.py probe_models` probes every catalog model with the production
+- `aichat-model-probe.service` runs as the dedicated non-login
+  `aichat-model-probe` identity and probes every catalog model with the production
   streaming envelope and a 1-token completion (with one retry for cold starts).
+  Its systemd credential mount contains only the NVIDIA key and an Ed25519
+  signing key; the application dotenv, database, mail, 2FA and audit secrets are
+  hidden. Local developers may still invoke `manage.py probe_models` with test or
+  development settings, but production runs only through the isolated unit.
   A model passes only after a valid SSE event, terminal usage accounting and
   `[DONE]`; a 200 JSON response, provider error event, truncated stream or missing
-  usage is an inconclusive protocol failure. The command writes the private `0600` runtime file
-  `backend/.cache/model_status.json` atomically. Its schema, size, model IDs,
-  outcome vocabulary, latency range, attempt count, timezone and freshness are
-  validated when read. Production requires this file and accepts it for eight
-  days; missing, stale, future-dated or malformed state fails closed and triggers
-  the security monitor.
+  usage is an inconclusive protocol failure. The probe atomically writes
+  `/var/lib/aichat-model-probe/model_status.json` with mode `0640` and owner/group
+  `aichat-model-probe:aichat`. The web identity can read but cannot replace it and
+  holds only the public verification key. Ed25519 signature, regular-file shape,
+  exact ownership/mode, schema, size, model IDs, outcome vocabulary, latency,
+  attempts, timezone and freshness are validated when read. Missing, unsigned,
+  stale, future-dated, symlinked, permission-drifted or malformed state fails
+  closed and triggers the security monitor.
 - Definitive endpoint failures (`404/410`) and payload-contract rejection
   (`400/422`) mark a model unavailable. Authentication/entitlement failures,
   throttling, timeouts, network/protocol errors, ambiguous 4xx and provider 5xx responses
   are inconclusive: an already verified model keeps its last decision through
   two consecutive probe runs, then fails closed on the third; the first success
   automatically restores it. A never-verified model remains blocked. Degraded,
-  persistent and authorization failures are alerted and explicit in the
-  authenticated UI without exposing provider bodies.
+  persistent, authorization and whole-service failures are alerted and explicit
+  in the authenticated UI without exposing provider bodies.
 - `/api/models/` subtracts the resolved unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
 - Each catalog row exposes `purpose`, `recommended`, conservative `best_for`,
   input `capabilities`, and a model-specific `generation` contract. The UI groups assistant/coding/translation/safety/
@@ -413,8 +420,9 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   read-only except for private runtime/tmp paths, and caps aggregate memory,
   CPU and tasks. Invalid documents are never stored; service/protocol failure is
   a retryable fail-closed response.
-- **Scheduled jobs**: application jobs run as `aichat` through the sandboxed
-  `aichat-maintenance.timer` and `aichat-model-probe.timer`. The host-level
+- **Scheduled jobs**: maintenance runs as `aichat`; model availability runs as
+  the credential-minimal `aichat-model-probe` identity. Both use sandboxed
+  persistent timers and immutable application/Python releases. The host-level
   database backup remains in the administrator's cron:
   ```cron
   # Postgres backup, gzip, keeps newest 7 (daily)
@@ -607,18 +615,18 @@ service (take configuration and database backups first):
 sudo chgrp aichat backend/.env && sudo chmod 0640 backend/.env
 sudo chown -R aichat:aichat backend/media backend/.cache
 sudo chmod 0700 backend/media backend/.cache
+sudo scripts/install_model_probe_identity.sh
 sudo scripts/deploy_backend.sh --bootstrap
 sudo scripts/deploy_python_env.sh --bootstrap
 sudo scripts/deploy_backend.sh
-sudo install -o root -g root -m 0644 ops/systemd/aichat-{maintenance,model-probe}.{timer} /etc/systemd/system/
-sudo systemctl daemon-reload
 sudo systemctl enable --now aichat-maintenance.timer aichat-model-probe.timer
 ```
 
-Run production management commands that touch runtime files as `aichat`. Source
-updates remain owned by the deployment administrator; production dependency
-installation runs as the secret-blind `nobody` builder and becomes root-owned
-before activation.
+Run ordinary production management commands that touch application runtime files
+as `aichat`; model probing is the explicit exception and must use its systemd
+unit. Source updates remain owned by the deployment administrator; production
+dependency installation runs as the secret-blind `nobody` builder and becomes
+root-owned before activation.
 
 Bootstrap the independent 2FA keyring before the first production deployment
 that contains 2FA key versioning. The helper changes only the three managed

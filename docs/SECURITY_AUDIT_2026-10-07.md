@@ -527,7 +527,11 @@ path without filenames or content. The monitor itself now runs as a dedicated
 non-login identity rather than the interactive administrator, receives the
 Telegram configuration as an ephemeral systemd credential, cannot read database
 dumps or its source credential, and has exact monitored ACL access only to backup
-metadata and the privacy-minimized restore status. The remaining high-value
+metadata and the privacy-minimized restore status. Model availability is now
+produced by a second dedicated non-login identity with only its provider/signing
+credentials; `aichat` has read-only/public-key access to exact-owner/mode Ed25519-
+verified state, and a crashed probe alerts immediately rather than waiting for
+the eight-day freshness deadline. The remaining high-value
 signals are off-host retention, sudo/process identity and provider/mail cost
 anomalies. Scheduled restore failure is now ingested from its own unit and alerts
 immediately; stale, missing or malformed success evidence remains latched through

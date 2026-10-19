@@ -30,9 +30,9 @@ unavailable, any failed scanner health check or ClamAV database older than 30 ho
 any request blocked because the isolated parser was unavailable, any parser
 failure, failed parser-socket health check or installed-parser integrity mismatch,
 any rejected redirect or malformed/bounds-violating provider response,
-any invalid runtime model-status file, any degraded scheduled model probe, any
-provider authorization/entitlement probe failure, a database backup older than
-30 hours, a restore drill older than eight days, or any frontend/backend/Python-
+any invalid runtime model-status file, any degraded or failed scheduled model
+probe, any provider authorization/entitlement probe failure, a database backup
+older than 30 hours, a restore drill older than eight days, or any frontend/backend/Python-
 environment release manifest, ownership or permission failure. Any lost
 generation lease raises `generation_interrupted`; three mismatched reuses of an
 `Idempotency-Key` within six minutes raise `generation_idempotency_conflict`.
@@ -72,6 +72,16 @@ executable changed. Treat an unplanned event as possible credential or host
 tampering: preserve the journal timestamp, compare the root-owned installed file
 to its committed source without copying secret contents, and contain before
 acknowledging the alert.
+
+For `model_probe_failed`, `model_probe_degraded`, `model_probe_authorization` or
+`model_status_invalid`, preserve the unit journal and signed status metadata but
+never paste provider bodies or credentials into the incident channel. Keep model
+selection fail-closed. If the `aichat-model-probe` identity or signing key may be
+compromised, revoke/replace the NVIDIA credential, then rotate the signing pair
+with `sudo scripts/install_model_probe_identity.sh --rotate-signing-key` and run
+`sudo systemctl start aichat-model-probe.service`. Rotation intentionally makes
+the old status unverifiable until that isolated run succeeds; do not temporarily
+allow unsigned state to restore availability.
 
 ## 2. Contain
 
