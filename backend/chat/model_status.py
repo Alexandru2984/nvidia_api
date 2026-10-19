@@ -48,7 +48,11 @@ security_log = logging.getLogger('security')
 
 
 def _status_file() -> Path:
-    return Path(getattr(settings, 'MODEL_STATUS_FILE', Path(settings.BASE_DIR) / '.cache/model_status.json'))
+    configured = getattr(settings, 'MODEL_STATUS_FILE', None)
+    if configured:
+        return Path(configured)
+    base_dir = Path(getattr(settings, 'BASE_DIR', Path.cwd()))
+    return base_dir / '.cache/model_status.json'
 
 
 def _fail_closed_status(state='invalid', checked_at=None) -> dict:
