@@ -483,7 +483,7 @@ def read_journal():
         [JOURNALCTL_PATH,
          '--unit=aichat-backend.service', '--unit=aichat-maintenance.service',
          '--unit=aichat-model-probe.service', '--unit=aichat-document-parser.service',
-         '--unit=aichat-config-watch.service',
+         '--unit=aichat-config-watch.service', '--unit=aichat-restore-drill.service',
          f'--since={JOURNAL_WINDOW}',
          '--output=cat', '--no-pager', '--quiet'],
         capture_output=True, text=True, timeout=20, check=False,

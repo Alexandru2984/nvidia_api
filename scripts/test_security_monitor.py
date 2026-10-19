@@ -432,6 +432,7 @@ class SecurityMonitorTests(unittest.TestCase):
         with mock.patch.object(monitor.subprocess, 'run', return_value=completed) as run:
             self.assertEqual(monitor.read_journal(), 'journal')
         self.assertEqual(run.call_args.args[0][0], '/usr/bin/journalctl')
+        self.assertIn('--unit=aichat-restore-drill.service', run.call_args.args[0])
 
     def test_systemd_unit_uses_dedicated_identity_and_credential(self):
         unit = (
