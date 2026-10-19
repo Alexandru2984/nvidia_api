@@ -506,9 +506,9 @@ sudo scripts/deploy_python_env.sh
 sudo scripts/deploy_backend.sh
 
 # Frontend
-cd /home/micu/nvidia/frontend
-npm run build
 cd /home/micu/nvidia
+scripts/build_frontend_release.sh
+sudo scripts/deploy_frontend.sh --preflight-only
 sudo scripts/deploy_frontend.sh
 
 # Validate the shared edge after deployment
@@ -521,12 +521,18 @@ curl -o /dev/null -sS -w '%{http_code}\n' https://aichat.micutu.com/media/not-pu
 sudo scripts/install_security_monitor.sh
 ```
 
-The frontend deploy script stages a root-owned release below
-`/var/www/aichat-releases`, validates that it contains no remote script tag, and
-atomically switches `/var/www/aichat.micutu.com`. nginx receives read-only
-`0755`/`0644` content and each release includes a SHA-256 manifest checked by the
-five-minute security monitor; never restore `www-data` ownership. The first
-conversion from the legacy directory requires
+The unprivileged frontend build wrapper refuses uncommitted tracked frontend
+changes and records the exact commit and frontend Git tree in the generated
+output. The frontend deploy script requires that provenance to match current
+committed `HEAD`, rejects symlinks, special files and oversized trees, verifies
+the active rollback release before making a change, and shares the exclusive
+release-operation lock with backend, Python and rollback operations. Use
+`--preflight-only` to exercise every read-only gate. It then stages a root-owned
+release below `/var/www/aichat-releases`, validates that it contains no remote
+script tag, and atomically switches `/var/www/aichat.micutu.com`. nginx receives
+read-only `0755`/`0644` content and each release includes a SHA-256 manifest
+checked by the five-minute security monitor; never restore `www-data` ownership.
+The first conversion from the legacy directory requires
 `sudo scripts/deploy_frontend.sh --bootstrap`.
 Every later deploy omits `--bootstrap`. Failed health/private-route probes switch
 back to the prior target automatically while retaining both releases for review.
@@ -576,8 +582,9 @@ or size/file-count limits, and never selects the active target or the newest two
 rollback releases. Archived releases are supplemental recovery material; define
 an encrypted off-site lifecycle before treating them as durable backups.
 
-Backend and Python deploys share an exclusive release-operation lock with the
-rollback drill, so their atomic symlink changes cannot overlap. Exercise each
+Frontend, backend and Python deploys share an exclusive release-operation lock
+with the rollback drill, so their validation, retention and atomic symlink
+changes cannot overlap. Exercise each
 rollback family independently, first read-only and then with two brief service
 restarts:
 

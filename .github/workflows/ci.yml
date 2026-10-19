@@ -59,6 +59,7 @@ jobs:
           python ../scripts/test_model_probe_isolation.py
           python ../scripts/test_configure_two_factor_keys.py
           python ../scripts/test_archive_release_retention.py
+          python ../scripts/test_build_frontend_release.py
           python ../scripts/test_generate_python_sbom.py
           python ../scripts/generate_python_sbom.py requirements.lock \
             --commit "$GITHUB_SHA" --output /tmp/aichat-python.cdx.json
@@ -86,7 +87,10 @@ jobs:
       - name: Lint
         run: npx eslint .
       - name: Build
-        run: npm run build
+        run: |
+          ../scripts/build_frontend_release.sh
+          test "$(cat dist/.release-commit)" = "$GITHUB_SHA"
+          test "$(cat dist/.release-frontend-tree)" = "$(git rev-parse HEAD:frontend)"
       - name: Audit dependencies
         run: npm audit --audit-level=low
       - name: Install test browser
