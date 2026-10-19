@@ -4,8 +4,11 @@
 set -euo pipefail
 umask 077
 
-REPO_BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend" && pwd)"
-RUNTIME_DIR="${AICHAT_RUNTIME_DIR:-$REPO_BACKEND_DIR}"
+if [[ -n "${AICHAT_RUNTIME_DIR:-}" ]]; then
+  RUNTIME_DIR="$AICHAT_RUNTIME_DIR"
+else
+  RUNTIME_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend" && pwd)"
+fi
 APP_DIR="${AICHAT_APP_DIR:-$RUNTIME_DIR}"
 PYTHON="${AICHAT_PYTHON:-$RUNTIME_DIR/venv/bin/python}"
 ENV_FILE="$RUNTIME_DIR/.env"

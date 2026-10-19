@@ -67,7 +67,8 @@ class RestoreDrillScheduleTests(unittest.TestCase):
 
     def test_drill_accepts_only_explicit_production_path_overrides(self):
         drill = DRILL.read_text(encoding='utf-8')
-        self.assertIn('RUNTIME_DIR="${AICHAT_RUNTIME_DIR:-$REPO_BACKEND_DIR}"', drill)
+        self.assertIn('if [[ -n "${AICHAT_RUNTIME_DIR:-}" ]]; then', drill)
+        self.assertIn('RUNTIME_DIR="$AICHAT_RUNTIME_DIR"', drill)
         self.assertIn('APP_DIR="${AICHAT_APP_DIR:-$RUNTIME_DIR}"', drill)
         self.assertIn('PYTHON="${AICHAT_PYTHON:-$RUNTIME_DIR/venv/bin/python}"', drill)
         self.assertIn('DB_NAME="$SCRATCH_DB" "$PYTHON" "$APP_DIR/manage.py"', drill)
