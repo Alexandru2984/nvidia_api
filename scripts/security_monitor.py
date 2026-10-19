@@ -721,6 +721,10 @@ def evaluate(
     model_status_invalid = journal.count('event=model_status_invalid')
     model_probe_degraded = journal.count('event=model_probe_degraded')
     model_probe_authorization = journal.count('event=model_probe_authorization_failed')
+    model_probe_failures = (
+        journal.count('aichat-model-probe.service: Failed with result')
+        + journal.count('Failed to start AI Chat Hub NVIDIA model availability probe')
+    )
     protected_config_changes = journal.count('event=protected_config_changed')
     generation_idempotency_conflicts = journal.count(
         'event=generation_idempotency_conflict'
@@ -828,6 +832,8 @@ def evaluate(
         issues['model_probe_authorization'] = (
             'The NVIDIA model probe encountered an authorization or entitlement failure.'
         )
+    if model_probe_failures:
+        issues['model_probe_failed'] = 'The scheduled NVIDIA model probe service failed.'
     if protected_config_changes:
         issues['protected_config_changed'] = (
             'A protected AI Chat Hub configuration or monitor file changed.'

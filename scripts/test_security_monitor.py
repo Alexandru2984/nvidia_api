@@ -64,6 +64,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=model_status_invalid reason=schema']
             + ['event=model_probe_degraded inconclusive=2']
             + ['event=model_probe_authorization_failed count=2']
+            + ["aichat-model-probe.service: Failed with result 'exit-code'."]
             + ['event=protected_config_changed']
             + ['event=generation_idempotency_conflict'] * 3
             + ['event=generation_request_interrupted']
@@ -95,6 +96,7 @@ class SecurityMonitorTests(unittest.TestCase):
              'model_status_invalid',
              'model_probe_degraded',
              'model_probe_authorization',
+             'model_probe_failed',
              'protected_config_changed',
              'generation_idempotency_conflict', 'generation_interrupted',
              'account_export_completed', 'account_export_bound_exceeded',
