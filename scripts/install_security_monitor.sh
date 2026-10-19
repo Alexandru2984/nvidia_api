@@ -163,6 +163,10 @@ rollback() {
     unlink -- "$STATE_FILE" 2>/dev/null || true
   fi
   systemctl daemon-reload >/dev/null 2>&1 || true
+  # Preserve the journal evidence while removing the failed runtime state from
+  # the attempted unit. Otherwise a first-install rollback leaves a failed,
+  # not-found ghost in `systemctl --failed` after all files were restored.
+  systemctl reset-failed aichat-restore-drill.service >/dev/null 2>&1 || true
   if [[ "$timer_enabled" == enabled ]]; then
     systemctl enable aichat-security-monitor.timer >/dev/null 2>&1 || true
   fi

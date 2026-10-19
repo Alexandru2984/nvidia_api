@@ -52,6 +52,7 @@ class RestoreDrillScheduleTests(unittest.TestCase):
             'install -o root -g root -m 0755 -- "$SOURCE_RESTORE_DRILL"',
             'systemctl enable --now aichat-restore-drill.timer',
             'systemctl start aichat-restore-drill.service',
+            'systemctl reset-failed aichat-restore-drill.service',
         ):
             self.assertIn(required, installer)
 
