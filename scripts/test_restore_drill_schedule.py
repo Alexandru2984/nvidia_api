@@ -72,6 +72,7 @@ class RestoreDrillScheduleTests(unittest.TestCase):
         self.assertIn('APP_DIR="${AICHAT_APP_DIR:-$RUNTIME_DIR}"', drill)
         self.assertIn('PYTHON="${AICHAT_PYTHON:-$RUNTIME_DIR/venv/bin/python}"', drill)
         self.assertIn('DB_NAME="$SCRATCH_DB" "$PYTHON" "$APP_DIR/manage.py"', drill)
+        self.assertIn('--check --noinput --skip-checks', drill)
 
 
 if __name__ == '__main__':

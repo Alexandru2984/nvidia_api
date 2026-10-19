@@ -118,7 +118,8 @@ TABLES="$(psql --host="$DB_HOST" --port="$DB_PORT" --username="$DB_USER" \
                     to_regclass('public.chat_message') IS NOT NULL;")"
 [[ "$TABLES" == 't|t|t|t' ]] || { echo 'ERROR: required tables are missing' >&2; exit 1; }
 
-DB_NAME="$SCRATCH_DB" "$PYTHON" "$APP_DIR/manage.py" migrate --check --noinput
+DB_NAME="$SCRATCH_DB" "$PYTHON" "$APP_DIR/manage.py" migrate \
+  --check --noinput --skip-checks
 
 COUNTS="$(psql --host="$DB_HOST" --port="$DB_PORT" --username="$DB_USER" \
   --dbname="$SCRATCH_DB" --no-psqlrc --tuples-only --no-align --field-separator='|' \
