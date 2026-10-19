@@ -144,6 +144,14 @@ validate_model_probe_boundary() {
     echo 'ERROR: backend model-probe credential boundary is unsafe' >&2
     return 1
   }
+  if [[ -e "$MODEL_PROBE_STATE_DIR" || -L "$MODEL_PROBE_STATE_DIR" ]]; then
+    [[ -d "$MODEL_PROBE_STATE_DIR" && ! -L "$MODEL_PROBE_STATE_DIR" \
+       && "$(stat -c '%a:%U:%G' "$MODEL_PROBE_STATE_DIR")" \
+          == '750:aichat-model-probe:aichat' ]] || {
+      echo 'ERROR: model-probe state directory is unsafe' >&2
+      return 1
+    }
+  fi
   if [[ -e "$MODEL_PROBE_STATUS" || -L "$MODEL_PROBE_STATUS" ]]; then
     [[ -f "$MODEL_PROBE_STATUS" && ! -L "$MODEL_PROBE_STATUS" \
        && "$(stat -c '%a:%U:%G' "$MODEL_PROBE_STATUS")" \
