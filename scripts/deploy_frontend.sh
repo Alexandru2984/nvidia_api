@@ -9,6 +9,7 @@ DIST_DIR="$REPO_DIR/frontend/dist"
 RELEASE_ROOT='/var/www/aichat-releases'
 LIVE_PATH='/var/www/aichat.micutu.com'
 RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
+PROVENANCE_TOOL="$REPO_DIR/scripts/release_provenance.py"
 LOCK_FILE='/run/aichat-release-operation.lock'
 MAX_RELEASE_FILES=5000
 MAX_RELEASE_BYTES=$((256 * 1024 * 1024))
@@ -17,6 +18,8 @@ PREFLIGHT_ONLY=0
 previous=''
 legacy=''
 next_link=''
+release=''
+activation_started=0
 
 usage() {
   echo 'Usage: sudo scripts/deploy_frontend.sh [--bootstrap|--preflight-only]' >&2
@@ -91,7 +94,7 @@ validate_dist() {
 }
 
 validate_release_tree() {
-  local file_count release="$1" total_bytes
+  local file_count release="$1" require_provenance="${2:-1}" total_bytes
 
   [[ "$release" == "$RELEASE_ROOT"/release-* && -d "$release" && ! -L "$release" \
     && "$(stat -c '%U:%G:%a' -- "$release")" == 'root:root:755' ]] || {
@@ -132,6 +135,20 @@ validate_release_tree() {
     echo "ERROR: frontend release manifest validation failed: $release" >&2
     return 1
   }
+  if [[ -e "$release/.release-manifest.ed25519" \
+    || -L "$release/.release-manifest.ed25519" \
+    || -e "$release/.release-signing-key-id" \
+    || -L "$release/.release-signing-key-id" ]]; then
+    "$PROVENANCE_TOOL" verify --family frontend --release "$release" || {
+      echo "ERROR: frontend release provenance validation failed: $release" >&2
+      return 1
+    }
+  elif (( require_provenance )); then
+    echo "ERROR: frontend release has no signed provenance: $release" >&2
+    return 1
+  else
+    echo "NOTICE: transitional frontend release predates signed provenance: $release" >&2
+  fi
 }
 
 restore_previous_webroot() {
@@ -168,9 +185,13 @@ handle_activation_error() {
   local status="${1:-1}"
 
   trap - ERR INT TERM
-  echo 'ERROR: frontend activation failed; restoring the previous webroot' >&2
-  if ! restore_previous_webroot; then
-    echo 'CRITICAL: automatic frontend rollback failed; manual recovery is required' >&2
+  if (( activation_started )); then
+    echo 'ERROR: frontend activation failed; restoring the previous webroot' >&2
+    if ! restore_previous_webroot; then
+      echo 'CRITICAL: automatic frontend rollback failed; manual recovery is required' >&2
+    fi
+  elif [[ -n "$release" && -d "$release" ]]; then
+    rm -rf --one-file-system -- "$release"
   fi
   exit "$status"
 }
@@ -194,10 +215,12 @@ for command in awk chmod chown curl date find flock git grep install ln mountpoi
     exit 1
   }
 done
-if [[ ! -x "$RETENTION_TOOL" || -L "$RETENTION_TOOL" ]]; then
-  echo 'ERROR: release-retention tool is missing or unsafe' >&2
-  exit 1
-fi
+for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL"; do
+  [[ -x "$tool" && ! -L "$tool" ]] || {
+    echo "ERROR: required release tool is missing or unsafe: $tool" >&2
+    exit 1
+  }
+done
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || { echo 'ERROR: another release operation is running' >&2; exit 1; }
@@ -224,7 +247,7 @@ if [[ -L "$LIVE_PATH" ]]; then
     echo 'ERROR: live frontend symlink must directly name its release target' >&2
     exit 1
   fi
-  validate_release_tree "$previous"
+  validate_release_tree "$previous" 0
 elif [[ -d "$LIVE_PATH" && ! -L "$LIVE_PATH" ]]; then
   if (( ! BOOTSTRAP )); then
     echo 'ERROR: legacy directory detected; review it and rerun once with --bootstrap' >&2
@@ -249,21 +272,13 @@ fi
 
 stamp="$(date -u +%Y%m%dT%H%M%S)_$(date +%N)"
 release="$RELEASE_ROOT/release-$stamp"
-install -d -o root -g root -m 0755 "$release"
-rsync -a --delete --chown=root:root --chmod=D0755,F0644 -- "$DIST_DIR/" "$release/"
-(
-  cd "$release"
-  find . -xdev -type f ! -name '.release-manifest.sha256' -print0 \
-    | LC_ALL=C sort -z \
-    | xargs -0 sha256sum > .release-manifest.sha256
-)
-chown root:root "$release/.release-manifest.sha256"
-chmod 0644 "$release/.release-manifest.sha256"
-
-validate_release_tree "$release"
-
 trap 'handle_activation_error "$?"' ERR
 trap 'handle_activation_error 130' INT TERM
+install -d -o root -g root -m 0755 "$release"
+rsync -a --delete --chown=root:root --chmod=D0755,F0644 -- "$DIST_DIR/" "$release/"
+"$PROVENANCE_TOOL" sign --family frontend --release "$release"
+
+validate_release_tree "$release" 1
 
 if [[ -d "$LIVE_PATH" && ! -L "$LIVE_PATH" ]]; then
   legacy="$RELEASE_ROOT/legacy-$stamp"
@@ -272,6 +287,7 @@ if [[ -d "$LIVE_PATH" && ! -L "$LIVE_PATH" ]]; then
 fi
 
 next_link="$LIVE_PATH.next.$stamp"
+activation_started=1
 ln -s -- "$release" "$next_link"
 mv -Tf -- "$next_link" "$LIVE_PATH"
 

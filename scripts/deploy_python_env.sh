@@ -14,6 +14,7 @@ LIVE_PATH='/opt/aichat-python-current'
 SERVICE='aichat-backend.service'
 PYTHON='/usr/bin/python3.14'
 RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
+PROVENANCE_TOOL="$REPO_DIR/scripts/release_provenance.py"
 LOCK_FILE='/run/aichat-release-operation.lock'
 BOOTSTRAP=0
 
@@ -128,10 +129,12 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
 fi
-if [[ ! -x "$RETENTION_TOOL" || -L "$RETENTION_TOOL" ]]; then
-  echo 'ERROR: release-retention tool is missing or unsafe' >&2
-  exit 1
-fi
+for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL"; do
+  [[ -x "$tool" && ! -L "$tool" ]] || {
+    echo "ERROR: required release tool is missing or unsafe: $tool" >&2
+    exit 1
+  }
+done
 if [[ ! -L "$APP_LIVE" ]]; then
   echo 'ERROR: active backend application release is missing or unsafe' >&2
   exit 1
@@ -305,12 +308,10 @@ chmod 0755 "$release/bin/python"
   cd "$release"
   sha256sum .release-requirements.txt .release-requirements.lock .release-sbom.cdx.json \
     > .release-requirements.sha256
-  find . -xdev -type f ! -name '.release-manifest.sha256' -print0 \
-    | LC_ALL=C sort -z \
-    | xargs -0 sha256sum > .release-manifest.sha256
 )
-chown root:root "$release/.release-requirements.sha256" "$release/.release-manifest.sha256"
-chmod 0644 "$release/.release-requirements.sha256" "$release/.release-manifest.sha256"
+chown root:root "$release/.release-requirements.sha256"
+chmod 0644 "$release/.release-requirements.sha256"
+"$PROVENANCE_TOOL" sign --family python --release "$release"
 
 if find "$release" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
   echo 'ERROR: Python environment ownership validation failed' >&2
@@ -332,8 +333,8 @@ fi
 (
   cd "$release"
   sha256sum --check --strict .release-requirements.sha256 >/dev/null
-  sha256sum --check --strict .release-manifest.sha256 >/dev/null
 )
+"$PROVENANCE_TOOL" verify --family python --release "$release"
 "$PYTHON" "$REPO_DIR/scripts/generate_python_sbom.py" \
   "$release/.release-requirements.lock" --commit "$commit" \
   --check "$release/.release-sbom.cdx.json"

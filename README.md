@@ -488,6 +488,10 @@ sudo -u aichat env --chdir=/home/micu/nvidia/backend \
 # One-time isolated PDF/DOCX parser prerequisite
 sudo scripts/install_document_parser.sh
 
+# One-time root-only Ed25519 release signer/verifier prerequisite
+sudo scripts/install_release_provenance.sh
+sudo scripts/install_release_provenance.sh --check
+
 # Backend application code (deploys committed HEAD only)
 cd /home/micu/nvidia
 git status --short
@@ -565,6 +569,17 @@ probes the backend, restoring the prior environment on failure. Use
 `sudo scripts/deploy_python_env.sh --bootstrap` only for the first environment.
 CI validates lockfile structure, and the five-minute monitor validates the active
 release manifest and requires the SBOM artifacts.
+
+All three immutable release families are signed after their exact SHA-256
+manifest is created. The manifest covers every served/runtime file plus its
+commit, frontend-tree or dependency-lock/SBOM evidence; a detached Ed25519
+signature and SHA-256 public-key identifier complete the chain. The private key
+is root-only below `/etc/aichat-release-provenance`, never enters repository,
+build, runtime or monitor access, and the monitor verifies active releases using
+only retained public keys. `sudo scripts/install_release_provenance.sh --rotate`
+creates a new signer while retaining old public keys for existing rollback
+evidence. Do not delete a retained public key while any executable or archived
+release names it, and never re-sign an existing release to hide a failed check.
 
 Dependabot checks npm, Python and GitHub Actions weekly under
 `.github/dependabot.yml`. It only proposes review branches: no auto-merge or

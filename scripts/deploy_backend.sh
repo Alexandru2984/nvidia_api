@@ -12,6 +12,7 @@ RELEASE_ROOT='/opt/aichat-backend-releases'
 LIVE_PATH='/opt/aichat-backend-current'
 SERVICE='aichat-backend.service'
 RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
+PROVENANCE_TOOL="$REPO_DIR/scripts/release_provenance.py"
 LOCK_FILE='/run/aichat-release-operation.lock'
 MODEL_PROBE_USER='aichat-model-probe'
 MODEL_PROBE_CONFIG_DIR='/etc/aichat'
@@ -266,6 +267,10 @@ handle_error() {
   if [[ -n "$staging" && -d "$staging" ]]; then
     rm -rf --one-file-system -- "$staging"
   fi
+  if (( ! activation_started )) && [[ -n "$release" && -d "$release" \
+    && "$release" != "$previous" ]]; then
+    rm -rf --one-file-system -- "$release"
+  fi
   if [[ -n "$temporary" && -d "$temporary" ]]; then
     rm -rf --one-file-system -- "$temporary"
   fi
@@ -300,10 +305,12 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
 fi
-if [[ ! -x "$RETENTION_TOOL" || -L "$RETENTION_TOOL" ]]; then
-  echo 'ERROR: release-retention tool is missing or unsafe' >&2
-  exit 1
-fi
+for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL"; do
+  [[ -x "$tool" && ! -L "$tool" ]] || {
+    echo "ERROR: required release tool is missing or unsafe: $tool" >&2
+    exit 1
+  }
+done
 if [[ ! -x "$VENV_DIR/bin/python" || ! -f "$VENV_DIR/.release-manifest.sha256" ]]; then
   echo 'ERROR: immutable production Python environment is incomplete' >&2
   exit 1
@@ -394,14 +401,6 @@ find "$staging" -xdev -type d -exec chmod 0755 -- {} +
 find "$staging" -xdev -type f -exec chmod 0644 -- {} +
 printf '%s\n' "$commit" > "$staging/.release-commit"
 chmod 0644 "$staging/.release-commit"
-(
-  cd "$staging"
-  find . -xdev -type f ! -name '.release-manifest.sha256' -print0 \
-    | LC_ALL=C sort -z \
-    | xargs -0 sha256sum > .release-manifest.sha256
-)
-chown root:root "$staging/.release-manifest.sha256"
-chmod 0644 "$staging/.release-manifest.sha256"
 
 if find "$staging" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
   echo 'ERROR: staged release ownership validation failed' >&2
@@ -415,10 +414,6 @@ if find "$staging" -xdev -type f ! -perm 0644 -print -quit | grep -q .; then
   echo 'ERROR: staged release file mode validation failed' >&2
   false
 fi
-(
-  cd "$staging"
-  sha256sum --check --strict .release-manifest.sha256 >/dev/null
-)
 
 preflight=(
   runuser --user aichat -- env --chdir="$staging"
@@ -438,6 +433,8 @@ fi
 
 mv -- "$staging" "$release"
 staging=''
+"$PROVENANCE_TOOL" sign --family backend --release "$release"
+"$PROVENANCE_TOOL" verify --family backend --release "$release"
 backup_units
 
 next_link="$LIVE_PATH.next.$stamp"

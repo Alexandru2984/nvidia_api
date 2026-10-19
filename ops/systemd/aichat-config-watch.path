@@ -20,7 +20,10 @@ PathChanged=/etc/sysusers.d/aichat-model-probe.conf
 PathChanged=/etc/aichat/model-probe-api-key
 PathChanged=/etc/aichat/model-status-private.pem
 PathChanged=/etc/aichat/model-status-public.pem
+PathChanged=/etc/aichat-release-provenance/private.pem
+PathChanged=/etc/aichat-release-provenance/public
 PathChanged=/usr/local/libexec/aichat-security-monitor
+PathChanged=/usr/local/libexec/aichat-release-provenance
 PathChanged=/usr/local/libexec/aichat-restore-drill
 Unit=aichat-config-watch.service
 

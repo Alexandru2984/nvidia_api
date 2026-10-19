@@ -33,7 +33,8 @@ any rejected redirect or malformed/bounds-violating provider response,
 any invalid runtime model-status file, any degraded or failed scheduled model
 probe, any provider authorization/entitlement probe failure, a database backup
 older than 30 hours, a restore drill older than eight days, or any frontend/backend/Python-
-environment release manifest, ownership or permission failure. Any lost
+environment release manifest, ownership, permission or Ed25519-provenance
+failure. Any lost
 generation lease raises `generation_interrupted`; three mismatched reuses of an
 `Idempotency-Key` within six minutes raise `generation_idempotency_conflict`.
 Every completed full-account export raises `account_export_completed`; any
@@ -68,7 +69,8 @@ outbox. The alert contains only a count, never its filename or path.
 
 Any `protected_config_changed` alert means a watched dotenv, nginx vhost,
 application/monitor systemd unit, sysusers definition, or installed monitor
-executable changed. Treat an unplanned event as possible credential or host
+executable changed. This includes the release-provenance private/public key
+boundary and installed verifier. Treat an unplanned event as possible credential or host
 tampering: preserve the journal timestamp, compare the root-owned installed file
 to its committed source without copying secret contents, and contain before
 acknowledging the alert.
@@ -105,6 +107,14 @@ allow unsigned state to restore availability.
   scanner to restore availability.
 - For NVIDIA cost abuse, disable generation or revoke the API key before tuning
   throttles. A spending incident can continue while the UI appears healthy.
+- For `frontend_provenance`, `backend_provenance` or `python_provenance`, stop all
+  release operations, preserve the active release, signature, named public key
+  and monitor journal, and verify them from a known-clean host copy of the
+  committed verifier. Never repair the manifest, replace its key ID or re-sign
+  the suspect release. If signer compromise is plausible, rotate only after
+  evidence capture, then build and deploy fresh commit-bound releases for all
+  affected families; retain the old public key until every old release/archive
+  has completed its authorized lifecycle.
 - For an unexpected `account_export_completed`, treat the account as potentially
   compromised: preserve the event and nginx/authentication window, revoke all
   sessions, require a password reset and verify or re-enroll 2FA from a known-
@@ -218,6 +228,14 @@ old audit root only after `manage.py audit_admin_audit_keys --require-active`
 passes. Never enable legacy Django-key compatibility merely to silence a failed
 inventory.
 
+Rotate a suspected release-provenance signer only after preserving the key
+metadata, active manifests/signatures, deploy journal and relevant release
+trees. Run `sudo scripts/install_release_provenance.sh --rotate`, confirm the
+new key boundary with `--check`, and create fresh releases through the normal
+deploy scripts. Rotation intentionally retains old public verification keys; it
+does not make an already signed release trustworthy again and must never be
+followed by re-signing that release.
+
 ## 5. Notify
 
 - Notify affected users promptly when doing so reduces harm; provide concrete
@@ -254,6 +272,10 @@ inventory.
    Older supplemental copies may exist as root-only, SHA-256-sidecar archives in
    `/home/micu/backups/nvidia_release_archive`; verify both the sidecar and tar
    member paths/types in isolated staging before considering one for recovery.
+   Require `scripts/release_provenance.py verify --family ... --release ...` for
+   every signed candidate and confirm that the named retained public key is
+   root-owned. An unsigned transitional release may be inspected for evidence,
+   but must not become the normal active target after signed delivery is enabled.
    Before re-enabling maintenance after a retention incident, run
    `manage.py cleanup_attachments --dry-run`; confirm that only inactive archived
    conversations older than each owner's nonzero policy qualify and that active

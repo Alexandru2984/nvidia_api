@@ -463,7 +463,81 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertIn('PathChanged=/etc/nginx/sites-available/aichat.micutu.com\n', path_unit)
         self.assertIn('PathChanged=/etc/aichat/model-status-private.pem\n', path_unit)
         self.assertIn('PathChanged=/etc/aichat/model-status-public.pem\n', path_unit)
+        self.assertIn(
+            'PathChanged=/etc/aichat-release-provenance/private.pem\n',
+            path_unit,
+        )
+        self.assertIn(
+            'PathChanged=/etc/aichat-release-provenance/public\n',
+            path_unit,
+        )
         self.assertIn('PathChanged=/usr/local/libexec/aichat-security-monitor\n', path_unit)
+        self.assertIn(
+            'PathChanged=/usr/local/libexec/aichat-release-provenance\n',
+            path_unit,
+        )
+
+    def test_release_provenance_monitor_uses_fixed_bounded_verifier(self):
+        checker = self.root / 'provenance-checker'
+        checker.write_text('#!/bin/sh\n', encoding='ascii')
+        checker.chmod(0o755)
+        release = self.root / 'release-20261020T010203_123456789'
+        release.mkdir(mode=0o755)
+        live = self.root / 'active-release'
+        live.symlink_to(release)
+        completed = mock.Mock(
+            returncode=0,
+            stdout='Verified frontend release with key ' + ('a' * 64) + '\n',
+            stderr='',
+        )
+        with mock.patch.object(monitor.subprocess, 'run', return_value=completed) as run:
+            issues = monitor.evaluate_release_provenance(
+                live,
+                'frontend',
+                checker=checker,
+                checker_expected_uid=os.getuid(),
+                checker_expected_gid=os.getgid(),
+            )
+        self.assertEqual(issues, {})
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                str(checker),
+                'verify',
+                '--family',
+                'frontend',
+                '--release',
+                str(release),
+            ],
+        )
+        self.assertEqual(run.call_args.kwargs['timeout'], 20)
+        self.assertEqual(run.call_args.kwargs['env'], {'LANG': 'C', 'PATH': '/usr/bin:/bin'})
+
+    def test_release_provenance_monitor_fails_closed(self):
+        checker = self.root / 'provenance-checker'
+        checker.write_text('#!/bin/sh\n', encoding='ascii')
+        checker.chmod(0o755)
+        release = self.root / 'release-20261020T010203_123456789'
+        release.mkdir(mode=0o755)
+        live = self.root / 'active-release'
+        live.symlink_to(release)
+        failed = mock.Mock(returncode=1, stdout='', stderr='private diagnostic')
+        with mock.patch.object(monitor.subprocess, 'run', return_value=failed):
+            issues = monitor.evaluate_release_provenance(
+                live,
+                'backend',
+                checker=checker,
+                checker_expected_uid=os.getuid(),
+                checker_expected_gid=os.getgid(),
+            )
+        self.assertEqual(
+            issues,
+            {
+                'backend_provenance': (
+                    'The active backend release has missing or invalid signed provenance.'
+                ),
+            },
+        )
 
     def create_frontend_release(self):
         release_root = self.root / 'releases'

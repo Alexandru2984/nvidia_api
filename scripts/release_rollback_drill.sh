@@ -15,6 +15,7 @@ FRONTEND_LIVE='/var/www/aichat.micutu.com'
 REPO_DIR='/home/micu/nvidia'
 SERVICE='aichat-backend.service'
 SBOM_TOOL='/home/micu/nvidia/scripts/generate_python_sbom.py'
+PROVENANCE_TOOL='/home/micu/nvidia/scripts/release_provenance.py'
 SYSTEM_PYTHON='/usr/bin/python3.14'
 LOCK_FILE='/run/aichat-release-operation.lock'
 
@@ -193,6 +194,22 @@ validate_commit_marker() {
     echo "ERROR: invalid release commit marker: $release" >&2
     return 1
   }
+}
+
+validate_release_provenance() {
+  local release="$1" require_provenance="$2"
+
+  if [[ -e "$release/.release-manifest.ed25519" \
+    || -L "$release/.release-manifest.ed25519" \
+    || -e "$release/.release-signing-key-id" \
+    || -L "$release/.release-signing-key-id" ]]; then
+    "$PROVENANCE_TOOL" verify --family "$family" --release "$release"
+  elif (( require_provenance )); then
+    echo "ERROR: active $family release has no signed provenance: $release" >&2
+    return 1
+  else
+    echo "NOTICE: rollback $family release predates signed provenance: $release" >&2
+  fi
 }
 
 validate_python_release() {
@@ -378,6 +395,10 @@ for command in curl find flock git grep ln mv readlink sha256sum stat systemctl;
     exit 1
   }
 done
+[[ -x "$PROVENANCE_TOOL" && ! -L "$PROVENANCE_TOOL" ]] || {
+  echo 'ERROR: release-provenance tool is missing or unsafe' >&2
+  exit 1
+}
 if [[ "$family" != 'frontend' ]]; then
   for command in cmp runuser "$SYSTEM_PYTHON"; do
     command -v "$command" >/dev/null || {
@@ -436,6 +457,8 @@ case "$family" in
     validate_frontend_release "$rollback_target" 0
     ;;
 esac
+validate_release_provenance "$original_target" 1
+validate_release_provenance "$rollback_target" 0
 
 systemctl is-active --quiet "$SERVICE" || {
   echo 'ERROR: refusing drill while the backend service is not active' >&2

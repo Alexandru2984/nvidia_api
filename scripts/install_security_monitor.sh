@@ -6,6 +6,7 @@ umask 077
 
 REPO_DIR='/home/micu/nvidia'
 SOURCE_MONITOR="$REPO_DIR/scripts/security_monitor.py"
+SOURCE_PROVENANCE="$REPO_DIR/scripts/release_provenance.py"
 SOURCE_SERVICE="$REPO_DIR/ops/systemd/aichat-security-monitor.service"
 SOURCE_TIMER="$REPO_DIR/ops/systemd/aichat-security-monitor.timer"
 SOURCE_SYSUSERS="$REPO_DIR/ops/sysusers.d/aichat-monitor.conf"
@@ -15,6 +16,7 @@ SOURCE_RESTORE_DRILL="$REPO_DIR/scripts/backup_restore_drill.sh"
 SOURCE_RESTORE_SERVICE="$REPO_DIR/ops/systemd/aichat-restore-drill.service"
 SOURCE_RESTORE_TIMER="$REPO_DIR/ops/systemd/aichat-restore-drill.timer"
 TARGET_MONITOR='/usr/local/libexec/aichat-security-monitor'
+TARGET_PROVENANCE='/usr/local/libexec/aichat-release-provenance'
 TARGET_SERVICE='/etc/systemd/system/aichat-security-monitor.service'
 TARGET_TIMER='/etc/systemd/system/aichat-security-monitor.timer'
 TARGET_SYSUSERS='/etc/sysusers.d/aichat-monitor.conf'
@@ -61,7 +63,7 @@ legacy_restore_count="$(
   exit 1
 }
 for source in \
-  "$SOURCE_MONITOR" "$SOURCE_SERVICE" "$SOURCE_TIMER" "$SOURCE_SYSUSERS" \
+  "$SOURCE_MONITOR" "$SOURCE_PROVENANCE" "$SOURCE_SERVICE" "$SOURCE_TIMER" "$SOURCE_SYSUSERS" \
   "$SOURCE_CONFIG_SERVICE" "$SOURCE_CONFIG_PATH" "$SOURCE_RESTORE_DRILL" \
   "$SOURCE_RESTORE_SERVICE" "$SOURCE_RESTORE_TIMER"; do
   [[ -f "$source" && ! -L "$source" ]] || {
@@ -69,6 +71,15 @@ for source in \
     exit 1
   }
 done
+[[ -f "$TARGET_PROVENANCE" && ! -L "$TARGET_PROVENANCE" \
+  && "$(stat -c '%U:%G:%a' -- "$TARGET_PROVENANCE")" == 'root:root:755' ]] || {
+  echo 'ERROR: installed release-provenance verifier is missing or unsafe' >&2
+  exit 1
+}
+cmp --silent -- "$SOURCE_PROVENANCE" "$TARGET_PROVENANCE" || {
+  echo 'ERROR: installed release-provenance verifier is stale' >&2
+  exit 1
+}
 for path in "$CREDENTIALS" "$RESTORE_LOG"; do
   [[ -f "$path" && ! -L "$path" ]] || {
     echo "ERROR: required private file is missing or unsafe: $path" >&2

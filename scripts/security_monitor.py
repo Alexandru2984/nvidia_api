@@ -33,6 +33,7 @@ CLAMAV_DATABASE_MAX_AGE_SECONDS = 30 * 60 * 60
 CLAMAV_DAILY_DATABASE_NAMES = frozenset({'daily.cvd', 'daily.cld'})
 JOURNAL_WINDOW = '6 minutes ago'
 RELEASE_MANIFEST = '.release-manifest.sha256'
+RELEASE_SIGNATURE = '.release-manifest.ed25519'
 FRONTEND_MANIFEST = RELEASE_MANIFEST
 FRONTEND_MAX_FILES = 5_000
 FRONTEND_MAX_BYTES = 256 * 1024 * 1024
@@ -54,6 +55,8 @@ JOURNALCTL_PATH = '/usr/bin/journalctl'
 GETFACL_PATH = '/usr/bin/getfacl'
 MODEL_STATUS_CHECK_RELATIVE = 'check_model_status.py'
 MODEL_STATUS_CHECK_TIMEOUT_SECONDS = 15
+RELEASE_PROVENANCE_CHECK_PATH = Path('/usr/local/libexec/aichat-release-provenance')
+RELEASE_PROVENANCE_TIMEOUT_SECONDS = 20
 
 
 def _hash_file(path):
@@ -153,7 +156,7 @@ def _evaluate_release(
                 expected_mode = 0o755 if relative in executable_files else 0o644
                 if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != expected_mode:
                     return issue
-                if relative == RELEASE_MANIFEST:
+                if relative in {RELEASE_MANIFEST, RELEASE_SIGNATURE}:
                     continue
                 total_bytes += info.st_size
                 if len(actual_files) >= max_files or total_bytes > max_bytes:
@@ -333,6 +336,62 @@ def evaluate_release_retention(live_path, release_root, *, issue_key):
             return issue
         return {}
     except (OSError, RuntimeError, ValueError):
+        return issue
+
+
+def evaluate_release_provenance(
+    live_path,
+    family,
+    *,
+    checker=RELEASE_PROVENANCE_CHECK_PATH,
+    checker_expected_uid=0,
+    checker_expected_gid=0,
+):
+    """Independently verify the active release's retained Ed25519 signature."""
+    issue = {
+        f'{family}_provenance': (
+            f'The active {family} release has missing or invalid signed provenance.'
+        ),
+    }
+    checker = Path(checker)
+    try:
+        info = checker.lstat()
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or checker.is_symlink()
+            or info.st_uid != checker_expected_uid
+            or info.st_gid != checker_expected_gid
+            or stat.S_IMODE(info.st_mode) != 0o755
+            or not 1 <= info.st_size <= 1024 * 1024
+        ):
+            return issue
+        release = Path(live_path).resolve(strict=True)
+        result = subprocess.run(
+            [
+                os.fspath(checker),
+                'verify',
+                '--family',
+                family,
+                '--release',
+                os.fspath(release),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=RELEASE_PROVENANCE_TIMEOUT_SECONDS,
+            check=False,
+            env={'LANG': 'C', 'PATH': '/usr/bin:/bin'},
+        )
+        if (
+            result.returncode
+            or not re.fullmatch(
+                rf'Verified {re.escape(family)} release with key [0-9a-f]{{64}}\n?',
+                result.stdout,
+            )
+            or result.stderr
+        ):
+            return issue
+        return {}
+    except (OSError, subprocess.SubprocessError, ValueError):
         return issue
 
 
@@ -572,6 +631,8 @@ def evaluate(
     backup_expected_uid=None,
     backup_expected_gid=None,
     backup_monitor_uid=None,
+    require_release_provenance=False,
+    release_provenance_checker=RELEASE_PROVENANCE_CHECK_PATH,
 ):
     now = now or time.time()
     issues = {}
@@ -626,6 +687,12 @@ def evaluate(
                 frontend_release_root,
                 issue_key='frontend_release_retention',
             ))
+            if require_release_provenance and 'frontend_integrity' not in issues:
+                issues.update(evaluate_release_provenance(
+                    frontend_live,
+                    'frontend',
+                    checker=release_provenance_checker,
+                ))
 
     if backend_live is not None or backend_release_root is not None:
         if backend_live is None or backend_release_root is None:
@@ -642,6 +709,12 @@ def evaluate(
                 backend_release_root,
                 issue_key='backend_release_retention',
             ))
+            if require_release_provenance and 'backend_integrity' not in issues:
+                issues.update(evaluate_release_provenance(
+                    backend_live,
+                    'backend',
+                    checker=release_provenance_checker,
+                ))
 
     if python_environment_live is not None or python_environment_release_root is not None:
         if python_environment_live is None or python_environment_release_root is None:
@@ -660,6 +733,12 @@ def evaluate(
                 python_environment_release_root,
                 issue_key='python_environment_release_retention',
             ))
+            if require_release_provenance and 'python_environment_integrity' not in issues:
+                issues.update(evaluate_release_provenance(
+                    python_environment_live,
+                    'python',
+                    checker=release_provenance_checker,
+                ))
 
     if model_status_check:
         if backend_live is None or python_environment_live is None:
@@ -669,6 +748,8 @@ def evaluate(
         elif (
             'backend_integrity' not in issues
             and 'python_environment_integrity' not in issues
+            and 'backend_provenance' not in issues
+            and 'python_provenance' not in issues
         ):
             issues.update(evaluate_model_status_health(
                 backend_live,
@@ -1153,6 +1234,7 @@ def main():
             backup_expected_uid=pwd.getpwnam('micu').pw_uid,
             backup_expected_gid=pwd.getpwnam('micu').pw_gid,
             backup_monitor_uid=pwd.getpwnam('aichat-monitor').pw_uid,
+            require_release_provenance=True,
         )
         if args.dry_run:
             print(json.dumps(issues, indent=2, sort_keys=True))
