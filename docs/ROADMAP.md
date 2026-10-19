@@ -53,7 +53,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   scanner outages and ClamAV-signature freshness, isolated-parser health and
   parser/upload failure correlation, including installed parser drift from the
   manifest-verified backend release, malformed/redirected provider responses,
-  and failed scheduled maintenance.
+  failed scheduled maintenance, completed or bound-breaking full-account exports,
+  and every authorized conversation export without exporting owner, conversation
+  or content metadata.
   The monitor runs under a dedicated non-login identity, receives its Telegram
   configuration through a systemd credential, can read restore status but not
   database dumps, and validates those exact ACL boundaries on every run. A

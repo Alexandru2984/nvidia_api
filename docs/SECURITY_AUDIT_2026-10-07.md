@@ -192,6 +192,13 @@ secret values are reproduced here.
   cookies and query strings are excluded by a CI regression gate. Public canary
   metadata was absent from both retained destinations, and backend plus vhost
   rollback/restore drills passed.
+- 2026-10-19: S-10's remaining export path was hardened in commits `eab06f2`,
+  `513053a` and `b0e4ca4`, then deployed. Conversation Markdown export now
+  requires the same five-minute password-and-enabled-2FA proof as full-account
+  export. The responsive mobile flow performs step-up before download, both
+  export classes emit content-free retained events, and the six-minute monitor
+  now alerts on each authorized conversation export without forwarding owner or
+  conversation identifiers.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -418,13 +425,16 @@ Remediation: add an absolute lifetime, rotate sessions after privilege changes,
 record `auth_time`, and require recent password/2FA confirmation for 2FA setup,
 recovery-code regeneration, email changes, staff elevation and exports.
 
-Status: partially mitigated. Every authenticated session is now represented in
-an indexed owner registry, expires at a fixed 30-day deadline that survives key
+Status: substantially mitigated. Every authenticated session is now represented
+in an indexed owner registry, expires at a fixed 30-day deadline that survives key
 rotation, and is subject to an atomically enforced 20-session account cap.
 Missing/mismatched registry state fails closed, legacy sessions are lazily
-indexed, and cleanup removes both cookie-expired and absolute-expired rows. The
-remaining issue is a uniform recent-authentication boundary for sensitive flows,
-including exports and future email/staff changes.
+indexed, and cleanup removes both cookie-expired and absolute-expired rows.
+Password/2FA changes, recovery-code regeneration, session revocation, account
+deletion, full-account export and per-conversation export now share recent strong
+authentication. The remaining issue is an explicit recent-authentication gate
+before staff elevation in Django admin and any future email/identity changes;
+the separate admin edge gate from S-05 is also still open.
 
 ### S-11 — Medium — concurrent generation/attachment integrity
 
@@ -674,9 +684,10 @@ than exporting historical combined-log fields.
    request idempotency/durable job state, absolute session deadlines, the indexed
    owner/session registry, per-user object quotas, bounded/throttled egress,
    expired-session cleanup, the per-conversation generation lease and attachment
-   claim lock. User-linked AI usage now expires after 90 days and anonymous
-   service aggregates after 400 days. Define the operator-wide legal/default
-   schedule.
+   claim lock. Full-account and per-conversation exports both require recent
+   password plus enabled-2FA proof. User-linked AI usage now expires after 90
+   days and anonymous service aggregates after 400 days. Define the operator-wide
+   legal/default schedule.
 4. Produce and retain signed wheel provenance and tabletop both backend rollback
    paths. Application code and the minimal runtime Python environment already use
    separate root-owned, manifest-verified atomic releases with automatic rollback,

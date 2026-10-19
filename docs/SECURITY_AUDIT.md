@@ -75,7 +75,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
 | A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
-| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
+| A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, every authorized conversation export, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
 | A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
@@ -2136,6 +2136,71 @@ is required before describing those controls as complete.
   journals, so off-host integrity and retention remain open. The change reduces
   breach-notification data scope but does not alter the GDPR 72-hour assessment
   clock, NVIDIA processing, authentication, authorization or supply chain.
+
+### Recent-auth conversation export and alert rollout — 2026-10-19
+
+- Commit `eab06f2b54d11e74c71ff743311480485c2add38` applies the existing
+  five-minute, session/user/password-bound recent-auth gate to owner-scoped
+  Markdown exports. The UI replaces the direct link with an accessible focus-
+  trapped dialog that verifies the current password and, when enabled, TOTP or
+  an alphanumeric recovery code before starting the download. The response is
+  still owner-filtered, rate/size bounded, streamed with `private, no-store`, and
+  now explicitly returns `X-Content-Type-Options: nosniff`.
+- Commit `513053ac80e77ffaefe15457fb08044c7a37b039` retains rare account and
+  conversation export events at `WARNING`, containing only numeric internal
+  references/counts/bytes and never credentials, cookies, IPs, titles,
+  filenames or content. Commit `b0e4ca49dceabe14b0c6f5cde2b43ad11da6d5bc`
+  converts every `conversation_export_authorized` occurrence in the six-minute
+  journal window into a count-only monitor alert and adds specific containment,
+  privacy-scoping and GDPR-awareness-clock guidance to the incident runbook.
+- The complete 595-test backend suite and 40 responsive Chromium checks passed,
+  including the 320 px password-to-2FA/recovery challenge, focus restoration and
+  no-overflow download path. ESLint/build, 36 monitor tests, Django checks and
+  migration drift, Python/Node advisory scans, lock/SBOM/Action-pin tests, Bash
+  syntax and ShellCheck also passed. Visual inspection at 320 by 844 pixels
+  confirmed readable errors, fields and actions without horizontal overflow.
+- The pre-rollout database backup
+  `/home/micu/backups/nvidia_db/nvidia_db_20261019_050113_035789301.sql.gz` is
+  mode `0600`, gzip-valid and has SHA-256
+  `a3bdb56e0a406010dc91547e9687cbde0020bb61e7d1b0bd6c32f839cd0ce938`.
+  Backend release `/opt/aichat-backend-releases/release-20261019T020445_854666292`
+  is active at exact commit `513053ac80e77ffaefe15457fb08044c7a37b039`;
+  its manifest file SHA-256 is
+  `25978b40f1434ffc40821b3125dbd8b8e63f004e9cd45b613c941a62f290bd59`.
+  Frontend release `/var/www/aichat-releases/release-20261019T020119_916731323`
+  is active from `eab06f2`; its manifest file SHA-256 is
+  `67fad5a68600c92ba75b1850872953978e2ebec2a379fc8a7ec9dbaf30504c13`.
+  The installed monitor matches `b0e4ca4` at SHA-256
+  `d5fb00d78b204e4fdf8426d70873065f17279944b66e19a057e82dd063a4dade`.
+- A public Cloudflare/CSRF canary created one temporary owner and conversation,
+  logged in, deliberately aged its recent-auth marker, and proved conversation
+  export failed with `403` plus `reauthentication_required`. Password
+  reauthentication returned `200`; the bounded Markdown export then returned
+  `200` with the exact private canary text and private/no-store/no-sniff headers.
+  A complete account export also returned `200`. Privileged journal inspection
+  found both content-free export events, and monitor evaluation raised the new
+  count-only conversation alert. The temporary owner and cascaded rows were
+  deleted; three independent residue checks returned zero. The alert resolved
+  naturally after its six-minute window, the recovery notification succeeded,
+  and the final owner-only monitor state reports `active=[]` at SHA-256
+  `6cadfe3ee81076b07520cc6f699849611befb2baac6e6ec1bb34ca398e082d9e`.
+- The backend drill activated the immediately preceding compatible release and
+  restored the final release in three seconds/three seconds. The frontend drill
+  activated its preceding manifest-verified release and restored the final
+  release in under one second/one second. Final public root/health are `200`,
+  anonymous private API and `/.env` are `403`, media is `404`; nginx syntax is
+  valid and nginx, backend, parser and scanner are active with zero automatic
+  backend restarts.
+- Scoped CISO review treats stolen-session data exfiltration as the primary
+  threat. Step-up materially shortens useful cookie-only compromise, but a cookie
+  stolen inside the five-minute window or stolen credentials plus factor can
+  still export; session revocation, alert response and the separate admin edge
+  gate remain necessary. Local root can erase journals, so off-host integrity is
+  still open. The change adds no new processor or supply-chain dependency. Any
+  plausible unauthorized export still starts privacy/legal triage and the GDPR
+  72-hour assessment clock; the alert deliberately omits the data needed for
+  substantive scoping, which responders obtain under the runbook from database
+  metadata rather than Telegram.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
