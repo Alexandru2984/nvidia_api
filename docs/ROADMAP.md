@@ -136,7 +136,12 @@ timed evidence.
   paste, per-file progress/cancel/retry/dismiss, capability rejection, and
   session-bound state clearing share one bounded queue. Secret-keyed owner-scoped
   duplicate detection, no-store extracted-text preview, and per-file inclusion
-  toggles are also shipped. Client-generated upload-attempt identifiers now make
+  toggles are also shipped. Every browser file link and image source is constrained
+  to the exact same-origin, owner-checked private-download route; malformed or
+  fabricated API values render unavailable without creating a link or request.
+  Model-authored Markdown has an explicit safe-protocol layer, never auto-loads
+  remote images, and suppresses referrer data on user-initiated external links.
+  Client-generated upload-attempt identifiers now make
   retries idempotent and reconcile cancellation before or after database commit
   across workers without deleting an older deduplicated file. Upload bytes and
   generated NVIDIA images are now scanned by a local, permissioned ClamAV

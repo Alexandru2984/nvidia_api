@@ -199,6 +199,23 @@ secret values are reproduced here.
   export classes emit content-free retained events, and the six-minute monitor
   now alerts on each authorized conversation export without forwarding owner or
   conversation identifiers.
+- 2026-10-20: the browser resource boundary was hardened in commit `f1fa632`
+  and deployed. Model-authored Markdown now has an explicit `http`, `https`,
+  `mailto` and relative-URL policy layered over the renderer's safe transform;
+  rejected links and images become inert text, external images are never fetched
+  automatically, and external navigation suppresses referrer data. Attachment
+  links and image sources now accept only the exact same-origin private-download
+  route with a positive numeric object ID and no credentials, query or fragment.
+  Fabricated cross-origin, active-scheme and query-bearing API values remain
+  visible as unavailable files but cannot become links or subresource requests.
+  ESLint, the production build, all 44 responsive browser checks and `npm audit`
+  passed. Root-owned frontend release
+  `/var/www/aichat-releases/release-20261019T223041_059029511` was activated with
+  a complete valid manifest; origin/edge and anonymous-boundary probes passed.
+  A live atomic rollback to
+  `/var/www/aichat-releases/release-20261019T111601_121301894` and restoration of
+  the new release both completed within one second, after which the independent
+  monitor finished successfully with no active issue.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -614,9 +631,11 @@ than exporting historical combined-log fields.
 - JSON input is object-only with shared text-field type checks. ORM usage is
   parameterized; no `eval`, shell invocation, unsafe deserialization, raw SQL
   construction, `dangerouslySetInnerHTML`, or TLS verification bypass was found.
-- Markdown is rendered without raw-HTML execution, default URL protocol filtering
-  remains active, remote images are converted into explicit links, and new-tab
-  links use opener isolation.
+- Markdown is rendered without raw-HTML execution, an explicit protocol policy
+  is layered over the renderer's safe URL transform, rejected schemes become
+  inert text, remote images are converted into explicit no-referrer links, and
+  new-tab links use opener isolation. Browser attachment resources are restricted
+  to the exact same-origin owner-checked download route.
 - Uploads enforce size, extension/signature agreement, owner-scoped HMAC
   fingerprints, transactional storage quota, DOCX archive limits, private
   download authorization, `nosniff`, sandbox CSP and blocked direct media paths.
