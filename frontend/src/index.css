@@ -1429,6 +1429,29 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   font-size: 13px;
   line-height: 1.7;
 }
+.conversation-export-dialog { width: min(480px, 100%); }
+.conversation-export-dialog .document-preview-body { min-height: 0; }
+.conversation-export-dialog input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+.conversation-export-summary {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.conversation-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
 .provider-disclosure-links a { color: var(--accent); }
 .provider-disclosure footer { justify-content: flex-end; }
 

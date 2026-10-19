@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
+import ConversationExportDialog from './ConversationExportDialog'
 import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
 import ProviderDisclosure, { PROVIDER_DISCLOSURE_VERSION } from './ProviderDisclosure'
@@ -877,6 +878,7 @@ export default function App() {
   const [conversationLoadingMore, setConversationLoadingMore] = useState(false)
   const [conversationMenuId, setConversationMenuId] = useState(null)
   const [conversationNotice, setConversationNotice] = useState(null)
+  const [conversationExport, setConversationExport] = useState(null)
   const [showConvoSettings, setShowConvoSettings] = useState(false)
   const [mode, setMode] = useState('chat')
   const [pendingAttachments, setPendingAttachments] = useState([])
@@ -922,6 +924,7 @@ export default function App() {
   const sidebarRef = useRef(null)
   const menuRef = useRef(null)
   const conversationMenuButtonRef = useRef(null)
+  const conversationExportReturnFocusRef = useRef(null)
   const conversationQueryKeyRef = useRef('active\u0000')
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
@@ -1928,6 +1931,7 @@ export default function App() {
     setConversationView('active')
     setConversationMenuId(null)
     setConversationNotice(null)
+    setConversationExport(null)
     setActive(null)
     setActiveId(null)
     setImageGallery([])
@@ -1944,6 +1948,11 @@ export default function App() {
     setActiveId(id)
     setMode('chat')
     setSidebarOpen(false)
+  }
+
+  function closeConversationExport() {
+    setConversationExport(null)
+    requestAnimationFrame(() => conversationExportReturnFocusRef.current?.focus())
   }
 
   function onKeyDown(e) {
@@ -2142,11 +2151,16 @@ export default function App() {
                 onClick={() => setShowConvoSettings((v) => !v)}
                 title="Conversation settings (system prompt, temperature, max tokens)"
               >🎛</button>
-              <a
+              <button
                 className="icon convo-export"
-                href={api.exportConversationUrl(active.id)}
+                type="button"
+                aria-label="Download conversation as Markdown"
                 title="Download conversation as Markdown"
-              >⬇</a>
+                onClick={(event) => {
+                  conversationExportReturnFocusRef.current = event.currentTarget
+                  setConversationExport({ id: active.id, title: active.title })
+                }}
+              >⬇</button>
             </>
           )}
           <div className="model-select-controls">
@@ -2622,6 +2636,13 @@ export default function App() {
             requiresReload={providerDisclosureRequiresReload}
             onAccept={acceptProviderDisclosure}
             onClose={closeProviderDisclosure}
+          />
+        )}
+        {conversationExport && (
+          <ConversationExportDialog
+            conversation={conversationExport}
+            onClose={closeConversationExport}
+            onComplete={closeConversationExport}
           />
         )}
         </>

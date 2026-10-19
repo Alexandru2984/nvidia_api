@@ -4052,6 +4052,8 @@ def export_account(request):
 def export_conversation(request, pk):
     """Stream one bounded, owner-scoped conversation as Markdown."""
     if (r := _rate_limited(request)): return r
+    if (response := require_recent_auth(request)) is not None:
+        return response
     convo = get_object_or_404(Conversation, pk=pk, user=request.user)
     msgs = convo.messages.order_by('created_at').prefetch_related('attachments')
     message_stats = msgs.aggregate(
@@ -4077,6 +4079,13 @@ def export_conversation(request, pk):
             'code': 'export_too_large',
             'limit': settings.CHAT_MAX_EXPORT_BYTES,
         }, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+    security_log.info(
+        'event=conversation_export_authorized user_id=%s conversation_id=%s messages=%s',
+        request.user.pk,
+        convo.pk,
+        message_stats['count'] or 0,
+    )
 
     def markdown_stream():
         yield '\n'.join([
@@ -4116,6 +4125,7 @@ def export_conversation(request, pk):
     resp['Content-Disposition'] = f'attachment; filename="{_slugify(convo.title)}.md"'
     resp['Cache-Control'] = 'private, no-store'
     resp['X-Accel-Buffering'] = 'no'
+    resp['X-Content-Type-Options'] = 'nosniff'
     return resp
 
 

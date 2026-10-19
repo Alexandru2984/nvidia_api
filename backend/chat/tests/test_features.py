@@ -12,6 +12,15 @@ def _consume_sse(response):
     return b''.join(response.streaming_content).decode()
 
 
+def _reauthenticate(client):
+    response = client.post(
+        '/api/auth/reauthenticate/',
+        {'password': 'Hunter2pass'},
+        format='json',
+    )
+    assert response.status_code == 200
+
+
 @pytest.fixture
 def populated_convo(user):
     c = Conversation.objects.create(user=user, title='Hello world', model_id=DEFAULT_MODEL_ID)
@@ -24,7 +33,16 @@ def populated_convo(user):
 
 @pytest.mark.django_db
 class TestExportConversation:
+    def test_export_requires_recent_strong_auth(self, auth_client, populated_convo):
+        response = auth_client.get(
+            f'/api/conversations/{populated_convo.id}/export/',
+        )
+
+        assert response.status_code == 403
+        assert response.json()['reauthentication_required'] is True
+
     def test_export_returns_markdown(self, auth_client, populated_convo):
+        _reauthenticate(auth_client)
         r = auth_client.get(f'/api/conversations/{populated_convo.id}/export/')
         assert r.status_code == 200
         assert r['Content-Type'].startswith('text/markdown')
@@ -44,18 +62,22 @@ class TestExportConversation:
             original_name='chart.png', mime_type='image/png', size=3, kind='image',
             message=first_user_msg,
         )
+        _reauthenticate(auth_client)
         r = auth_client.get(f'/api/conversations/{populated_convo.id}/export/')
         body = _consume_sse(r)
         assert 'chart.png' in body
 
     def test_export_filename_in_header(self, auth_client, populated_convo):
+        _reauthenticate(auth_client)
         r = auth_client.get(f'/api/conversations/{populated_convo.id}/export/')
         cd = r['Content-Disposition']
         assert 'attachment' in cd
         assert '.md' in cd
+        assert r['X-Content-Type-Options'] == 'nosniff'
 
     def test_cannot_export_other_users(self, auth_client, other_user):
         c = Conversation.objects.create(user=other_user, title='theirs', model_id=DEFAULT_MODEL_ID)
+        _reauthenticate(auth_client)
         r = auth_client.get(f'/api/conversations/{c.id}/export/')
         assert r.status_code == 404
 
@@ -65,6 +87,7 @@ class TestExportConversation:
         populated_convo,
         settings,
     ):
+        _reauthenticate(auth_client)
         response = auth_client.get(
             f'/api/conversations/{populated_convo.id}/export/',
         )

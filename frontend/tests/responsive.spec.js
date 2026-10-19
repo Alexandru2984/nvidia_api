@@ -401,6 +401,53 @@ test('account export reauthenticates and starts a download without mobile overfl
   await expectNoPageOverflow(page)
 })
 
+test('conversation export requires reauthentication and stays usable on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await page.addInitScript(() => {
+    HTMLAnchorElement.prototype.click = function click() {
+      window.__conversationExportDownload = { href: this.href, download: this.download }
+    }
+  })
+  await mockAPI(page)
+  const reauthPayloads = []
+  await page.route('**/api/auth/reauthenticate/', async (route) => {
+    const payload = route.request().postDataJSON()
+    reauthPayloads.push(payload)
+    if (!payload.code) {
+      return route.fulfill({
+        status: 401,
+        json: { error: 'Two-factor code required.', two_factor_required: true },
+      })
+    }
+    await route.fulfill({ status: 200, json: { authenticated: true, valid_for_seconds: 300 } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByRole('button', { name: 'Download conversation as Markdown' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Export conversation' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel('Current password').fill('correct-password')
+  await dialog.getByRole('button', { name: 'Verify and download' }).click()
+  await expect(dialog.getByLabel('2FA or recovery code')).toBeVisible()
+  await page.screenshot({ path: 'test-results/conversation-export-320.png' })
+  await dialog.getByLabel('2FA or recovery code').fill('aaaa1111-bbbb2222')
+  await dialog.getByRole('button', { name: 'Verify and download' }).click()
+
+  expect(reauthPayloads).toEqual([
+    { password: 'correct-password' },
+    { password: 'correct-password', code: 'aaaa1111-bbbb2222' },
+  ])
+  expect(await page.evaluate(() => window.__conversationExportDownload)).toEqual({
+    href: 'http://127.0.0.1:5179/api/conversations/1/export/', download: '',
+  })
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Download conversation as Markdown' })).toBeFocused()
+  await expectNoPageOverflow(page)
+})
+
 test('scheduled account deletion can be created and canceled on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 })
   await mockAPI(page)
