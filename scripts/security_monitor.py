@@ -737,6 +737,10 @@ def evaluate(
     maintenance_failures = journal.count(
         'aichat-maintenance.service: Failed with result'
     )
+    restore_drill_failures = (
+        journal.count('aichat-restore-drill.service: Failed with result')
+        + journal.count('Failed to start AI Chat Hub isolated PostgreSQL restore verification')
+    )
     invite_consumed = journal.count('event=registration_invite_consumed')
     registrations_verified = journal.count('event=registration_verified')
     internal_errors = journal.count('Internal Server Error:') + journal.count('[ERROR]')
@@ -880,6 +884,10 @@ def evaluate(
     if maintenance_failures:
         issues['maintenance_failed'] = (
             'The daily expired-data and chat-retention maintenance job failed.'
+        )
+    if restore_drill_failures:
+        issues['restore_drill_failed'] = (
+            'The scheduled isolated database restore drill failed.'
         )
     if invite_consumed:
         issues['registration_invite_consumed'] = (

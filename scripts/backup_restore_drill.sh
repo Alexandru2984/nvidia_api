@@ -4,10 +4,31 @@
 set -euo pipefail
 umask 077
 
-BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend" && pwd)"
-PYTHON="$BACKEND_DIR/venv/bin/python"
-ENV_FILE="$BACKEND_DIR/.env"
+REPO_BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend" && pwd)"
+RUNTIME_DIR="${AICHAT_RUNTIME_DIR:-$REPO_BACKEND_DIR}"
+APP_DIR="${AICHAT_APP_DIR:-$RUNTIME_DIR}"
+PYTHON="${AICHAT_PYTHON:-$RUNTIME_DIR/venv/bin/python}"
+ENV_FILE="$RUNTIME_DIR/.env"
 BACKUP_ROOT="${RESTORE_BACKUP_DIR:-/home/micu/backups/nvidia_db}"
+
+for directory in "$RUNTIME_DIR" "$APP_DIR"; do
+  [[ "$directory" == /* && -d "$directory" ]] || {
+    echo 'ERROR: runtime/application directories must exist and be absolute' >&2
+    exit 1
+  }
+done
+[[ "$PYTHON" == /* && -x "$PYTHON" ]] || {
+  echo 'ERROR: Python interpreter must be an absolute executable path' >&2
+  exit 1
+}
+[[ -f "$APP_DIR/manage.py" && ! -L "$APP_DIR/manage.py" ]] || {
+  echo 'ERROR: application manage.py is missing or unsafe' >&2
+  exit 1
+}
+[[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || {
+  echo 'ERROR: runtime environment is missing or unsafe' >&2
+  exit 1
+}
 
 [[ -d "$BACKUP_ROOT" && ! -L "$BACKUP_ROOT" ]] || {
   echo 'ERROR: backup directory is missing or is a symlink' >&2
@@ -94,7 +115,7 @@ TABLES="$(psql --host="$DB_HOST" --port="$DB_PORT" --username="$DB_USER" \
                     to_regclass('public.chat_message') IS NOT NULL;")"
 [[ "$TABLES" == 't|t|t|t' ]] || { echo 'ERROR: required tables are missing' >&2; exit 1; }
 
-DB_NAME="$SCRATCH_DB" "$PYTHON" "$BACKEND_DIR/manage.py" migrate --check --noinput
+DB_NAME="$SCRATCH_DB" "$PYTHON" "$APP_DIR/manage.py" migrate --check --noinput
 
 COUNTS="$(psql --host="$DB_HOST" --port="$DB_PORT" --username="$DB_USER" \
   --dbname="$SCRATCH_DB" --no-psqlrc --tuples-only --no-align --field-separator='|' \

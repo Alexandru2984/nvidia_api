@@ -58,6 +58,10 @@ Any saved-chat object or byte quota block raises `chat_object_quota`. A failed
 `aichat-maintenance.service` run raises `maintenance_failed`; this includes a
 failed archived-history or scheduled-account cleanup and must not be dismissed
 as routine expiry.
+Any failed weekly isolated restore raises `restore_drill_failed` immediately;
+`restore_missing`, `restore_failed`, or `restore_stale` also remain active until
+the private success log is valid and newer than eight days. Never test recovery
+by restoring over the production database.
 Any `attachment_file_delete_failed` event means the database deletion committed
 but the corresponding private storage object remains in the durable deletion
 outbox. The alert contains only a count, never its filename or path.

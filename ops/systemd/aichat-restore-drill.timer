@@ -1,0 +1,12 @@
+[Unit]
+Description=Verify an AI Chat Hub database backup by restoring it weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 05:15:00
+Persistent=true
+RandomizedDelaySec=10m
+AccuracySec=1m
+Unit=aichat-restore-drill.service
+
+[Install]
+WantedBy=timers.target

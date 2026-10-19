@@ -55,6 +55,7 @@ jobs:
           shellcheck ../scripts/*.sh
           python ../scripts/test_security_monitor.py
           python ../scripts/test_privacy_logging.py
+          python ../scripts/test_restore_drill_schedule.py
           python ../scripts/test_configure_two_factor_keys.py
           python ../scripts/test_archive_release_retention.py
           python ../scripts/test_generate_python_sbom.py

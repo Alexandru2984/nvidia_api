@@ -76,6 +76,7 @@ class SecurityMonitorTests(unittest.TestCase):
             + ['event=account_deletion_canceled user_id=4']
             + ['event=account_deletion_executed former_user_id=4 sessions_revoked=2']
             + ["aichat-maintenance.service: Failed with result 'exit-code'."]
+            + ["aichat-restore-drill.service: Failed with result 'exit-code'."]
             + ['Internal Server Error:'] * 3
         )
         issues = monitor.evaluate(self.backups, self.restore_log, journal)
@@ -102,13 +103,17 @@ class SecurityMonitorTests(unittest.TestCase):
              'account_deleted',
              'account_deletion_scheduled', 'account_deletion_canceled',
              'account_deletion_executed',
-             'maintenance_failed',
+             'maintenance_failed', 'restore_drill_failed',
              'registration_invite_consumed', 'registration_verified', 'error_burst'},
         )
         self.assertNotIn('user_id', issues['account_export_completed'])
         self.assertNotIn('user_id', issues['account_export_bound_exceeded'])
         self.assertNotIn('user_id', issues['conversation_export_authorized'])
         self.assertNotIn('conversation_id', issues['conversation_export_authorized'])
+        self.assertEqual(
+            issues['restore_drill_failed'],
+            'The scheduled isolated database restore drill failed.',
+        )
         self.assertNotIn('filename', issues['attachment_file_delete_failed'])
         self.assertNotIn('user_id', issues['attachment_file_delete_failed'])
 

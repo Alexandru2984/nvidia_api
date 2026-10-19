@@ -9,11 +9,14 @@ PathChanged=/etc/systemd/system/aichat-backend.service
 PathChanged=/etc/systemd/system/aichat-backend.service.d/hardening.conf
 PathChanged=/etc/systemd/system/aichat-maintenance.service
 PathChanged=/etc/systemd/system/aichat-model-probe.service
+PathChanged=/etc/systemd/system/aichat-restore-drill.service
+PathChanged=/etc/systemd/system/aichat-restore-drill.timer
 PathChanged=/etc/systemd/system/aichat-security-monitor.service
 PathChanged=/etc/systemd/system/aichat-config-watch.service
 PathChanged=/etc/systemd/system/aichat-config-watch.path
 PathChanged=/etc/sysusers.d/aichat-monitor.conf
 PathChanged=/usr/local/libexec/aichat-security-monitor
+PathChanged=/usr/local/libexec/aichat-restore-drill
 Unit=aichat-config-watch.service
 
 [Install]
