@@ -7,6 +7,7 @@ IP addresses, usernames, prompts, credentials, or attachment names.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import grp
 import hashlib
 import json
@@ -57,6 +58,7 @@ MODEL_STATUS_CHECK_RELATIVE = 'check_model_status.py'
 MODEL_STATUS_CHECK_TIMEOUT_SECONDS = 15
 RELEASE_PROVENANCE_CHECK_PATH = Path('/usr/local/libexec/aichat-release-provenance')
 RELEASE_PROVENANCE_TIMEOUT_SECONDS = 20
+RELEASE_OPERATION_LOCK = Path('/run/aichat-release-operation.lock')
 
 
 def _hash_file(path):
@@ -65,6 +67,49 @@ def _hash_file(path):
         for chunk in iter(lambda: handle.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def acquire_release_monitor_lock(
+    path=RELEASE_OPERATION_LOCK,
+    *,
+    expected_uid=0,
+    expected_gid=0,
+):
+    """Hold a shared lock or return None while a release operation is active."""
+    path = Path(path)
+    descriptor = None
+    try:
+        before = path.lstat()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or path.is_symlink()
+            or before.st_uid != expected_uid
+            or before.st_gid != expected_gid
+            or stat.S_IMODE(before.st_mode) != 0o644
+            or before.st_size != 0
+        ):
+            raise RuntimeError('release-operation lock has an unsafe shape')
+        flags = os.O_RDONLY | os.O_CLOEXEC
+        if hasattr(os, 'O_NOFOLLOW'):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        after = os.fstat(descriptor)
+        if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            raise RuntimeError('release-operation lock changed during validation')
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(descriptor)
+            return None
+        return descriptor
+    except RuntimeError:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise
+    except OSError as exc:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise RuntimeError('release-operation lock is unavailable') from exc
 
 
 def _has_exact_acl(path, expected_entries):
@@ -1195,6 +1240,7 @@ def main():
         default='/usr/local/libexec/aichat-document-worker',
     )
     args = parser.parse_args()
+    operation_lock = None
 
     try:
         if args.test_notification:
@@ -1210,6 +1256,10 @@ def main():
         # not only when an alert happens. Otherwise a broken alert path could
         # remain latent while all monitored conditions are healthy.
         parse_monitor_credentials(args.credentials)
+        operation_lock = acquire_release_monitor_lock()
+        if operation_lock is None:
+            print('release operation in progress; security monitor deferred')
+            return 0
         journal = Path(args.journal_file).read_text(encoding='utf-8') if args.journal_file else read_journal()
         issues = evaluate(
             args.backup_dir,
@@ -1267,6 +1317,9 @@ def main():
     except Exception as exc:  # noqa: BLE001 - final CLI boundary must fail closed
         print(f'security monitor failed: {exc}', file=sys.stderr)
         return 2
+    finally:
+        if operation_lock is not None:
+            os.close(operation_lock)
 
 
 if __name__ == '__main__':

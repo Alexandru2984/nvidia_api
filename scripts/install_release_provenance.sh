@@ -55,6 +55,8 @@ for command in cmp cut flock git install mktemp mv openssl sha256sum stat; do
 done
 exec 9>"$LOCK_FILE"
 flock -n 9 || { echo 'ERROR: another release operation is running' >&2; exit 1; }
+chown root:root -- "$LOCK_FILE"
+chmod 0644 -- "$LOCK_FILE"
 [[ -x "$SOURCE_TOOL" && ! -L "$SOURCE_TOOL" ]] || {
   echo 'ERROR: release-provenance verifier source is missing or unsafe' >&2
   exit 1

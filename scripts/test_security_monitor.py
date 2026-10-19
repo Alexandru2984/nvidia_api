@@ -539,6 +539,42 @@ class SecurityMonitorTests(unittest.TestCase):
             },
         )
 
+    def test_monitor_shared_lock_defers_during_release_operation(self):
+        lock = self.root / 'release-operation.lock'
+        lock.touch(mode=0o644)
+        lock.chmod(0o644)
+        descriptor = monitor.acquire_release_monitor_lock(
+            lock,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+        self.assertIsInstance(descriptor, int)
+        os.close(descriptor)
+
+        owner = os.open(lock, os.O_RDWR | os.O_CLOEXEC)
+        try:
+            monitor.fcntl.flock(owner, monitor.fcntl.LOCK_EX | monitor.fcntl.LOCK_NB)
+            self.assertIsNone(
+                monitor.acquire_release_monitor_lock(
+                    lock,
+                    expected_uid=os.getuid(),
+                    expected_gid=os.getgid(),
+                )
+            )
+        finally:
+            os.close(owner)
+
+    def test_monitor_rejects_unsafe_release_operation_lock(self):
+        lock = self.root / 'release-operation.lock'
+        lock.touch(mode=0o600)
+        lock.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, 'unsafe shape'):
+            monitor.acquire_release_monitor_lock(
+                lock,
+                expected_uid=os.getuid(),
+                expected_gid=os.getgid(),
+            )
+
     def create_frontend_release(self):
         release_root = self.root / 'releases'
         release = release_root / 'release-20261007T010203_123456789'

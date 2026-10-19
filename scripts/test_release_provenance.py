@@ -172,6 +172,7 @@ class ReleaseProvenanceTests(unittest.TestCase):
         self.assertIn("PRIVATE_KEY=\"$KEY_ROOT/private.pem\"", installer)
         self.assertIn("LOCK_FILE='/run/aichat-release-operation.lock'", installer)
         self.assertIn("flock -n 9", installer)
+        self.assertIn('chmod 0644 -- "$LOCK_FILE"', installer)
         self.assertIn("-m 0600 -- \"$new_private\"", installer)
         self.assertIn("-m 0644 -- \"$new_public\"", installer)
         self.assertIn("--rotate", installer)

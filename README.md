@@ -576,7 +576,10 @@ commit, frontend-tree or dependency-lock/SBOM evidence; a detached Ed25519
 signature and SHA-256 public-key identifier complete the chain. The private key
 is root-only below `/etc/aichat-release-provenance`, never enters repository,
 build, runtime or monitor access, and the monitor verifies active releases using
-only retained public keys. `sudo scripts/install_release_provenance.sh --rotate`
+only retained public keys. The monitor takes the shared side of the common
+release-operation lock; a live deploy defers that sample without clearing prior
+alerts, so it never evaluates a half-built release tree.
+`sudo scripts/install_release_provenance.sh --rotate`
 creates a new signer while retaining old public keys for existing rollback
 evidence. Do not delete a retained public key while any executable or archived
 release names it, and never re-sign an existing release to hide a failed check.
