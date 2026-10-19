@@ -4027,7 +4027,7 @@ def export_account(request):
                 )
                 raise RuntimeError('Account export exceeded its validated byte bound.')
             yield chunk
-        security_log.info(
+        security_log.warning(
             'event=account_export_completed user_id=%s records=%s bytes=%s',
             user_id,
             record_count,
@@ -4080,7 +4080,7 @@ def export_conversation(request, pk):
             'limit': settings.CHAT_MAX_EXPORT_BYTES,
         }, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
 
-    security_log.info(
+    security_log.warning(
         'event=conversation_export_authorized user_id=%s conversation_id=%s messages=%s',
         request.user.pk,
         convo.pk,

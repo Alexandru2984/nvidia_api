@@ -41,7 +41,8 @@ class TestExportConversation:
         assert response.status_code == 403
         assert response.json()['reauthentication_required'] is True
 
-    def test_export_returns_markdown(self, auth_client, populated_convo):
+    def test_export_returns_markdown(self, auth_client, populated_convo, caplog):
+        caplog.set_level('WARNING', logger='security')
         _reauthenticate(auth_client)
         r = auth_client.get(f'/api/conversations/{populated_convo.id}/export/')
         assert r.status_code == 200
@@ -53,6 +54,10 @@ class TestExportConversation:
         assert 'how are you?' in body
         assert 'good thanks' in body
         assert f'`{DEFAULT_MODEL_ID}`' in body
+        assert any(
+            'event=conversation_export_authorized' in record.message
+            for record in caplog.records
+        )
 
     def test_export_includes_attachment_filenames(self, auth_client, user, populated_convo):
         first_user_msg = populated_convo.messages.filter(role='user').first()

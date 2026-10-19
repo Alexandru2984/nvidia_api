@@ -50,7 +50,9 @@ class TestAccountExport:
         auth_client,
         user,
         other_user,
+        caplog,
     ):
+        caplog.set_level('WARNING', logger='security')
         ChatHistoryRetention.objects.create(user=user, archived_days=90)
         deletion = AccountDeletionRequest.objects.create(
             user=user,
@@ -154,6 +156,10 @@ class TestAccountExport:
         assert 'password' not in serialized
         assert 'session_key' not in serialized
         assert 'handle' not in serialized
+        assert any(
+            'event=account_export_completed' in record.message
+            for record in caplog.records
+        )
 
     def test_rejects_oversized_or_overpopulated_export_before_streaming(
         self,
