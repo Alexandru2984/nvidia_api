@@ -78,7 +78,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, every authorized conversation export, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance or restore-drill failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
-| A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only admin access is denied; current staff session must verify application 2FA; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
+| A-15 | High | Django admin's stock login accepted only a password even when application 2FA was enabled | Direct/password-only access is denied; current staff session must verify application 2FA and refresh a five-minute password-plus-2FA window; expired mutations fail closed; access and privacy-minimized add/change/delete events are alerted and HMAC-audited for 365 days with an independent versioned keyring and fail-closed inventory/rotation controls | Add Cloudflare Access/VPN, minimize superusers, move audit roots to systemd credentials or KMS/HSM, and retain security events externally |
 | A-16 | High | Production entitlement for the NVIDIA-hosted API is not evidenced; NVIDIA describes Developer Program endpoints as prototyping access | Durable request/token ceilings, fail-closed metering and global kill-switch bound technical consumption | Confirm and record an appropriate production license/contract, or restrict the deployment to private evaluation use; implement its real monetary/GPU budget |
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; retain malware/ownership/cache/XSS regressions |
 | A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week or leave permanently broken models trusted forever, leak provider failure details, or present volatile latency as model quality | The private `0600` file is bounded, schema/catalog/range/time validated, required in production, expires after eight days and is atomically replaced; invalid state hides all models and raises a monitored event. Definitive failures change availability. Transient outcomes retain the last trusted decision for two consecutive runs, fail closed on the third and recover on success; the bounded private streak is backward compatible and monitored. The authenticated API exposes only aggregate state and rounded successful samples labeled as a synthetic 1-token check | A compromised `aichat` identity can still rewrite its runtime status; isolate/sign the probe output before multi-host scaling and never treat a single sample as an SLA or quality score |
@@ -2294,6 +2294,65 @@ is required before describing those controls as complete.
   push event arrived. Until that exists, fail-closed manual delivery has less
   availability than automation but materially smaller host-wide elevation and
   supply-chain blast radius.
+
+### Five-minute Django-admin elevation rollout — 2026-10-19
+
+- Commit `8e1ea3f` extends the existing user/session/password-bound recent-auth
+  marker to every Django-admin request. Staff still need application-enrolled 2FA
+  in the current session; after five minutes a safe GET returns to the SPA's
+  password-plus-TOTP/recovery dialog, while POST and other mutations fail `403`
+  instead of being redirected or silently converted to GET. Admin logout remains
+  available after expiry. Successful step-up clears the per-window access marker
+  so the next admin entry emits the existing privacy-minimized alert again.
+- The dedicated rate-limited endpoint verifies staff, enabled 2FA, current
+  password and a replay-protected authenticator/recovery code without exposing
+  `is_staff` through the normal profile API or enabling Django's stock login.
+  Redirect state is generated server-side from the bounded request path; both
+  backend and browser independently reject cross-origin/non-admin destinations
+  and discard query/fragment content.
+- Backend `600/600`, frontend `42/42`, 65 operational tests, lint/build,
+  ShellCheck, migration drift, Django deployment checks, `pip check`, `pip-audit`
+  and npm audit passed. Ten repeated 320 px step-up/cancel runs passed; visual
+  inspection at 320 by 844 pixels confirmed readable fields, visible focus,
+  balanced actions and no horizontal overflow. The only deploy-check warning is
+  the deliberate domain-wide HSTS-preload decision.
+- The gzip-valid pre-deploy backup is
+  `/home/micu/backups/nvidia_db/nvidia_db_20261019_141542_353691133.sql.gz`, mode
+  `0600 micu:micu`, 16,300 bytes, SHA-256
+  `5643ea28c4d0bdfdcea487e6adb3b224e5f18d7888a1ca0edfd23961cf65b14a`.
+  Backend release `/opt/aichat-backend-releases/release-20261019T111548_065830480`
+  is active at the exact implementation commit; its manifest file SHA-256 is
+  `d2c4c79e4ec28f383707105e619cccbecf28f3b46693251ab9675efdaf098d0b`.
+  Frontend release `/var/www/aichat-releases/release-20261019T111601_121301894`
+  is active with manifest file SHA-256
+  `dc4b61304f0604c795fb0a3792e9ad3afcbcc48a33571f66017f4505217943a9`.
+- A public same-origin canary created an isolated temporary superuser, logged in,
+  enrolled and verified 2FA, and received `200` from fresh admin. After directly
+  aging only its recent-auth timestamp, admin GET returned the exact safe `302`
+  step-up location and an admin POST returned `403` without mutation. Password
+  plus a single-use recovery code returned `200`, after which admin returned
+  `200` again. Two preliminary clients also proved HTTPS Origin/Referer and
+  post-login CSRF-token rotation fail closed. All canary users, factors and
+  sessions were deleted; database residue and journal username searches are zero.
+- The backend rollback drill activated the immediately preceding compatible
+  release and restored the exact new release in two seconds/two seconds. The
+  frontend symlink drill activated the preceding manifest-verified release and
+  restored the new release in under one second/one second. Final public root and
+  health are `200`, anonymous private API and `/.env` are `403`, media is `404`;
+  nginx syntax is valid, the backend runs from the recorded release with zero
+  automatic restarts, and the NVIDIA push webhook remains disabled. The planned
+  unit/release change and public admin canary raised `protected_config_changed`
+  and `admin_access`; after the six-minute journal window, the successful
+  `14:23:24+03` resolution run delivered both recovery notices and persisted
+  `active=[]` without deleting or editing monitor evidence.
+- Scoped CISO review treats a stolen staff cookie as the primary threat. The
+  change bounds cookie-only elevation to five minutes and prevents stale
+  mutations, but cannot defeat theft inside that window or an attacker holding
+  password plus factor. Cloudflare Access/VPN, minimal superusers, session
+  revocation and externally retained security evidence remain necessary. No new
+  processor or supply-chain dependency was introduced. A plausible unauthorized
+  admin access or change still starts containment, privacy scoping and the GDPR
+  72-hour assessment clock.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

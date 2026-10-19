@@ -45,8 +45,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   restrict the service to private evaluation use. Map the contractual/GPU cost
   model into alerts and a hard monetary circuit breaker.
 - **Protected administration:** password-only Django admin access is blocked;
-  staff must verify 2FA through the main application, and valid/denied access is
-  monitored. Privacy-minimized add/change/delete records now retain actor,
+  staff must verify 2FA through the main application and refresh a five-minute
+  password-plus-2FA elevation window through the responsive step-up UI. Expired
+  mutations fail closed, return targets stay on `/admin/`, and valid/denied
+  access is monitored. Privacy-minimized add/change/delete records retain actor,
   object, model, action, and changed field names for 365 days with HMAC integrity
   validation. Also place `/admin/` behind Cloudflare Access or a VPN, minimize
   superusers, and retain the security journal externally.

@@ -439,9 +439,11 @@ Missing/mismatched registry state fails closed, legacy sessions are lazily
 indexed, and cleanup removes both cookie-expired and absolute-expired rows.
 Password/2FA changes, recovery-code regeneration, session revocation, account
 deletion, full-account export and per-conversation export now share recent strong
-authentication. The remaining issue is an explicit recent-authentication gate
-before staff elevation in Django admin and any future email/identity changes;
-the separate admin edge gate from S-05 is also still open.
+authentication. Django admin now requires the same five-minute password-plus-2FA
+window, safely redirects expired reads through a responsive step-up, rejects
+expired mutations without method conversion, and re-alerts on every new elevation
+window. Future email/identity changes must use the same policy; the separate
+admin edge gate from S-05 is also still open.
 
 ### S-11 — Medium — concurrent generation/attachment integrity
 

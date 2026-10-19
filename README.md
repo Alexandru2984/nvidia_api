@@ -153,6 +153,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | POST | `/auth/login/` | `{username, password, code?}` | open | Rejects inactive users and requires TOTP/recovery code when 2FA is enabled. |
 | POST | `/auth/logout/` | — | session | |
 | POST | `/auth/reauthenticate/` | `{password, code?}` | session | Refreshes the five-minute sensitive-action window; 2FA accounts require both factors. |
+| POST | `/auth/admin-reauthenticate/` | `{password, code}` | verified staff session | Refreshes the five-minute Django-admin elevation window. Requires the current password plus TOTP/recovery code and never exposes the stock admin login. |
 | POST | `/auth/password/` | `{current_password, new_password, code?}` | session | Requires both factors when enabled, keeps this session, and revokes all others. |
 | POST | `/auth/delete-account/` | `{password, code?}` | session | Permanent; needs 2FA code if enabled. Revokes every indexed Django session before cascading live user data and returns `sessions_revoked`. |
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
@@ -298,6 +299,10 @@ now requires its second factor. Session revocation prompts responsively for a
 fresh password and, when enabled, TOTP/recovery code before retrying the original
 action. Reauthentication never extends the fixed absolute session deadline.
 `RECENT_AUTH_MAX_AGE_SECONDS` defaults to 300 and is restricted to 60–3600.
+Verified staff sessions use the same marker for `/admin/`. An expired safe GET
+returns to a mobile-accessible password-plus-2FA dialog and then only to a
+same-origin `/admin/` path; an expired mutation fails `403` without silently
+converting its method. Admin logout remains available after elevation expires.
 
 New and changed passwords use Django's memory-hard scrypt hasher. Existing
 PBKDF2 hashes remain readable and are upgraded lazily only after the complete
@@ -677,9 +682,10 @@ and [roadmap](docs/ROADMAP.md).
 - Email verification gates registration. New registrations are limited per IP and
   use a honeypot, but a durable cross-process limiter plus challenge/invite mode is
   still required before opening registration to higher-volume traffic.
-- Django admin never accepts a password-only/direct admin session. Staff must
-  enable 2FA and verify it through the main application in the current session;
-  denied probes and the first valid admin access are security-monitor events.
+- Django admin never accepts a password-only/direct or stale elevated session.
+  Staff must enable 2FA and verify it through the main application in the current
+  session, then repeat password plus TOTP/recovery proof every five minutes;
+  denied probes and the first valid access in each window are monitor events.
 - Every Django admin add/change/delete is written to the sanitized native log and
   a privacy-minimized `AdminAuditEvent` mirror. The mirror stores actor/object IDs,
   model/action, and changed field names, but no titles, emails, message content,
