@@ -819,6 +819,28 @@ test('model explorer can persist a new default without switching the active chat
   await page.screenshot({ path: 'test-results/model-default-390.png' })
 })
 
+test('system theme follows the browser while an explicit override stays fixed', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.addInitScript(() => localStorage.setItem('aichat-theme', 'system'))
+  await mockAPI(page)
+  await page.goto('/')
+
+  await expect(page.locator('html')).toHaveAttribute('data-theme-preference', 'system')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Settings', { exact: true }).click()
+  await expect(page.getByLabel('Color theme')).toHaveValue('system')
+  await page.getByLabel('Color theme').selectOption('light')
+  await expect(page.locator('html')).toHaveAttribute('data-theme-preference', 'light')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('aichat-theme'))).toBe('light')
+  await expectNoPageOverflow(page)
+})
+
 test('mobile drawer closes with Escape and returns keyboard focus', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockAPI(page)

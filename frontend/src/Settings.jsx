@@ -984,7 +984,9 @@ export default function Settings({
           <h2>Appearance</h2>
           <label className="theme-field"><span>Color theme</span>
             <select value={theme} onChange={(e) => onThemeChange(e.target.value)}>
-              <option value="dark">Dark</option><option value="light">Light</option>
+              <option value="system">System</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
             </select>
           </label>
         </section>

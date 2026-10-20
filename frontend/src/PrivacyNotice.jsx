@@ -1,33 +1,29 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import useThemePreference from './useThemePreference'
 
 export const PRIVACY_NOTICE_VERSION = '2026-10-20.3'
 
 const SECURITY_CONTACT = 'https://github.com/Alexandru2984/nvidia_api/security/advisories/new'
 
-function ThemeToggle({ theme, onChange }) {
+function ThemeToggle({ resolvedTheme, onChange }) {
   return (
     <button
       type="button"
       className="privacy-theme-toggle"
-      onClick={() => onChange(theme === 'dark' ? 'light' : 'dark')}
-      aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+      onClick={() => onChange(resolvedTheme === 'dark' ? 'light' : 'dark')}
+      aria-label={`Use ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
     >
-      {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+      {resolvedTheme === 'dark' ? '☀ Light' : '☾ Dark'}
     </button>
   )
 }
 
 export default function PrivacyNotice() {
-  const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem('aichat-theme') === 'light' ? 'light' : 'dark' }
-    catch { return 'dark' }
-  })
+  const [, setTheme, resolvedTheme] = useThemePreference()
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
     document.title = 'Privacy & data · AI Chat Hub'
-    try { localStorage.setItem('aichat-theme', theme) } catch {}
-  }, [theme])
+  }, [])
 
   return (
     <div className="privacy-page">
@@ -40,7 +36,7 @@ export default function PrivacyNotice() {
             <small>Privacy &amp; data</small>
           </span>
         </a>
-        <ThemeToggle theme={theme} onChange={setTheme} />
+        <ThemeToggle resolvedTheme={resolvedTheme} onChange={setTheme} />
       </header>
 
       <main id="privacy-content" className="privacy-main">

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
+import useThemePreference from './useThemePreference'
 import AdminReauthenticationDialog from './AdminReauthenticationDialog'
 import CommandPalette from './CommandPalette'
 import ConversationExportDialog from './ConversationExportDialog'
@@ -872,10 +873,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [bootError, setBootError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem('aichat-theme') === 'light' ? 'light' : 'dark' }
-    catch { return 'dark' }
-  })
+  const [theme, setTheme, resolvedTheme] = useThemePreference()
   const [search, setSearch] = useState('')
   const [conversationView, setConversationView] = useState('active')
   const [conversationCounts, setConversationCounts] = useState({ active: 0, archived: 0 })
@@ -948,11 +946,6 @@ export default function App() {
     uploadControllersRef.current.clear()
     uploadFilesRef.current.clear()
   }, [])
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    try { localStorage.setItem('aichat-theme', theme) } catch {}
-  }, [theme])
 
   useEffect(() => {
     if (!user) return
@@ -2126,11 +2119,11 @@ export default function App() {
       },
     },
     {
-      id: 'theme', icon: theme === 'dark' ? '☀' : '☾',
-      label: `Use ${theme === 'dark' ? 'light' : 'dark'} theme`,
+      id: 'theme', icon: resolvedTheme === 'dark' ? '☀' : '☾',
+      label: `Use ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`,
       description: 'Switch the interface color theme on this browser.',
       keywords: ['appearance', 'color', 'contrast'],
-      onRun: () => setTheme((current) => current === 'dark' ? 'light' : 'dark'),
+      onRun: () => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'),
     },
   ]
 
