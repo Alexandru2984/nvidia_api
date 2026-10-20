@@ -116,7 +116,7 @@ function comparisonValue(model, field, attachments) {
 
 export default function ModelExplorer({
   models, currentModelId, attachments = [], availabilityCheckedAt, availability,
-  disabled = false, openForAttachmentsRequest = 0, onSelect,
+  disabled = false, openRequest, onSelect,
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -129,7 +129,8 @@ export default function ModelExplorer({
   const [choosingId, setChoosingId] = useState(null)
   const triggerRef = useRef(null)
   const returnFocusRef = useRef(null)
-  const handledOpenRequestRef = useRef(openForAttachmentsRequest)
+  const openRequestId = openRequest?.id || 0
+  const handledOpenRequestRef = useRef(openRequestId)
   const dialogRef = useRef(null)
   const searchRef = useRef(null)
   const resultsRef = useRef(null)
@@ -155,16 +156,18 @@ export default function ModelExplorer({
   }, [])
 
   useEffect(() => {
-    if (!openForAttachmentsRequest
-        || openForAttachmentsRequest === handledOpenRequestRef.current) return
-    handledOpenRequestRef.current = openForAttachmentsRequest
-    returnFocusRef.current = document.activeElement
+    if (!openRequestId || openRequestId === handledOpenRequestRef.current) return
+    handledOpenRequestRef.current = openRequestId
+    const activeElement = document.activeElement
+    returnFocusRef.current = activeElement && activeElement !== document.body
+      ? activeElement
+      : triggerRef.current
     setQuery('')
     setPurpose('all')
     setFavoritesOnly(false)
-    setCompatibleOnly(true)
+    setCompatibleOnly(Boolean(openRequest?.compatibleOnly && attachments.length))
     setOpen(true)
-  }, [openForAttachmentsRequest])
+  }, [attachments.length, openRequest?.compatibleOnly, openRequestId])
 
   useEffect(() => {
     if (!open) return

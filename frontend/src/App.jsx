@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mediaUrl } from './api'
 import AdminReauthenticationDialog from './AdminReauthenticationDialog'
+import CommandPalette from './CommandPalette'
 import ConversationExportDialog from './ConversationExportDialog'
 import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
@@ -889,7 +890,8 @@ export default function App() {
   const [pendingAttachments, setPendingAttachments] = useState([])
   const [excludedAttachmentIds, setExcludedAttachmentIds] = useState([])
   const [attachmentNotice, setAttachmentNotice] = useState(null)
-  const [modelExplorerRequest, setModelExplorerRequest] = useState(0)
+  const [modelExplorerRequest, setModelExplorerRequest] = useState({ id: 0, compatibleOnly: false })
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState(null)
   const [providerDisclosureOpen, setProviderDisclosureOpen] = useState(false)
   const [providerDisclosureBusy, setProviderDisclosureBusy] = useState(false)
@@ -916,6 +918,7 @@ export default function App() {
   const chatAreaRef = useRef(null)
   const chatScrollRestoreRef = useRef(null)
   const textareaRef = useRef(null)
+  const imagePromptRef = useRef(null)
   const imageInputRef = useRef(null)
   const documentInputRef = useRef(null)
   const attachButtonRef = useRef(null)
@@ -950,6 +953,19 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     try { localStorage.setItem('aichat-theme', theme) } catch {}
   }, [theme])
+
+  useEffect(() => {
+    if (!user) return
+    function openCommands(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLocaleLowerCase() !== 'k') return
+      event.preventDefault()
+      if (commandPaletteOpen || document.querySelector('[role="dialog"][aria-modal="true"]')) return
+      setSidebarOpen(false)
+      setCommandPaletteOpen(true)
+    }
+    document.addEventListener('keydown', openCommands)
+    return () => document.removeEventListener('keydown', openCommands)
+  }, [commandPaletteOpen, user])
 
   useEffect(() => {
     if (!sidebarOpen) return
@@ -1927,6 +1943,7 @@ export default function App() {
   }
 
   async function handleLogout() {
+    setCommandPaletteOpen(false)
     providerDisclosureActionRef.current = null
     providerDisclosureReturnFocusRef.current = null
     setProviderDisclosureRequiresReload(false)
@@ -1982,6 +1999,23 @@ export default function App() {
     }
   }
 
+  function focusAfterRender(resolveTarget) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      resolveTarget()?.focus()
+    }))
+  }
+
+  function requestModelExplorer(compatibleOnly) {
+    setMode('chat')
+    setSidebarOpen(false)
+    requestAnimationFrame(() => {
+      setModelExplorerRequest((request) => ({
+        id: request.id + 1,
+        compatibleOnly,
+      }))
+    })
+  }
+
   if (!authChecked) {
     return <div className="boot-splash">Loading…</div>
   }
@@ -2004,6 +2038,88 @@ export default function App() {
     )
   }
 
+  const commandActions = [
+    {
+      id: 'new-chat', icon: '+', label: 'New chat',
+      description: 'Start a fresh conversation with the default model.',
+      keywords: ['conversation', 'create'],
+      disabled: sending || !defaultModel,
+      disabledReason: sending ? 'Wait for the current response to finish.' : 'No chat model is available.',
+      restoreFocus: false,
+      onRun: async () => {
+        setMode('chat')
+        await startNewChat()
+        focusAfterRender(() => textareaRef.current)
+      },
+    },
+    {
+      id: 'composer', icon: '↳', label: 'Focus message composer',
+      description: 'Return to Chat and place the cursor in your message.',
+      keywords: ['prompt', 'type', 'message', 'chat'],
+      disabled: sending || activeModelUnavailable,
+      disabledReason: sending ? 'Wait for the current response to finish.' : 'Choose an available model first.',
+      restoreFocus: false,
+      onRun: () => {
+        setMode('chat')
+        setSidebarOpen(false)
+        focusAfterRender(() => textareaRef.current)
+      },
+    },
+    {
+      id: 'models', icon: '⌘', label: 'Browse models',
+      description: 'Search, compare, and choose an available NVIDIA model.',
+      keywords: ['explorer', 'compare', 'favorite', 'nvidia'],
+      disabled: sending || models.length === 0,
+      disabledReason: sending ? 'Wait for the current response to finish.' : 'No verified model is available.',
+      restoreFocus: false,
+      onRun: () => requestModelExplorer(false),
+    },
+    {
+      id: 'conversations', icon: '☰', label: 'Open conversations',
+      description: 'Search, pin, archive, or switch conversations.',
+      keywords: ['history', 'sidebar', 'chats'],
+      restoreFocus: false,
+      onRun: () => {
+        if (window.matchMedia('(max-width: 760px)').matches) setSidebarOpen(true)
+        else focusAfterRender(() => document.querySelector('.convo-search'))
+      },
+    },
+    {
+      id: 'image', icon: '▧', label: 'Open Image studio',
+      description: 'Generate an image with an available NVIDIA image model.',
+      keywords: ['generate', 'picture', 'visual'],
+      disabled: sending || imageBusy || imageModels.length === 0,
+      disabledReason: imageModels.length === 0
+        ? 'No image model is available.'
+        : 'Wait for the current generation to finish.',
+      restoreFocus: false,
+      onRun: () => {
+        setMode('image')
+        setSidebarOpen(false)
+        focusAfterRender(() => imagePromptRef.current)
+      },
+    },
+    {
+      id: 'settings', icon: '⚙', label: 'Open Settings',
+      description: 'Manage appearance, privacy, storage, security, and sessions.',
+      keywords: ['account', '2fa', 'theme', 'files'],
+      disabled: mode === 'settings',
+      disabledReason: 'Settings are already open.',
+      restoreFocus: false,
+      onRun: () => {
+        setMode('settings')
+        setSidebarOpen(false)
+      },
+    },
+    {
+      id: 'theme', icon: theme === 'dark' ? '☀' : '☾',
+      label: `Use ${theme === 'dark' ? 'light' : 'dark'} theme`,
+      description: 'Switch the interface color theme on this browser.',
+      keywords: ['appearance', 'color', 'contrast'],
+      onRun: () => setTheme((current) => current === 'dark' ? 'light' : 'dark'),
+    },
+  ]
+
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
@@ -2015,7 +2131,20 @@ export default function App() {
         />
       )}
 
-      <aside className="sidebar" id="conversation-sidebar" ref={sidebarRef} aria-label="Conversations">
+      {commandPaletteOpen && (
+        <CommandPalette
+          actions={commandActions}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      )}
+
+      <aside
+        className="sidebar"
+        id="conversation-sidebar"
+        ref={sidebarRef}
+        aria-label="Conversations"
+        inert={commandPaletteOpen ? true : undefined}
+      >
         <div className="sidebar-header">
           <div className="brand-mark">N</div>
           <div className="sidebar-brand-copy">
@@ -2144,10 +2273,16 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main" inert={sidebarOpen ? true : undefined}>
+      <main className="main" inert={sidebarOpen || commandPaletteOpen ? true : undefined}>
         {mode === 'settings' && (
           <Suspense fallback={<div className="empty-list">Loading settings…</div>}>
-            <Settings theme={theme} onThemeChange={setTheme} onClose={() => setMode('chat')} onLoggedOut={() => { setMode('chat'); handleLogout() }} />
+            <Settings
+              theme={theme}
+              onThemeChange={setTheme}
+              onClose={() => setMode('chat')}
+              onOpenCommands={() => setCommandPaletteOpen(true)}
+              onLoggedOut={() => { setMode('chat'); handleLogout() }}
+            />
           </Suspense>
         )}
         {mode !== 'settings' && (
@@ -2170,6 +2305,13 @@ export default function App() {
           <div className="title">
             {mode === 'chat' ? (active?.title || 'New conversation') : 'Image generation'}
           </div>
+          <button
+            type="button"
+            className="command-palette-trigger"
+            aria-label="Open command palette"
+            title="Quick actions (Ctrl/⌘+K)"
+            onClick={() => setCommandPaletteOpen(true)}
+          ><span aria-hidden="true">⌘K</span></button>
           {mode === 'chat' && active && (
             <>
               <button
@@ -2237,7 +2379,7 @@ export default function App() {
                 availabilityCheckedAt={availabilityCheckedAt}
                 availability={modelAvailability}
                 disabled={sending}
-                openForAttachmentsRequest={modelExplorerRequest}
+                openRequest={modelExplorerRequest}
                 onSelect={handleSwitchModel}
               />
             )}
@@ -2450,7 +2592,7 @@ export default function App() {
                 <button
                   type="button"
                   className="link"
-                  onClick={() => setModelExplorerRequest((request) => request + 1)}
+                  onClick={() => requestModelExplorer(true)}
                 >Find compatible model</button>
                 <button type="button" className="link" onClick={removeIncompatibleAttachments}>
                   Remove incompatible
@@ -2564,6 +2706,7 @@ export default function App() {
               <label className="image-prompt-label">
                 <span>Prompt</span>
                 <textarea
+                  ref={imagePromptRef}
                   value={imagePrompt}
                   onChange={(e) => setImagePrompt(e.target.value)}
                   placeholder="Describe the image you want to generate…"

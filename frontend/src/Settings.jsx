@@ -775,12 +775,28 @@ function StoragePanel() {
   </section>
 }
 
-export default function Settings({ onClose, onLoggedOut, theme, onThemeChange }) {
+export default function Settings({ onClose, onLoggedOut, onOpenCommands, theme, onThemeChange }) {
   return (
     <div className="settings-wrap">
       <header className="settings-header">
         <h1>Settings</h1>
-        <button className="icon" onClick={onClose} title="Close">×</button>
+        <div className="settings-header-actions">
+          <button
+            type="button"
+            className="command-palette-trigger"
+            aria-label="Open command palette"
+            title="Quick actions (Ctrl/⌘+K)"
+            onClick={onOpenCommands}
+          ><span aria-hidden="true">⌘K</span></button>
+          <button
+            type="button"
+            className="icon"
+            aria-label="Close settings"
+            onClick={onClose}
+            title="Close"
+            autoFocus
+          >×</button>
+        </div>
       </header>
       <div className="settings-body">
         <section className="settings-section">

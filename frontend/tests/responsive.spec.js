@@ -707,6 +707,68 @@ test('mobile drawer closes with Escape and returns keyboard focus', async ({ pag
   await expect(menu).toBeFocused()
 })
 
+test('keyboard command palette opens model discovery and restores stable focus', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockAPI(page)
+  await page.goto('/')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+  await composer.focus()
+
+  await page.keyboard.press('Control+k')
+  const commands = page.getByRole('dialog', { name: 'Quick actions' })
+  const search = commands.getByRole('combobox', { name: 'Search commands' })
+  await expect(search).toBeFocused()
+  await search.fill('models')
+  await expect(commands.getByRole('option', { name: /Browse models/ })).toHaveAttribute(
+    'aria-selected', 'true',
+  )
+  await page.keyboard.press('Enter')
+
+  await expect(commands).toHaveCount(0)
+  const explorer = page.getByRole('dialog', { name: 'Choose a model' })
+  await expect(explorer.getByRole('button', { name: 'Use Test Vision' })).toBeVisible()
+  await expect(explorer.getByRole('button', { name: 'Use Text Only' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Open model explorer' })).toBeFocused()
+
+  await page.keyboard.press('Control+k')
+  await page.getByRole('combobox', { name: 'Search commands' }).fill('conversations')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('searchbox', { name: 'Search conversations' })).toBeFocused()
+  await expect(page.locator('main')).not.toHaveAttribute('inert', '')
+  await expectNoPageOverflow(page)
+})
+
+test('touch command palette reaches settings and restores its trigger on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const commands = page.getByRole('dialog', { name: 'Quick actions' })
+  await expect(commands.getByRole('option')).toHaveCount(7)
+  await expectNoPageOverflow(page)
+  await page.screenshot({ path: 'test-results/command-palette-320.png' })
+
+  await commands.getByRole('combobox', { name: 'Search commands' }).fill('settings')
+  await commands.getByRole('option', { name: /Open Settings/ }).click()
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close settings' })).toBeFocused()
+
+  const settingsTrigger = page.getByRole('button', { name: 'Open command palette' })
+  await settingsTrigger.click()
+  await expect(page.getByRole('dialog', { name: 'Quick actions' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(settingsTrigger).toBeFocused()
+
+  await settingsTrigger.click()
+  await page.getByRole('combobox', { name: 'Search commands' }).fill('models')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'Choose a model' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Open model explorer' })).toBeFocused()
+  await expectNoPageOverflow(page)
+})
+
 test('conversation pin and archive controls stay clear and recoverable on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 })
   await mockAPI(page)
