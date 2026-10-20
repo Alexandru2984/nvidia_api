@@ -2507,7 +2507,7 @@ is required before describing those controls as complete.
   notice access from all three entry points, and zero `/api/` requests on the
   public page.
 - Signed frontend release
-  `/var/www/aichat-releases/release-20261020T001039_571602493` is active at exact
+  `/var/www/aichat-releases/release-20261020T001039_571602493` was activated at exact
   commit `f9d64e4bd64dd9754d1893e87a7aa3fea6ff3014`, verified by key fingerprint
   `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
   Origin and Cloudflare returned `200`; production Chromium at 320 and 1440
@@ -2524,6 +2524,34 @@ is required before describing those controls as complete.
   Browser Insights in Cloudflare; and define external-log plus encrypted
   off-host-backup retention/deletion handling. The technical publication does
   not close those decisions.
+
+### Attachment-aware model discovery rollout — 2026-10-20
+
+- Commit `3b44568` centralizes browser-side model capability checks and makes the
+  explorer evaluate every included pending file against every live model. It
+  reports the number of compatible models, offers a responsive “Fits current
+  files” filter, and exposes fit or incompatibility on cards and in comparisons.
+  Files explicitly excluded by the owner do not constrain model discovery.
+- The same contract closes a frontend preflight defect: switching from a model
+  that accepts several images to one with a lower per-request maximum previously
+  validated each image independently and allowed the backend to reject the total
+  only at send time. Pending and historical image sets now enforce the cumulative
+  model limit before provider work; incompatible pending files block send and
+  historical overflow is omitted with an accurate explanation.
+- All 608 backend, 108 operational and 48 responsive browser tests passed.
+  ESLint, the bound production build, Bash syntax, ShellCheck and immutable-
+  Action checks passed; npm and pip audits reported no known advisory. Browser
+  regressions cover current-file filtering, the lower-count model transition and
+  historical overflow, in addition to the existing mobile/desktop suite.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261020T050049_218001778` is active at exact
+  commit `3b44568767ce8e0a7d6aaffc88ee0773558e728a`, verified by key fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Origin and Cloudflare returned `200` for the app, Privacy Center and health;
+  authenticated/private and fabricated-media probes returned the expected
+  `403`/`404`. A signed rollback activated the preceding Privacy Center release
+  in zero seconds and restored this exact release in one second. The security
+  monitor then returned `Result=success` and exit status zero.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

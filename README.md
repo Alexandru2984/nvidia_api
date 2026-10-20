@@ -393,15 +393,20 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   tokens and uses the provider's documented 0/512 defaults for new conversations.
 - The model explorer searches name/vendor/ID/capabilities/guidance, sorts by
   recommendation, last probe, context, or name, compares up to three available
-  models, and shows the runtime availability timestamp. Successful latency is
-  rounded to 100 ms and explicitly labeled as one synthetic availability sample,
-  not a quality benchmark; provider failure details stay server-side. Favorites and
-  six recent model IDs are browser-local, bounded preferences; no user identity,
-  prompt, conversation title, or message content is written there.
+  models, and shows the runtime availability timestamp. When files are selected,
+  it also reports how many live models accept the complete included set and can
+  filter to those models; deliberately excluded files do not constrain the result.
+  Model cards and comparisons explain any current-file incompatibility.
+  Successful latency is rounded to 100 ms and explicitly labeled as one synthetic
+  availability sample, not a quality benchmark; provider failure details stay
+  server-side. Favorites and six recent model IDs are browser-local, bounded
+  preferences; no user identity, prompt, conversation title, or message content
+  is written there.
 - Documents are provided to models as bounded extracted text. Images are sent
   only to explicitly documented vision endpoints; incompatible pending files
-  block sending, and incompatible historical images are omitted when switching
-  to a text-only model.
+  block sending, including when their cumulative count exceeds the selected
+  model's per-request image limit. Incompatible historical images are omitted
+  when switching to a text-only or lower-image-count model.
 - Conversation creation uses that same fallback, while explicit selection,
   sending, or regeneration with a retired model is rejected before consuming a
   request/token reservation.

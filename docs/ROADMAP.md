@@ -119,12 +119,18 @@ timed evidence.
 - **Capability-aware model and attachment UX is shipped:** the live selector is
   grouped by purpose, exposes context/input badges, and only offers formats the
   chosen model can consume. Switching models makes incompatible pending/history
-  media explicit, with backend enforcement independent of the browser.
+  media explicit, with backend enforcement independent of the browser. The
+  explorer now evaluates the complete set of included pending files, reports and
+  filters models that fit it, and explains incompatibility on cards and in the
+  comparison view. Cumulative per-request image limits are enforced before send
+  and when reconstructing history, rather than validating each image in isolation.
 - **Model discovery is shipped:** search spans name/vendor/ID/description,
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.
   Conservative “best for” guidance, rounded successful-probe latency, explicit
   sample caveats, and recommendation/latency/context/name sorting are shipped.
+  Current-file compatibility is available as a responsive filter and intentionally
+  ignores files the owner excluded from the next request.
   Availability now has verified/degraded/fail-closed states, expires after the
   eight-day trust window, refreshes every Monday and Thursday, preserves verified
   decisions across two transient provider runs, hides them on the third consecutive
