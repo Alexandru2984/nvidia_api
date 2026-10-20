@@ -2678,6 +2678,16 @@ is required before describing those controls as complete.
   frontend rollback/restore completed in zero seconds each; origin and edge
   repeated the full `200`/`403`/`404` contract, and the independent security
   monitor finished with `Result=success` and exit status zero.
+- Commit `fac7224` adds the same preference action directly to each available
+  Model Explorer card. Current-conversation and account-default state are
+  visually distinct, the active chat is not mutated, writes reuse the audited
+  owner endpoint, and success or failure stays inside the modal. All 54 browser
+  tests, ESLint and the production build passed; the 390-pixel visual regression
+  was overflow-free. Signed frontend release
+  `/var/www/aichat-releases/release-20261020T155502_163465903` was activated at
+  exact commit `fac7224c4518faf1b34a3072710565f867f91a0f`. Its signed live
+  rollback/restore completed in zero seconds each, repeated origin/edge probes
+  passed, and the monitor returned success with exit status zero.
 - Residual preference work is product scope rather than a hidden security claim:
   persist generation parameters, theme, language, compact and reduced-motion
   modes only with the same owner, export/deletion, validation and fallback

@@ -261,8 +261,10 @@ timed evidence.
 - **Per-user default model is shipped:** the owner can persist or reset the model
   used by new conversations; catalog validation, rate limiting, account export,
   cascade deletion and a non-destructive availability fallback are enforced by
-  the backend, while Settings exposes the same responsive control. Add persisted
-  generation parameters, theme, language, compact mode, and reduced-motion mode.
+  the backend. Settings exposes the responsive control, and Model Explorer can
+  persist a card as the default without changing the active conversation. Add
+  persisted generation parameters, theme, language, compact mode, and
+  reduced-motion mode.
 - Token/request/storage dashboard with daily/monthly budgets and downloadable
   personal usage history.
 - **Scheduled account deletion and visible status are shipped:** schedule/cancel
