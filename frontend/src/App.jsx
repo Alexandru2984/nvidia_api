@@ -8,6 +8,8 @@ import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
 import ProviderDisclosure, { PROVIDER_DISCLOSURE_VERSION } from './ProviderDisclosure'
 import {
+  attachmentCompatibilityForModel,
+  attachmentCompatibilityReasonSummary,
   capabilitiesFor,
   DOCUMENT_EXTENSIONS,
   incompatibleAttachmentsForModel,
@@ -1147,10 +1149,12 @@ export default function App() {
   )
   const queuedImages = uploadJobs.filter((job) => job.kind === 'image')
   const uploadingCount = uploadJobs.filter((job) => job.status === 'uploading').length
-  const incompatiblePending = incompatibleAttachmentsForModel(
+  const pendingCompatibility = attachmentCompatibilityForModel(
     includedPendingAttachments,
     currentModel,
   )
+  const incompatiblePending = pendingCompatibility.incompatible
+  const pendingIncompatibilityReasons = attachmentCompatibilityReasonSummary(pendingCompatibility)
   const attachmentsBlocked = incompatiblePending.length > 0
   const imageLimitReached = pendingImages.length + queuedImages.length
     >= currentCapabilities.max_images
@@ -2597,7 +2601,8 @@ export default function App() {
             <div className="vision-warn attachment-warn" role="alert">
               <span>
                 {incompatiblePending.length} pending attachment{incompatiblePending.length === 1 ? '' : 's'}{' '}
-                {incompatiblePending.length === 1 ? 'is' : 'are'} not compatible with {currentModel?.name}.
+                {incompatiblePending.length === 1 ? 'is' : 'are'} not compatible with {currentModel?.name}
+                {pendingIncompatibilityReasons ? `: ${pendingIncompatibilityReasons}` : ''}.
               </span>
               <div className="attachment-warn-actions">
                 <button

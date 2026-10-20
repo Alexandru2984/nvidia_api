@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { attachmentCompatibilityForModel } from './modelCapabilities'
+import {
+  attachmentCompatibilityForModel,
+  attachmentCompatibilityReasonSummary,
+} from './modelCapabilities'
 
 const STORAGE_KEY = 'aichat-model-preferences-v1'
 const MAX_STORED_BYTES = 8192
@@ -107,9 +110,10 @@ function comparisonValue(model, field, attachments) {
   if (field === 'current_files') {
     if (attachments.length === 0) return 'No files selected'
     const compatibility = attachmentCompatibilityForModel(attachments, model)
+    const reasons = attachmentCompatibilityReasonSummary(compatibility)
     return compatibility.compatible
       ? `All ${attachments.length} supported`
-      : `${compatibility.incompatible.length} of ${attachments.length} incompatible`
+      : `${compatibility.incompatible.length} of ${attachments.length} incompatible${reasons ? ` · ${reasons}` : ''}`
   }
   return '—'
 }
@@ -448,6 +452,7 @@ export default function ModelExplorer({
                 {visibleModels.map((model) => {
                   const capabilities = model.capabilities || {}
                   const fileCompatibility = compatibilityById.get(model.id)
+                  const incompatibilityReasons = attachmentCompatibilityReasonSummary(fileCompatibility)
                   const favorite = preferences.favorites.includes(model.id)
                   const recent = preferences.recent.includes(model.id)
                   const compared = compareIds.includes(model.id)
@@ -484,7 +489,7 @@ export default function ModelExplorer({
                             <span className={fileCompatibility?.compatible ? 'positive' : 'warning'}>
                               {fileCompatibility?.compatible
                                 ? 'Fits current files'
-                                : `${fileCompatibility?.incompatible.length || attachments.length} file${(fileCompatibility?.incompatible.length || attachments.length) === 1 ? '' : 's'} incompatible`}
+                                : `${fileCompatibility?.incompatible.length || attachments.length} file${(fileCompatibility?.incompatible.length || attachments.length) === 1 ? '' : 's'} incompatible${incompatibilityReasons ? ` · ${incompatibilityReasons}` : ''}`}
                             </span>
                           )}
                           {model.performance && (

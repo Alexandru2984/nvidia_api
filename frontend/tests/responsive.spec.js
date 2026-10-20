@@ -1375,6 +1375,7 @@ test('model explorer filters models against the currently selected files', async
   const textCard = dialog.getByRole('button', { name: 'Use Text Only' }).locator('..')
   await expect(visionCard.getByText('Fits current files')).toBeVisible()
   await expect(textCard.getByText('1 file incompatible')).toBeVisible()
+  await expect(textCard.getByText('image input is not supported', { exact: false })).toBeVisible()
   await page.screenshot({ path: 'test-results/model-file-fit-390.png' })
 
   await dialog.getByRole('button', { name: /Fits 1 current file/ }).click()
@@ -1437,6 +1438,7 @@ test('switching to a lower image-count model blocks overflow before provider wor
   const dialog = page.getByRole('dialog', { name: 'Choose a model' })
   const limitedCard = dialog.getByRole('button', { name: 'Use Limited Vision' }).locator('..')
   await expect(limitedCard.getByText('1 file incompatible')).toBeVisible()
+  await expect(limitedCard.getByText('per-request image limit is exceeded', { exact: false })).toBeVisible()
   await expect(dialog.getByText('1 of 2 available models can use all of them')).toBeVisible()
   await expectNoPageOverflow(page)
 })
