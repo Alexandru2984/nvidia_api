@@ -57,6 +57,24 @@ npm run dev   # vite dev server on :5173
 The Vite development server proxies `/api` and `/admin` to
 `http://127.0.0.1:8501`, keeping cookies and CSRF on one origin.
 
+## Privacy and data transparency
+
+The public, responsive Privacy Center is available at `/privacy/` without an
+account and without bootstrapping authenticated API state. It documents the
+verified data categories, NVIDIA/mail/Cloudflare flows, implemented retention,
+backup deletion lag, user export/deletion controls, and unresolved legal/vendor
+decisions. Anonymous sign-in, authenticated Settings, and the versioned NVIDIA
+provider disclosure all link to it.
+
+The implementation-backed technical processing inventory and its change rule
+are in [docs/DATA_PROCESSING_REGISTER.md](docs/DATA_PROCESSING_REGISTER.md).
+Operator/controller identity, legal basis, dedicated privacy contact, vendor/DPA
+terms, processing region and NVIDIA production entitlement must not be described
+as complete until evidence is recorded there. A material change to data,
+purpose, destination, retention or user controls requires a new public notice
+version and an explicit decision on whether the provider-disclosure version must
+also increase.
+
 ## Environment
 
 `backend/.env` is the file Django loads (`load_dotenv(BASE_DIR / '.env')`). Required keys:

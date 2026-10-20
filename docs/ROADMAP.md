@@ -47,6 +47,13 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Provider entitlement:** confirm and record the NVIDIA production license or
   restrict the service to private evaluation use. Map the contractual/GPU cost
   model into alerts and a hard monetary circuit breaker.
+- **Privacy governance:** a versioned public Privacy Center and technical
+  processing register now consolidate verified data flows, retention,
+  backup-deletion lag and owner controls without inventing missing legal claims.
+  Publish the operator/controller identity and privacy contact, document lawful
+  bases and rights handling, complete NVIDIA/Cloudflare/mail DPA, region,
+  retention, training and incident-term reviews, disable Cloudflare Browser
+  Insights, and define journal/off-host backup retention before closing S-15.
 - **Protected administration:** password-only Django admin access is blocked;
   staff must verify 2FA through the main application and refresh a five-minute
   password-plus-2FA elevation window through the responsive step-up UI. Expired

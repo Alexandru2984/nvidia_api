@@ -83,7 +83,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-17 | Medium | Content hashes or extracted-text previews could correlate files across users, disclose private text, or race under parallel uploads | HMAC-SHA256 fingerprints are secret-keyed and owner-scoped, never serialized/logged, and unique only for unlinked files per owner; preview lookup is owner-scoped, truncated to 4,000 characters, rate-limited and `private, no-store`; the browser renders it as text; a user-row lock plus a partial PostgreSQL unique constraint closes concurrent duplicate creation | Treat fingerprint-key rotation as a deduplication reset; retain malware/ownership/cache/XSS regressions |
 | A-18 | Medium | A missing/stale/tampered runtime model-status file could reactivate retired endpoints, while transient NVIDIA failures could hide working models for a week or leave permanently broken models trusted forever, leak provider failure details, or present volatile latency as model quality | A dedicated credential-minimal identity writes exact-owner/mode `0640` state signed with Ed25519; the web identity has only read/public-key access. Signature, file shape, schema/catalog/range/time and eight-day freshness fail closed and alert independently every five minutes. Deployment validates the complete boundary before switching. Definitive failures change availability; transient outcomes preserve a trusted decision twice, hide on the third and recover on success. The API exposes only aggregate state and rounded successful samples labeled as synthetic | A compromised probe/signing key can forge availability and consume the shared provider credential; rotate both after compromise, move the signing root to a hardware/external trust boundary before multi-host scaling, and never treat one sample as an SLA or quality score |
 | A-19 | High | Production workers imported application code and dependencies from mutable checkout paths, allowing old/new mixtures or local tampering | Deploys use separate root-owned, manifest-verified application and SHA-256-locked minimal dependency releases with an embedded CycloneDX SBOM, atomically switch trusted symlinks, hide checkout source/venv from the service, restore prior targets on failed probes, bound executable roots to the active plus two rollbacks, and have passed a controlled production rollback/restore drill for both release families | Add signed builder provenance and define the supplemental-archive lifecycle plus off-host evidence retention |
-| A-20 | Medium | Users could send prompts, history and selected files to NVIDIA without a durable, current disclosure acknowledgement | A versioned, owner-bound timestamp is stored without prompt/file/IP data; chat, regeneration and image generation return `428` before leases, budget reservations, message writes or provider egress until the current disclosure is accepted. The keyboard-accessible mobile UI names each data class, links official NVIDIA privacy/terms pages and offers an equal cancel path | Obtain legal review of the actual processing basis, publish the complete operator privacy notice, confirm NVIDIA retention/training/DPA/region and production-entitlement terms, and bump the version when the data flow materially changes |
+| A-20 | Medium | Users could send prompts, history and selected files to NVIDIA without a durable, current disclosure acknowledgement | A versioned, owner-bound timestamp is stored without prompt/file/IP data; chat, regeneration and image generation return `428` before leases, budget reservations, message writes or provider egress until the current disclosure is accepted. The keyboard-accessible mobile UI names each data class, links official NVIDIA privacy/terms pages and offers an equal cancel path. Public `/privacy/` plus a technical processing register now consolidate verified data categories, destinations, retention, backup lag and controls while explicitly naming unsupported governance claims | Publish the operator/controller identity and privacy contact; obtain legal review of basis/rights and NVIDIA/Cloudflare/mail retention, training, DPA, region, incident and entitlement terms; disable edge Browser Insights; bump the applicable notice/disclosure version when its flow materially changes |
 | A-21 | Medium | Retried or concurrent chat generation could duplicate provider cost or mutate history ambiguously | Owner-scoped UUID idempotency, HMAC-bound request shape, durable job outcomes, lease/job fencing, stored-result SSE replay, attachment/message reconciliation, bounded retention and interruption/conflict alerts are deployed | NVIDIA cannot join the local database transaction; keep automatic retries disabled for failed/interrupted jobs and reconcile provider evidence before an explicit new-key attempt |
 | A-22 | Medium | Authenticated accounts could grow saved message text until database/egress pressure affected every tenant | PostgreSQL-generated UTF-8 byte counts; transactionally serialized 16 MiB/conversation, 64 MiB/user and 1 GiB/service ceilings; worst-case in-flight reservations; net-growth regeneration; owner-only usage UI; generic global response; monitored quota events; read-only message admin; owner-configurable bounded deletion of inactive archived chats after 30/90/180/365 days; 90-day user-linked and 400-day aggregate-only AI-usage retention | Publish the operator-wide legal/default schedule before materially raising account or quota volume |
 | A-23 | Medium | React inline styles required a broad CSP style exception, leaving a weaker defense against injected markup | All application styles use static classes; ESLint forbids JSX `style` and `dangerouslySetInnerHTML`; deployed CSP is `style-src 'self'`; origin browser smoke reports zero inline styles/violations at 320 and 1440 px | Disable Cloudflare Browser Insights injection at the edge; keep its currently blocked scripts out of `script-src` and retain real-browser CSP regression probes |
@@ -2485,6 +2485,45 @@ is required before describing those controls as complete.
   No new vendor, network
   egress or personal-data flow was introduced; external evidence retention and
   alert-channel redundancy remain open.
+
+### Public Privacy Center and processing-register rollout — 2026-10-20
+
+- Commit `f9d64e4` adds a public, versioned `/privacy/` route that renders without
+  mounting the authenticated application or starting any API request. It
+  consolidates account/security, chat/file and operations data; NVIDIA,
+  mailcow, Cloudflare and local-inspection destinations; exact implemented
+  retention; rotating-backup deletion lag; and current export, deletion,
+  archived-retention, attachment-inclusion, session and 2FA controls. Login,
+  Settings and the NVIDIA disclosure link to the notice.
+- `docs/DATA_PROCESSING_REGISTER.md` records the code-backed inventory,
+  technical safeguards, unresolved governance evidence and the notice/change
+  rule. Both artifacts explicitly avoid claiming a legal basis, blanket consent,
+  completed vendor review, controller identity/contact, DPA, NVIDIA region/
+  retention/training terms or production entitlement that is not evidenced.
+- All 608 backend, 98 operational and 45 responsive browser tests passed.
+  ESLint, the bound production build, Bash syntax, ShellCheck and immutable-
+  Action checks passed; npm and pip audits reported no known advisory. Browser
+  regressions cover 320 and 1440 pixels, no horizontal overflow, safe links,
+  notice access from all three entry points, and zero `/api/` requests on the
+  public page.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261020T001039_571602493` is active at exact
+  commit `f9d64e4bd64dd9754d1893e87a7aa3fea6ff3014`, verified by key fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Origin and Cloudflare returned `200`; production Chromium at 320 and 1440
+  pixels rendered notice version `2026-10-20.1`, made no API calls, had no
+  overflow or inline styles, and loaded no remote script at origin. Cloudflare
+  still injected its Browser Insights URL at the edge, where the unchanged CSP
+  blocked it. A signed live frontend rollback completed in one second and
+  restored the exact active release in zero seconds; the security monitor then
+  returned `Result=success` and exit status zero.
+- Residual governance remains account-side, contractual and legal: publish the
+  responsible identity, jurisdiction and privacy contact; establish lawful
+  bases and rights handling; retain NVIDIA/Cloudflare/mail DPA, retention,
+  training, region, subprocessor, incident and entitlement decisions; remove
+  Browser Insights in Cloudflare; and define external-log plus encrypted
+  off-host-backup retention/deletion handling. The technical publication does
+  not close those decisions.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

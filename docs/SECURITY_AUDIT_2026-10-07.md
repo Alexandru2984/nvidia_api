@@ -651,19 +651,56 @@ and archive lifecycles, protect/backup the active private key separately, and
 record/verify upstream publisher attestations where the selected ecosystem and
 artifact provide them.
 
-### S-15 — Low/Medium — privacy/governance evidence is incomplete
+### S-15 — Partially remediated — legal/vendor governance evidence is incomplete
 
-Evidence: the UI explains that selected files go to NVIDIA, but no complete
-privacy notice, retention choice, analytics disclosure/consent record, vendor
-review, DPA evidence, or production NVIDIA entitlement is present in the repo.
+Pre-fix evidence: the UI explained that selected files go to NVIDIA, but no
+complete privacy notice or consolidated technical processing register was
+present. Retention choices, exports and deletion controls existed in separate
+screens without one public description. No vendor review, DPA evidence,
+operator/controller identity, dedicated privacy contact, lawful-basis decision,
+or production NVIDIA entitlement was evidenced in the repository.
 
-Impact: users may not have a complete view of prompt/context processing and
-retention. Incident notification and lawful-processing decisions cannot be
+Impact: users lacked one accurate view of account, prompt/context, attachment,
+delivery, provider and retention behavior. Incident notification,
+data-subject-request ownership and lawful-processing decisions could not be
 demonstrated from repository evidence alone.
 
-Remediation: document all data flows and retention, present provider disclosure
-before first generation, publish the privacy notice, record vendor/DPA and
-production-entitlement decisions, and provide export/deletion status.
+Remediation and status: commit `f9d64e4` publishes a versioned public Privacy
+Center at `/privacy/` without starting the authenticated application or making
+an API request. It describes the verified data categories, NVIDIA/mailcow/
+Cloudflare/local-inspection boundaries, implemented application retention,
+rotating-backup deletion lag, security minimization, export/deletion/session/
+2FA/attachment-inclusion controls and every known governance gap. It is linked
+from anonymous authentication, authenticated Settings and the existing
+versioned NVIDIA disclosure. The separate
+`docs/DATA_PROCESSING_REGISTER.md` records the same flows as a technical
+ROPA-lite, assigns exact implemented retention and defines a change/release rule.
+The page explicitly says that it is technical transparency rather than legal
+advice, blanket consent, a completed vendor review or a claim of legal basis.
+
+The signed root-owned frontend release
+`/var/www/aichat-releases/release-20261020T001039_571602493` binds commit
+`f9d64e4bd64dd9754d1893e87a7aa3fea6ff3014` with signing-key fingerprint
+`ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+Origin and Cloudflare browser probes returned `200` at 320 and 1440 pixels,
+rendered version `2026-10-20.1`, made zero `/api/` requests, had no horizontal
+overflow or inline styles, and loaded no cross-origin script at origin. The
+Cloudflare edge still injected Browser Insights; the unchanged CSP blocked it,
+matching the public disclosure and leaving dashboard removal open. A signed live
+frontend rollback completed in one second and restored the release in zero
+seconds; the five-minute security monitor then returned success. All 608 backend,
+98 operational and 45 responsive browser tests passed, along with ESLint,
+production build, Bash syntax, ShellCheck, immutable-Action validation and zero-
+advisory npm/pip audits.
+
+Residual remediation: the operator must publish the controller identity,
+jurisdiction, dedicated privacy contact, lawful bases, applicable rights and
+response process; complete and retain NVIDIA, Cloudflare and mail vendor/DPA,
+region, retention, training, subprocessor and breach-term reviews; evidence an
+appropriate NVIDIA production entitlement; disable Browser Insights in the
+Cloudflare dashboard; and define exact journal/off-host retention plus encrypted
+off-host backup/deletion governance. These account-side, contractual and legal
+decisions cannot be closed by code and S-15 therefore remains open.
 
 ### S-16 — Remediated — routine request logs retained excess client metadata
 
@@ -763,7 +800,7 @@ than exporting historical combined-log fields.
   non-secret entropy; zero candidates in four unreachable Git objects. `.env`
   files were never tracked.
 - Backend: 608 tests passed; migration drift check and `pip check` passed.
-- Frontend: ESLint, production build and 44 Playwright checks at mobile/desktop
+- Frontend: ESLint, production build and 45 Playwright checks at mobile/desktop
   widths passed.
 - Operational security: 98 tests passed; Bash syntax, ShellCheck and immutable
   GitHub Actions validation passed.
