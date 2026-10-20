@@ -622,6 +622,35 @@ textarea { resize: none; line-height: 1.5; }
   gap: 8px;
   border-top: 1px solid var(--border);
 }
+.model-default-toggle {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.model-default-toggle:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.model-default-toggle:disabled { opacity: .7; }
+.default-pill {
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.model-preference-feedback {
+  margin: 0 18px 10px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  font-size: 12px;
+}
+.model-preference-feedback.error { border-color: var(--danger); color: var(--danger); }
 .favorite-toggle {
   width: 34px;
   height: 34px;

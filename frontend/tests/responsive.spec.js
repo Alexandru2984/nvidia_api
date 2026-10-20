@@ -748,6 +748,29 @@ test('default chat model persists and drives the next conversation', async ({ pa
   await expectNoPageOverflow(page)
 })
 
+test('model explorer can persist a new default without switching the active chat', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByRole('button', { name: 'Open model explorer' }).click()
+
+  const preferenceRequest = page.waitForRequest((request) => (
+    new URL(request.url()).pathname === '/api/account/preferences/'
+      && request.method() === 'PATCH'
+  ))
+  await page.getByRole('button', { name: 'Set Text Only as default' }).click()
+  expect((await preferenceRequest).postDataJSON()).toEqual({ default_model_id: 'text/model' })
+  await expect(page.getByRole('status')).toContainText(
+    'Text Only is now the default for new conversations.',
+  )
+  await expect(page.getByRole('button', { name: 'Text Only is the default model' })).toBeDisabled()
+  await expect(page.getByLabel('Chat model')).toHaveValue('test/model')
+  await expectNoPageOverflow(page)
+  await page.screenshot({ path: 'test-results/model-default-390.png' })
+})
+
 test('mobile drawer closes with Escape and returns keyboard focus', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockAPI(page)

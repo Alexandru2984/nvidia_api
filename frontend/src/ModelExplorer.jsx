@@ -115,8 +115,8 @@ function comparisonValue(model, field, attachments) {
 }
 
 export default function ModelExplorer({
-  models, currentModelId, attachments = [], availabilityCheckedAt, availability,
-  disabled = false, openRequest, onSelect,
+  models, currentModelId, defaultModelId, attachments = [], availabilityCheckedAt, availability,
+  disabled = false, openRequest, onSelect, onSetDefault,
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -127,6 +127,9 @@ export default function ModelExplorer({
   const [preferences, setPreferences] = useState(readPreferences)
   const [compareIds, setCompareIds] = useState([])
   const [choosingId, setChoosingId] = useState(null)
+  const [defaultBusyId, setDefaultBusyId] = useState(null)
+  const [preferenceNotice, setPreferenceNotice] = useState(null)
+  const [preferenceError, setPreferenceError] = useState(null)
   const triggerRef = useRef(null)
   const returnFocusRef = useRef(null)
   const openRequestId = openRequest?.id || 0
@@ -297,6 +300,21 @@ export default function ModelExplorer({
     }
   }
 
+  async function setDefaultModel(model) {
+    if (disabled || choosingId || defaultBusyId || model.id === defaultModelId) return
+    setDefaultBusyId(model.id)
+    setPreferenceError(null)
+    setPreferenceNotice(null)
+    try {
+      await onSetDefault(model.id)
+      setPreferenceNotice(`${model.name} is now the default for new conversations.`)
+    } catch (error) {
+      setPreferenceError(error.message || 'Could not update the default model.')
+    } finally {
+      setDefaultBusyId(null)
+    }
+  }
+
   return (
     <>
       <button
@@ -399,6 +417,13 @@ export default function ModelExplorer({
               </div>
             )}
 
+            {preferenceNotice && (
+              <div className="model-preference-feedback" role="status">{preferenceNotice}</div>
+            )}
+            {preferenceError && (
+              <div className="model-preference-feedback error" role="alert">{preferenceError}</div>
+            )}
+
             <div className="purpose-filters" role="group" aria-label="Filter models by purpose">
               {PURPOSES.map(([id, label]) => (
                 <button
@@ -442,6 +467,7 @@ export default function ModelExplorer({
                         <span className="model-card-title">
                           <strong>{model.name}</strong>
                           {model.id === currentModelId && <span className="current-pill">Current</span>}
+                          {model.id === defaultModelId && <span className="default-pill">Default</span>}
                           {recent && model.id !== currentModelId && <span className="recent-pill">Recent</span>}
                         </span>
                         <span className="model-card-vendor">{model.vendor} · {model.id}</span>
@@ -470,6 +496,24 @@ export default function ModelExplorer({
                         </span>
                       </button>
                       <div className="model-card-actions">
+                        <button
+                          type="button"
+                          className="model-default-toggle"
+                          disabled={
+                            disabled || Boolean(choosingId) || Boolean(defaultBusyId)
+                            || model.id === defaultModelId
+                          }
+                          aria-label={
+                            model.id === defaultModelId
+                              ? `${model.name} is the default model`
+                              : `Set ${model.name} as default`
+                          }
+                          onClick={() => setDefaultModel(model)}
+                        >
+                          {defaultBusyId === model.id
+                            ? 'Saving…'
+                            : model.id === defaultModelId ? 'Default' : 'Set default'}
+                        </button>
                         <button
                           type="button"
                           className={`favorite-toggle ${favorite ? 'active' : ''}`}

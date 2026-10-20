@@ -1951,6 +1951,11 @@ export default function App() {
     }
   }
 
+  async function handleSetDefaultModel(modelId) {
+    const preference = await api.updateAccountPreferences(modelId)
+    setDefaultModel(preference.effective_default_model_id || '')
+  }
+
   async function handleLogout() {
     setCommandPaletteOpen(false)
     providerDisclosureActionRef.current = null
@@ -2386,12 +2391,14 @@ export default function App() {
               <ModelExplorer
                 models={models}
                 currentModelId={currentModelId}
+                defaultModelId={defaultModel}
                 attachments={includedPendingAttachments}
                 availabilityCheckedAt={availabilityCheckedAt}
                 availability={modelAvailability}
                 disabled={sending}
                 openRequest={modelExplorerRequest}
                 onSelect={handleSwitchModel}
+                onSetDefault={handleSetDefaultModel}
               />
             )}
           </div>
