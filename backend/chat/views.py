@@ -1593,12 +1593,12 @@ def account_preferences(request):
             if raw_temperature is None:
                 values['default_temperature'] = None
             else:
-                try:
-                    if isinstance(raw_temperature, bool):
-                        raise ValueError
-                    temperature = float(raw_temperature)
-                except (TypeError, ValueError):
+                if isinstance(raw_temperature, bool) or not isinstance(
+                    raw_temperature, (int, float),
+                ):
                     temperature = math.nan
+                else:
+                    temperature = float(raw_temperature)
                 limits = generation['temperature']
                 if not math.isfinite(temperature) or not (
                     limits['min'] <= temperature <= limits['max']
@@ -1617,14 +1617,12 @@ def account_preferences(request):
             if raw_max_tokens is None:
                 values['default_max_tokens'] = None
             else:
-                try:
-                    if isinstance(raw_max_tokens, bool):
-                        raise ValueError
-                    max_tokens = int(raw_max_tokens)
-                    if isinstance(raw_max_tokens, float) and not raw_max_tokens.is_integer():
-                        raise ValueError
-                except (TypeError, ValueError):
-                    max_tokens = -1
+                max_tokens = (
+                    raw_max_tokens
+                    if isinstance(raw_max_tokens, int)
+                    and not isinstance(raw_max_tokens, bool)
+                    else -1
+                )
                 limits = generation['max_tokens']
                 if not limits['min'] <= max_tokens <= limits['max']:
                     return Response({

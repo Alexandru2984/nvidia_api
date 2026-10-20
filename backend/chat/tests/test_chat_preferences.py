@@ -99,9 +99,12 @@ class TestChatPreferences:
     @pytest.mark.parametrize(('patch_value', 'code'), [
         ({'default_temperature': True}, 'invalid_default_temperature'),
         ({'default_temperature': 'nan'}, 'invalid_default_temperature'),
+        ({'default_temperature': '0.2'}, 'invalid_default_temperature'),
         ({'default_temperature': 1.1}, 'invalid_default_temperature'),
         ({'default_max_tokens': True}, 'invalid_default_max_tokens'),
+        ({'default_max_tokens': '2048'}, 'invalid_default_max_tokens'),
         ({'default_max_tokens': 63}, 'invalid_default_max_tokens'),
+        ({'default_max_tokens': 2048.0}, 'invalid_default_max_tokens'),
         ({'default_max_tokens': 64.5}, 'invalid_default_max_tokens'),
         ({'default_max_tokens': 8193}, 'invalid_default_max_tokens'),
     ])
