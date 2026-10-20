@@ -207,6 +207,12 @@ server has already committed can remain as an owner-scoped, unlinked attachment 
 is covered by the normal attachment library/deletion flow and scheduled orphan
 cleanup.
 
+Press `Ctrl+K` or `Command+K`, or use the visible `⌘K` control, to open the
+responsive command palette. It searches local navigation actions for a new chat,
+the composer, Model Explorer, conversation history, Image studio, Settings, and
+theme switching. Arrow keys and Enter select an action; Escape restores focus.
+The palette does not store the query or send it to the API.
+
 Before the first chat, regeneration, or image-generation request, the responsive
 UI explains exactly which selected prompt, conversation context, files, and image
 settings leave the self-hosted application for NVIDIA. Acceptance is versioned

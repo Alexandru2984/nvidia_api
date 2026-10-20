@@ -2568,7 +2568,7 @@ is required before describing those controls as complete.
   removal and focus-return path; all 49 responsive browser tests, ESLint and the
   production build passed.
 - Signed frontend release
-  `/var/www/aichat-releases/release-20261020T050512_423596019` is active at exact
+  `/var/www/aichat-releases/release-20261020T050512_423596019` was activated at exact
   commit `633083be72f963c10ac6bb070adcf0f0aeeced69`, verified by key fingerprint
   `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
   Origin and Cloudflare returned `200` for the app, Privacy Center, health and
@@ -2577,6 +2577,33 @@ is required before describing those controls as complete.
   one second and restored this exact release in zero seconds. Repeated probes
   remained correct and the security monitor returned `Result=success` with exit
   status zero.
+
+### Accessible command palette rollout — 2026-10-20
+
+- Commit `7faa71d` adds a searchable quick-action dialog available through
+  `Ctrl/Command+K` and visible touch controls in the main workspace and Settings.
+  Seven context-aware actions cover a new chat, composer focus, Model Explorer,
+  conversation history, Image studio, Settings and local theme switching. The
+  query remains ephemeral browser state and causes no API request.
+- The dialog prevents modal stacking, makes the background inert, traps focus,
+  supports Arrow/Enter/Escape navigation and restores the initiating control.
+  Cross-view handoff waits for lazy or conditional targets: Settings focuses its
+  close control when mounted, Model Explorer opens from Settings without losing
+  the request, and conversation history opens a drawer on mobile but focuses its
+  search directly on desktop. Visual inspection at 320 pixels showed no overflow.
+- All 51 responsive browser tests, ESLint and the production build passed. New
+  regressions exercise keyboard discovery, all-model rather than attachment-only
+  explorer filtering, stable focus, desktop history behavior, mobile Settings,
+  Escape restoration and Settings-to-Explorer navigation.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261020T051430_573713144` is active at exact
+  commit `7faa71d6d26c7d3ee2c14041a53d6f0690f80c1a`, verified by key fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Origin and Cloudflare returned `200` for the app, Privacy Center, health and
+  security contact; private conversation and fabricated-media probes returned
+  `403`/`404`. The signed rollback and exact restore both completed in zero
+  seconds. Repeated probes remained correct and the security monitor returned
+  `Result=success` with exit status zero.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

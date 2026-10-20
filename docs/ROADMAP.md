@@ -277,8 +277,12 @@ timed evidence.
   before writes, reservations or egress when it is absent. This is explicitly an
   acknowledgement, not a claim of legal consent or production entitlement.
 - Romanian and English localization and timezone-aware timestamps.
-- Keyboard command palette, draft persistence, message copy/edit, code-block
-  actions, and accessible confirmations/toasts.
+- **Keyboard command palette is shipped:** `Ctrl/Command+K` and visible touch
+  controls open a searchable, modal-safe action list from Chat, Image studio, or
+  Settings. Arrow/Enter/Escape navigation, background inertness, stable focus
+  restoration, responsive conversation behavior, and direct Model Explorer
+  handoff are covered at desktop and 320-pixel widths. Add draft persistence,
+  message copy/edit, code-block actions, and accessible confirmations/toasts.
 
 P1 acceptance: mobile widths from 320 px and keyboard-only flows pass automated
 tests; large accounts do not issue unbounded queries; exports and deletions are
