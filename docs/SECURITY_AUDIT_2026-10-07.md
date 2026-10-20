@@ -800,7 +800,7 @@ than exporting historical combined-log fields.
   non-secret entropy; zero candidates in four unreachable Git objects. `.env`
   files were never tracked.
 - Backend: 608 tests passed; migration drift check and `pip check` passed.
-- Frontend: ESLint, production build and 48 Playwright checks at mobile/desktop
+- Frontend: ESLint, production build and 49 Playwright checks at mobile/desktop
   widths passed.
 - Operational security: 108 tests passed; Bash syntax, ShellCheck and immutable
   GitHub Actions validation passed.

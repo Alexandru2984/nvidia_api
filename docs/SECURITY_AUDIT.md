@@ -2544,7 +2544,7 @@ is required before describing those controls as complete.
   regressions cover current-file filtering, the lower-count model transition and
   historical overflow, in addition to the existing mobile/desktop suite.
 - Signed frontend release
-  `/var/www/aichat-releases/release-20261020T050049_218001778` is active at exact
+  `/var/www/aichat-releases/release-20261020T050049_218001778` was activated at exact
   commit `3b44568767ce8e0a7d6aaffc88ee0773558e728a`, verified by key fingerprint
   `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
   Origin and Cloudflare returned `200` for the app, Privacy Center and health;
@@ -2552,6 +2552,31 @@ is required before describing those controls as complete.
   `403`/`404`. A signed rollback activated the preceding Privacy Center release
   in zero seconds and restored this exact release in one second. The security
   monitor then returned `Result=success` and exit status zero.
+
+### Attachment compatibility recovery rollout — 2026-10-20
+
+- Commit `633083b` adds a direct recovery action to an incompatible-attachment
+  warning. It opens Model Explorer with stale search, purpose and favorite
+  filters cleared and the complete-current-file compatibility filter enabled,
+  so only models that can accept the included set remain. The destructive
+  removal action remains available as a separate choice.
+- Dialog focus returns to the initiating recovery button on close, or to the
+  permanent explorer trigger when selecting a compatible model removes that
+  warning from the document. The focus trap, Escape and backdrop-close behavior
+  share this fallback. A 390-pixel regression exercises the full upload,
+  incompatible-model switch, filtered recovery, compatible selection, warning
+  removal and focus-return path; all 49 responsive browser tests, ESLint and the
+  production build passed.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261020T050512_423596019` is active at exact
+  commit `633083be72f963c10ac6bb070adcf0f0aeeced69`, verified by key fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Origin and Cloudflare returned `200` for the app, Privacy Center, health and
+  security contact; the private conversation route and fabricated media path
+  returned `403` and `404`. A signed rollback activated the preceding release in
+  one second and restored this exact release in zero seconds. Repeated probes
+  remained correct and the security monitor returned `Result=success` with exit
+  status zero.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,

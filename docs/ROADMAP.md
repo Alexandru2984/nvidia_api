@@ -124,6 +124,8 @@ timed evidence.
   filters models that fit it, and explains incompatibility on cards and in the
   comparison view. Cumulative per-request image limits are enforced before send
   and when reconstructing history, rather than validating each image in isolation.
+  The incompatibility warning provides a one-step recovery into a reset,
+  compatible-only explorer and restores focus to a stable control after selection.
 - **Model discovery is shipped:** search spans name/vendor/ID/description,
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.
