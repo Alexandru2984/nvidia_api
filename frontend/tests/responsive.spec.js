@@ -1036,6 +1036,39 @@ test('attachment warning opens compatible models and restores focus safely', asy
   await expectNoPageOverflow(page)
 })
 
+test('attachment warning can exclude files without deleting the private copy', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  let deleteRequests = 0
+  page.on('request', (request) => {
+    if (request.method() === 'DELETE' && request.url().includes('/api/attachments/900/')) {
+      deleteRequests += 1
+    }
+  })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'diagram.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+
+  await page.getByLabel('Chat model').selectOption('text/model')
+  const warning = page.getByRole('alert')
+  await page.screenshot({ path: 'test-results/attachment-safe-recovery-390.png' })
+  await warning.getByRole('button', { name: 'Exclude from request' }).click()
+
+  await expect(warning).toHaveCount(0)
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: 'Include diagram.png in next message' })).not.toBeChecked()
+  await expect(page.getByText('1 incompatible attachment was kept private and excluded from the next request.')).toBeVisible()
+  expect(deleteRequests).toBe(0)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep the image out of this request')
+  await expect(page.getByTitle('Send')).toBeEnabled()
+  await expectNoPageOverflow(page)
+})
+
 test('a pending file can be excluded without deleting it or blocking the selected model', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockAPI(page)

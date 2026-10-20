@@ -1487,9 +1487,10 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   border-radius: 8px;
   padding: 8px 12px;
 }
-.attachment-warn { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.attachment-warn { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.attachment-warn > span { min-width: 180px; flex: 1 1 220px; }
 .attachment-warn .link { flex: 0 0 auto; color: inherit; }
-.attachment-warn-actions { display: flex; align-items: center; gap: 12px; }
+.attachment-warn-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; }
 .attachment-notice {
   max-width: 760px;
   margin: 0 auto 8px;
@@ -2180,7 +2181,12 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   .attachment-choice { min-height: 62px; }
   .attachment-warn { align-items: stretch; flex-direction: column; }
   .attachment-warn .link { min-height: 40px; }
-  .attachment-warn-actions { align-items: stretch; flex-direction: column; gap: 0; }
+  .attachment-warn-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px 6px;
+  }
+  .attachment-warn-actions .link:first-child { grid-column: 1 / -1; }
   .document-preview-backdrop { padding: 0; }
   .document-preview {
     width: 100%;

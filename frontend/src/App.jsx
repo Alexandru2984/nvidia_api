@@ -1433,6 +1433,15 @@ export default function App() {
     setExcludedAttachmentIds((ids) => ids.filter((id) => !incompatibleIds.has(id)))
   }
 
+  function excludeIncompatibleAttachments() {
+    const incompatibleIds = incompatiblePending.map((attachment) => attachment.id)
+    setExcludedAttachmentIds((ids) => [...new Set([...ids, ...incompatibleIds])])
+    const count = incompatibleIds.length
+    setAttachmentNotice(
+      `${count} incompatible attachment${count === 1 ? ' was' : 's were'} kept private and excluded from the next request.`,
+    )
+  }
+
   function toggleAttachmentInclusion(id) {
     setAttachmentNotice(null)
     setExcludedAttachmentIds((ids) => (
@@ -2594,6 +2603,9 @@ export default function App() {
                   className="link"
                   onClick={() => requestModelExplorer(true)}
                 >Find compatible model</button>
+                <button type="button" className="link" onClick={excludeIncompatibleAttachments}>
+                  Exclude from request
+                </button>
                 <button type="button" className="link" onClick={removeIncompatibleAttachments}>
                   Remove incompatible
                 </button>
