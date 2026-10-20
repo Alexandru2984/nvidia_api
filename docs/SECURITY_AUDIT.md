@@ -2596,8 +2596,30 @@ is required before describing those controls as complete.
   explorer filtering, stable focus, desktop history behavior, mobile Settings,
   Escape restoration and Settings-to-Explorer navigation.
 - Signed frontend release
-  `/var/www/aichat-releases/release-20261020T051430_573713144` is active at exact
+  `/var/www/aichat-releases/release-20261020T051430_573713144` was activated at exact
   commit `7faa71d6d26c7d3ee2c14041a53d6f0690f80c1a`, verified by key fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Origin and Cloudflare returned `200` for the app, Privacy Center, health and
+  security contact; private conversation and fabricated-media probes returned
+  `403`/`404`. The signed rollback and exact restore both completed in zero
+  seconds. Repeated probes remained correct and the security monitor returned
+  `Result=success` with exit status zero.
+
+### Non-destructive attachment recovery rollout — 2026-10-20
+
+- Commit `8b678a2` adds a bulk “Exclude from request” recovery beside compatible-
+  model discovery and removal. It marks exactly the currently incompatible
+  pending subset as excluded, keeps each private attachment available, removes
+  the generation block and explains the outcome without implying deletion.
+- A dedicated 390-pixel regression proves the warning disappears, the tile and
+  private copy remain, its inclusion control is unchecked, sending becomes
+  available and no attachment `DELETE` request occurs. The three recovery choices
+  use a wrapping desktop/tablet layout and a compact two-row mobile grid. Visual
+  inspection and all 52 responsive browser tests passed; ESLint and the production
+  build were clean.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261020T051750_904250004` is active at exact
+  commit `8b678a2d519cf08a9a441bf770c3648b23c4ac75`, verified by key fingerprint
   `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
   Origin and Cloudflare returned `200` for the app, Privacy Center, health and
   security contact; private conversation and fabricated-media probes returned

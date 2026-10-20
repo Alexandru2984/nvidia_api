@@ -198,7 +198,9 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 The composer accepts picker, drag/drop, and clipboard image inputs through one
 capability-aware queue. Each file has progress, cancel, retry, and dismiss state;
 pending files can be included or excluded from the next request without deletion,
-and extracted document text can be previewed as inert text. Identical unlinked
+and an incompatibility warning can exclude its complete unsafe subset in one
+non-destructive action while keeping every private copy. Extracted document text
+can be previewed as inert text. Identical unlinked
 content is deduplicated with a secret-keyed, owner-scoped fingerprint that is never
 serialized or logged. Failed files remain browser-local until retried or dismissed.
 Logout/session loss aborts in-flight work and clears pending previews so attachment
