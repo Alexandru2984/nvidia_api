@@ -245,6 +245,22 @@ secret values are reproduced here.
   automated live frontend drill rolled back in under one second, restored the
   exact commit-bound release in one second, and the subsequent monitor run
   finished successfully with no active issue.
+- 2026-10-20: commits `0d5df6d` and `6cac5e8` added root-authorized Ed25519
+  provenance for every immutable frontend, backend and Python release. A
+  root-only private key signs a canonical exact-file manifest that contains the
+  release's commit plus frontend-tree or requirement-lock/SBOM evidence; a
+  retained public-key keyring preserves verification across rotation. Neither
+  `aichat` nor the dedicated monitor can read the private key. Deploy, rollback
+  and the independent five-minute monitor fail closed on missing, malformed,
+  unlisted, altered or wrongly signed active artifacts. Two signed releases per
+  family were built from `0d5df6d` so both the active and immediate rollback
+  targets have valid provenance. The first monitor installation safely refused
+  stale alerts exposed by an old monitor observing an in-progress Python build;
+  `6cac5e8` then made monitoring take the shared release-operation lock and defer
+  without clearing state while a deploy holds it exclusively. A live contention
+  check proved that behavior. Signed rollback/restore drills completed in 0/1
+  seconds for frontend, 2/1 for backend and 2/1 for Python, followed by clean
+  origin/edge probes and a successful monitor state with no active issue.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -596,8 +612,18 @@ Python release now embeds a deterministic CycloneDX 1.7 SBOM that records and
 hash-binds those wheel artifacts, the lockfile and repository commit. Frontend
 build output records and deploy-time validates its exact commit and Git tree,
 while its immutable release manifest binds every served byte. This prevents
-normal stale/dirty release activation but is not a signed builder-provenance
-attestation. Commit `76e3ab8` adds bounded weekly Dependabot proposals for the
+normal stale/dirty release activation. Commit `0d5df6d` now adds a purpose-
+separated, root-only Ed25519 signer and retained public-key keyring. Every new
+frontend, backend and Python release signs its canonical exact-file manifest,
+thereby binding its commit plus frontend-tree or Python lock/SBOM evidence; the
+deploy, rollback and independent monitor paths verify the signature. The active
+and immediate rollback releases for all three families are signed, and neither
+the application nor monitor identity can read the private key. Commit `6cac5e8`
+prevents half-built trees from producing false integrity decisions by sharing
+the exclusive deploy/shared monitor operation lock without clearing prior alert
+state. This is strong local builder/deployer provenance and tamper evidence, but
+does not independently attest that an upstream publisher built an uncompromised
+wheel. Commit `76e3ab8` adds bounded weekly Dependabot proposals for the
 frontend npm tree, Python runtime tree and GitHub Actions, plus a CI regression
 gate and an explicit review policy. The policy prohibits auto-merge/deploy,
 moving Action refs, credential or permission expansion and hash relaxation; it
@@ -606,19 +632,24 @@ a manual commit-bound rollout. The workflow token remains restricted to
 `contents: read`, and no production deployment secret is used. Because this
 commit has not been pushed, GitHub has not yet ingested the updater configuration;
 repository-side branch protection and required-review settings also remain
-account-side evidence to verify. Signed builder provenance is still absent.
+account-side evidence to verify. Independent upstream publisher provenance is
+still incomplete.
 
-Impact: a silently moved Action tag can no longer alter CI execution, and a
-changed wheel cannot satisfy the committed lock. An incorrectly reviewed new pin
-or an already-compromised upstream build can still enter the trusted set without
-independent provenance evidence. Blast radius remains reduced by read-only
-permissions and lack of deploy.
+Impact: a silently moved Action tag can no longer alter CI execution, a changed
+wheel cannot satisfy the committed lock, and a post-build release/manifest
+change cannot satisfy the retained local signer. An incorrectly reviewed new pin
+or an already-compromised upstream build can still enter the signed trusted set;
+local signing proves what was selected and deployed, not upstream publisher
+integrity. Blast radius remains reduced by read-only permissions and lack of CI
+deploy authority.
 
-Remediation: use a controlled updater with explicit upstream review, and
-produce/retain signed builder provenance for each dependency release. After an
-authorized push, verify that all three updater entries are active, security
-updates target the default branch, and branch protection requires human review
-plus the `CI` workflow before considering the updater control operational.
+Remediation: after an authorized push, verify that all three updater entries are
+active, security updates target the default branch, and branch protection
+requires human review plus the `CI` workflow before considering the updater
+control operational. Retain local signing public keys for the full executable
+and archive lifecycles, protect/backup the active private key separately, and
+record/verify upstream publisher attestations where the selected ecosystem and
+artifact provide them.
 
 ### S-15 — Low/Medium — privacy/governance evidence is incomplete
 
@@ -714,7 +745,8 @@ than exporting historical combined-log fields.
   errors in the sampled 24-hour journal window.
 - Backend, Python-runtime and frontend immutable releases have common lock-held,
   fail-safe rollback drills; the frontend path additionally proves a static
-  switch does not restart the backend process.
+  switch does not restart the backend process. Their active and immediate
+  rollback targets now have independently monitored Ed25519-signed manifests.
 
 ## Verification evidence
 
@@ -723,16 +755,18 @@ than exporting historical combined-log fields.
   optional), zero advisories at every severity.
 - Bandit: zero high findings; one medium and nine low signals. The medium
   `urlopen` signal is a false positive because the Telegram scheme/host are fixed;
-  the subprocess signals use fixed argument arrays. Replacing the relative
-  `journalctl` executable with an absolute path remains low-cost hardening.
+  subprocess calls use fixed argument arrays and security-sensitive executables
+  use absolute paths.
 - ShellCheck: clean for all repository shell scripts.
 - `detect-secrets`: 23 unique candidates in the current tree and across 68
   reachable commit snapshots, all reviewed test/config placeholders or
   non-secret entropy; zero candidates in four unreachable Git objects. `.env`
   files were never tracked.
-- Backend: 433 tests passed; migration drift check and `pip check` passed.
-- Frontend: ESLint, production build and 33 Playwright checks at mobile/desktop
+- Backend: 608 tests passed; migration drift check and `pip check` passed.
+- Frontend: ESLint, production build and 44 Playwright checks at mobile/desktop
   widths passed.
+- Operational security: 98 tests passed; Bash syntax, ShellCheck and immutable
+  GitHub Actions validation passed.
 - Django `check --deploy`: only `SECURE_HSTS_PRELOAD=False`; one-year HSTS with
   subdomains is active.
 - nginx syntax passed and installed app nginx/systemd files matched the repository
@@ -770,13 +804,12 @@ than exporting historical combined-log fields.
    password plus enabled-2FA proof. User-linked AI usage now expires after 90
    days and anonymous service aggregates after 400 days. Define the operator-wide
    legal/default schedule.
-4. Produce and retain signed wheel provenance and tabletop both backend rollback
-   paths. Application code and the minimal runtime Python environment already use
-   separate root-owned, manifest-verified atomic releases with automatic rollback,
-   production wheels are SHA-256 locked with an embedded CycloneDX SBOM, and each
-   executable root is bounded to the active plus two inactive rollbacks. Define
-   an encrypted off-site/expiry lifecycle for supplemental retired-release
-   archives.
+4. Local Ed25519 release provenance is deployed for frontend, backend and Python;
+   it binds the exact manifest to commit/tree/lock/SBOM evidence and both signed
+   active/immediate rollback targets passed production drills. Continue retaining
+   each named public key, protect/backup the active private key separately, add
+   upstream publisher attestations where available, and define an encrypted
+   off-site/expiry lifecycle for supplemental retired-release archives.
 5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
    detection; run the tabletop in `INCIDENT_RESPONSE.md`. Routine local request
    logs are now content-minimized; preserve that field boundary in any external

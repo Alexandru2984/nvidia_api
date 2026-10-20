@@ -214,16 +214,21 @@ timed evidence.
   production through a common exclusive operation lock, strict compatibility
   preflights, PID/path verification, bounded health/security probes and guaranteed
   restoration. Executable roots retain the active plus two rollback releases,
-  archiving older trees privately only after SHA-256 verification. Next add
-  signed builder provenance and define an encrypted off-site/expiry lifecycle
-  for those supplemental archives.
+  archiving older trees privately only after SHA-256 verification. All three
+  families now have root-authorized Ed25519 manifests that bind their commit and
+  tree/lock/SBOM evidence, retain public keys across rotation, and are verified
+  by deploy, rollback and the independent monitor. Active and immediate rollback
+  targets passed signed production drills. Next add upstream publisher
+  attestations where available and define an encrypted off-site/expiry lifecycle
+  for supplemental archives.
   CI's remote Actions are pinned to reviewed full commit SHAs, with a regression
   gate rejecting moving refs; updates must preserve that review trail. A bounded
   weekly Dependabot proposal policy for npm, Python and Actions is committed,
   prohibits automated merge/deploy authority, and is CI-checked against weakened
   review boundaries. It becomes operational only after an authorized push and
-  verification of GitHub-side required review/CI settings. Signed builder
-  provenance remains the next supply-chain control.
+  verification of GitHub-side required review/CI settings. Local release
+  provenance is shipped; independent upstream artifact provenance remains the
+  next supply-chain control.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page
