@@ -5,12 +5,15 @@ import ConversationExportDialog from './ConversationExportDialog'
 import DocumentPreview from './DocumentPreview'
 import ModelExplorer from './ModelExplorer'
 import ProviderDisclosure, { PROVIDER_DISCLOSURE_VERSION } from './ProviderDisclosure'
+import {
+  capabilitiesFor,
+  DOCUMENT_EXTENSIONS,
+  incompatibleAttachmentsForModel,
+} from './modelCapabilities'
 const Settings = lazy(() => import('./Settings'))
 const MarkdownBody = lazy(() => import('./MarkdownBody'))
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024
-const DOCUMENT_EXTENSIONS = ['pdf', 'txt', 'md', 'docx']
-const FALLBACK_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
 const FALLBACK_GENERATION = {
   temperature: { min: 0, max: 1, step: 0.1, default: 0.7 },
   max_tokens: { min: 64, max: 8192, step: 64, default: 1024 },
@@ -85,30 +88,8 @@ function formatProbeLatency(performance) {
   return `Probe ${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
 }
 
-function capabilitiesFor(model) {
-  if (model?.capabilities) return model.capabilities
-  const imageExtensions = model?.vision ? FALLBACK_IMAGE_EXTENSIONS : []
-  return {
-    input_modalities: ['text', 'document', ...(model?.vision ? ['image'] : [])],
-    attachment_extensions: [...DOCUMENT_EXTENSIONS, ...imageExtensions],
-    document_extensions: DOCUMENT_EXTENSIONS,
-    documents_as_text: true,
-    image_mime_types: model?.vision ? ['image/jpeg', 'image/png'] : [],
-    max_images: model?.vision ? 1 : 0,
-    max_image_bytes: null,
-  }
-}
-
 function generationFor(model) {
   return model?.generation || FALLBACK_GENERATION
-}
-
-function attachmentIsCompatible(attachment, capabilities) {
-  if (attachment.kind === 'document') return attachment.has_text !== false
-  if (!['image', 'generated_image'].includes(attachment.kind)) return false
-  return capabilities.input_modalities.includes('image')
-    && capabilities.image_mime_types.includes(attachment.mime_type)
-    && (!capabilities.max_image_bytes || attachment.size <= capabilities.max_image_bytes)
 }
 
 function sortConversations(items) {
@@ -1156,8 +1137,10 @@ export default function App() {
   )
   const queuedImages = uploadJobs.filter((job) => job.kind === 'image')
   const uploadingCount = uploadJobs.filter((job) => job.status === 'uploading').length
-  const incompatiblePending = includedPendingAttachments.filter((attachment) =>
-    !attachmentIsCompatible(attachment, currentCapabilities))
+  const incompatiblePending = incompatibleAttachmentsForModel(
+    includedPendingAttachments,
+    currentModel,
+  )
   const attachmentsBlocked = incompatiblePending.length > 0
   const imageLimitReached = pendingImages.length + queuedImages.length
     >= currentCapabilities.max_images
@@ -1167,10 +1150,14 @@ export default function App() {
     attachmentLimits.max_file_bytes,
     currentCapabilities.max_image_bytes || attachmentLimits.max_file_bytes,
   )
-  const historicalImagesOmitted = Boolean(active?.messages?.some((message) =>
-    (message.attachments || []).some((attachment) =>
-      ['image', 'generated_image'].includes(attachment.kind)
-      && !attachmentIsCompatible(attachment, currentCapabilities))))
+  const historicalImages = (active?.messages || []).flatMap((message) => (
+    (message.attachments || []).filter((attachment) =>
+      ['image', 'generated_image'].includes(attachment.kind))
+  ))
+  const historicalImagesOmitted = incompatibleAttachmentsForModel(
+    historicalImages,
+    currentModel,
+  ).length > 0
   const groupedModels = useMemo(() => PURPOSE_GROUPS.map(([purpose, label]) => ({
     purpose,
     label,
@@ -2245,6 +2232,7 @@ export default function App() {
               <ModelExplorer
                 models={models}
                 currentModelId={currentModelId}
+                attachments={includedPendingAttachments}
                 availabilityCheckedAt={availabilityCheckedAt}
                 availability={modelAvailability}
                 disabled={sending}
@@ -2347,8 +2335,8 @@ export default function App() {
         )}
         {historicalImagesOmitted && !activeModelUnavailable && (
           <div className="model-status-banner history-media-notice" role="status">
-            Earlier images remain in this conversation, but this model does not accept them.
-            Text and extracted document content will still be included.
+            Some earlier images will be omitted because this model's format, size, or per-request
+            image limit does not accept them. Text and extracted document content will still be included.
           </div>
         )}
         <div className="chat-area" ref={chatAreaRef}>

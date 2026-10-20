@@ -1078,6 +1078,118 @@ test('model explorer ignores malformed local preferences', async ({ page }) => {
   await expectNoPageOverflow(page)
 })
 
+test('model explorer filters models against the currently selected files', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'diagram.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Open model explorer' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a model' })
+  await expect(dialog.getByText('1 selected file', { exact: false })).toBeVisible()
+  await expect(dialog.getByText('1 of 2 available models can use all of them')).toBeVisible()
+  const visionCard = dialog.getByRole('button', { name: 'Use Test Vision' }).locator('..')
+  const textCard = dialog.getByRole('button', { name: 'Use Text Only' }).locator('..')
+  await expect(visionCard.getByText('Fits current files')).toBeVisible()
+  await expect(textCard.getByText('1 file incompatible')).toBeVisible()
+  await page.screenshot({ path: 'test-results/model-file-fit-390.png' })
+
+  await dialog.getByRole('button', { name: /Fits 1 current file/ }).click()
+  await expect(dialog.getByRole('button', { name: 'Use Test Vision' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Use Text Only' })).toHaveCount(0)
+  await expectNoPageOverflow(page)
+})
+
+test('switching to a lower image-count model blocks overflow before provider work', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page, true, 'multi/model')
+  const model = (id, name, maxImages) => ({
+    id, name, vendor: 'Test', vision: true, purpose: 'assistant', recommended: true,
+    context: 32000, description: `${name} description`, best_for: 'Image analysis',
+    capabilities: {
+      input_modalities: ['text', 'document', 'image'],
+      attachment_extensions: ['pdf', 'txt', 'md', 'docx', 'png'],
+      document_extensions: ['pdf', 'txt', 'md', 'docx'], documents_as_text: true,
+      image_mime_types: ['image/png'], max_images: maxImages, max_image_bytes: null,
+    },
+    generation: {
+      temperature: { min: 0, max: 1, step: 0.1, default: 0.7 },
+      max_tokens: { min: 64, max: 4096, step: 64, default: 1024 },
+    },
+  })
+  await page.route('**/api/models/', (route) => route.fulfill({ status: 200, json: {
+    models: [model('multi/model', 'Multi Vision', 2), model('limited/model', 'Limited Vision', 1)],
+    default: 'multi/model', availability_checked_at: '2026-10-20T00:00:00Z',
+    availability: {
+      state: 'verified', checked_at: '2026-10-20T00:00:00Z', inconclusive_models: 0,
+      unverified_models: 0, catalog_models: 2, available_models: 2, unavailable_models: 0,
+    },
+    attachment_limits: {
+      max_files_per_message: 8, max_file_bytes: 10485760, max_bytes_per_message: 20971520,
+    },
+  } }))
+  let attachmentId = 920
+  await page.route('**/api/attachments/upload/', (route) => {
+    attachmentId += 1
+    return route.fulfill({ status: 201, json: {
+      id: attachmentId, kind: 'image', original_name: `image-${attachmentId}.png`,
+      mime_type: 'image/png', size: 68,
+      url: `/api/attachments/${attachmentId}/download/`, has_text: false,
+      deletable: true, deduplicated: false,
+    } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles([
+    { name: 'first.png', mimeType: 'image/png', buffer: Buffer.from('first') },
+    { name: 'second.png', mimeType: 'image/png', buffer: Buffer.from('second') },
+  ])
+  await expect(page.locator('.att-tile.image')).toHaveCount(2)
+  await page.getByLabel('Chat model').selectOption('limited/model')
+  await expect(page.getByRole('alert')).toContainText('1 pending attachment is not compatible')
+  await expect(page.getByTitle('Send')).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Open model explorer' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a model' })
+  const limitedCard = dialog.getByRole('button', { name: 'Use Limited Vision' }).locator('..')
+  await expect(limitedCard.getByText('1 file incompatible')).toBeVisible()
+  await expect(dialog.getByText('1 of 2 available models can use all of them')).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
+test('history explains images omitted by the selected model count limit', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  const image = (id) => ({
+    id, kind: 'image', original_name: `history-${id}.png`, mime_type: 'image/png',
+    size: 68, url: `/api/attachments/${id}/download/`, has_text: false, deletable: false,
+  })
+  await page.route(/\/api\/conversations\/1\/(?:\?.*)?$/, (route) => route.fulfill({ status: 200, json: {
+    id: 1, title: 'A useful conversation', model_id: 'test/model', message_count: 2,
+    is_pinned: false, archived_at: null,
+    created_at: '2026-10-05T12:00:00Z', updated_at: '2026-10-05T12:00:00Z',
+    messages: [
+      { id: 1, role: 'user', content: 'Compare these', attachments: [image(930), image(931)] },
+      { id: 2, role: 'assistant', content: 'Done', attachments: [] },
+    ],
+  } }))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await expect(page.getByRole('status')).toContainText(
+    "Some earlier images will be omitted because this model's format, size, or per-request image limit",
+  )
+  await expectNoPageOverflow(page)
+})
+
 test('degraded model availability is explicit without disabling last verified models', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 })
   await mockAPI(page, true, 'test/model', 'open', {

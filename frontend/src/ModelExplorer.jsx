@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { attachmentCompatibilityForModel } from './modelCapabilities'
 
 const STORAGE_KEY = 'aichat-model-preferences-v1'
 const MAX_STORED_BYTES = 8192
@@ -77,7 +78,7 @@ function probeLatencyLabel(model, prefix = '') {
   return `${prefix}${value}s probe`
 }
 
-function comparisonValue(model, field) {
+function comparisonValue(model, field, attachments) {
   const capabilities = model.capabilities || {}
   if (field === 'best_for') return model.best_for || 'General use'
   if (field === 'purpose') return model.purpose || 'assistant'
@@ -93,17 +94,26 @@ function comparisonValue(model, field) {
     const formats = (capabilities.attachment_extensions || []).map((item) => item.toUpperCase())
     return formats.length ? formats.join(', ') : 'Text only'
   }
+  if (field === 'current_files') {
+    if (attachments.length === 0) return 'No files selected'
+    const compatibility = attachmentCompatibilityForModel(attachments, model)
+    return compatibility.compatible
+      ? `All ${attachments.length} supported`
+      : `${compatibility.incompatible.length} of ${attachments.length} incompatible`
+  }
   return '—'
 }
 
 export default function ModelExplorer({
-  models, currentModelId, availabilityCheckedAt, availability, disabled = false, onSelect,
+  models, currentModelId, attachments = [], availabilityCheckedAt, availability,
+  disabled = false, onSelect,
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [purpose, setPurpose] = useState('all')
   const [sortBy, setSortBy] = useState('recommended')
   const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [compatibleOnly, setCompatibleOnly] = useState(false)
   const [preferences, setPreferences] = useState(readPreferences)
   const [compareIds, setCompareIds] = useState([])
   const [choosingId, setChoosingId] = useState(null)
@@ -169,7 +179,16 @@ export default function ModelExplorer({
 
   useEffect(() => {
     resultsRef.current?.scrollTo({ top: 0 })
-  }, [favoritesOnly, purpose, query, sortBy])
+  }, [compatibleOnly, favoritesOnly, purpose, query, sortBy])
+
+  const compatibilityById = useMemo(() => new Map(models.map((model) => [
+    model.id,
+    attachmentCompatibilityForModel(attachments, model),
+  ])), [attachments, models])
+
+  const compatibleModelCount = attachments.length
+    ? models.filter((model) => compatibilityById.get(model.id)?.compatible).length
+    : models.length
 
   const visibleModels = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -178,6 +197,7 @@ export default function ModelExplorer({
     return models
       .filter((model) => purpose === 'all' || (model.purpose || 'assistant') === purpose)
       .filter((model) => !favoritesOnly || favoriteSet.has(model.id))
+      .filter((model) => !compatibleOnly || compatibilityById.get(model.id)?.compatible)
       .filter((model) => !normalizedQuery || modelSearchText(model).includes(normalizedQuery))
       .map((model, index) => ({ model, index }))
       .sort((a, b) => {
@@ -203,7 +223,7 @@ export default function ModelExplorer({
         return aLatency - bLatency || a.index - b.index
       })
       .map(({ model }) => model)
-  }, [favoritesOnly, models, preferences, purpose, query, sortBy])
+  }, [compatibleOnly, compatibilityById, favoritesOnly, models, preferences, purpose, query, sortBy])
 
   const comparedModels = compareIds
     .map((id) => models.find((model) => model.id === id))
@@ -319,6 +339,14 @@ export default function ModelExplorer({
                 aria-pressed={favoritesOnly}
                 onClick={() => setFavoritesOnly((value) => !value)}
               >★ Favorites</button>
+              {attachments.length > 0 && (
+                <button
+                  type="button"
+                  className={compatibleOnly ? 'filter-chip active' : 'filter-chip'}
+                  aria-pressed={compatibleOnly}
+                  onClick={() => setCompatibleOnly((value) => !value)}
+                >✓ Fits {attachments.length} current file{attachments.length === 1 ? '' : 's'}</button>
+              )}
               <label className="model-sort">
                 <span className="sr-only">Sort models</span>
                 <select
@@ -332,6 +360,16 @@ export default function ModelExplorer({
                 </select>
               </label>
             </div>
+
+            {attachments.length > 0 && (
+              <div className="model-file-fit-summary" role="status">
+                <strong>{attachments.length} selected file{attachments.length === 1 ? '' : 's'}</strong>
+                <span>
+                  {compatibleModelCount} of {models.length} available model{models.length === 1 ? '' : 's'}
+                  {' '}can use all of them. Excluded files are not considered.
+                </span>
+              </div>
+            )}
 
             <div className="purpose-filters" role="group" aria-label="Filter models by purpose">
               {PURPOSES.map(([id, label]) => (
@@ -348,10 +386,15 @@ export default function ModelExplorer({
             <div className="model-explorer-body">
               <div ref={resultsRef} className="model-results" aria-live="polite">
                 {visibleModels.length === 0 && (
-                  <div className="empty-list">No available models match these filters.</div>
+                  <div className="empty-list">
+                    {compatibleOnly
+                      ? 'No available model can use every selected file. Exclude or remove incompatible files.'
+                      : 'No available models match these filters.'}
+                  </div>
                 )}
                 {visibleModels.map((model) => {
                   const capabilities = model.capabilities || {}
+                  const fileCompatibility = compatibilityById.get(model.id)
                   const favorite = preferences.favorites.includes(model.id)
                   const recent = preferences.recent.includes(model.id)
                   const compared = compareIds.includes(model.id)
@@ -383,6 +426,13 @@ export default function ModelExplorer({
                           <span>{model.purpose || 'assistant'}</span>
                           <span>{contextLabel(model.context)}</span>
                           <span>{capabilities.max_images ? `Images × ${capabilities.max_images}` : 'Text + documents'}</span>
+                          {attachments.length > 0 && (
+                            <span className={fileCompatibility?.compatible ? 'positive' : 'warning'}>
+                              {fileCompatibility?.compatible
+                                ? 'Fits current files'
+                                : `${fileCompatibility?.incompatible.length || attachments.length} file${(fileCompatibility?.incompatible.length || attachments.length) === 1 ? '' : 's'} incompatible`}
+                            </span>
+                          )}
                           {model.performance && (
                             <span
                               className={`speed-${model.performance.latency_band}`}
@@ -436,10 +486,11 @@ export default function ModelExplorer({
                           ['Inputs', 'inputs'],
                           ['Images', 'images'],
                           ['Formats', 'formats'],
+                          ['Current files', 'current_files'],
                         ].map(([label, field]) => (
                           <div key={field}>
                             <small>{label}</small>
-                            <span>{comparisonValue(model, field)}</span>
+                            <span>{comparisonValue(model, field, attachments)}</span>
                           </div>
                         ))}
                         <button type="button" onClick={() => chooseModel(model.id)} disabled={Boolean(choosingId)}>
