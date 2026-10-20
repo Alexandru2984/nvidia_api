@@ -2774,6 +2774,21 @@ is required before describing those controls as complete.
   `200`/`403`/`404` public/private/media contract, and the independent monitor
   completed with `Result=success` and exit status zero.
 
+### Accessible chat-default confirmation rollout — 2026-10-21
+
+- Commit `6c28d68` adds a polite live-region confirmation after default-model
+  selection, generation-default save and reset. It reports only the already
+  visible model name and effective numeric settings, clears stale success before
+  every mutation, preserves the existing alert path on failure, and creates no
+  new persistence, provider work or privilege boundary.
+- All 56 responsive browser tests, ESLint, the production build and npm audit
+  passed. Signed frontend release
+  `/var/www/aichat-releases/release-20261020T210037_919447544` is active at exact
+  commit `6c28d68b7efef381f24e61a05a4dc25cf45207a6`; signed rollback/restoration
+  completed in 1/0 seconds. Origin/Cloudflare probes retained the expected
+  `200`/`403`/`404` contract, and the independent monitor returned success with
+  exit status zero.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

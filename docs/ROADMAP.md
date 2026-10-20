@@ -290,8 +290,10 @@ timed evidence.
   controls open a searchable, modal-safe action list from Chat, Image studio, or
   Settings. Arrow/Enter/Escape navigation, background inertness, stable focus
   restoration, responsive conversation behavior, and direct Model Explorer
-  handoff are covered at desktop and 320-pixel widths. Add draft persistence,
-  message copy/edit, code-block actions, and accessible confirmations/toasts.
+  handoff are covered at desktop and 320-pixel widths. Message/code-block copy
+  actions and accessible confirmations for chat-default mutations are also
+  shipped. Add privacy-conscious draft persistence, message editing, and a
+  consistent confirmation/toast pattern for the remaining mutations.
 
 P1 acceptance: mobile widths from 320 px and keyboard-only flows pass automated
 tests; large accounts do not issue unbounded queries; exports and deletions are
