@@ -1952,7 +1952,7 @@ export default function App() {
   }
 
   async function handleSetDefaultModel(modelId) {
-    const preference = await api.updateAccountPreferences(modelId)
+    const preference = await api.updateAccountPreferences({ default_model_id: modelId })
     setDefaultModel(preference.effective_default_model_id || '')
   }
 

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core.cache import cache
+from django.db import IntegrityError, transaction
 
 from chat.models import ChatPreference
 from chat.models_catalog import DEFAULT_MODEL_ID, MODEL_IDS
@@ -31,6 +32,10 @@ class TestChatPreferences:
             'effective_default_model_id': DEFAULT_MODEL_ID,
             'service_default_model_id': DEFAULT_MODEL_ID,
             'configured_default_available': None,
+            'default_temperature': None,
+            'default_max_tokens': None,
+            'effective_temperature': 0.7,
+            'effective_max_tokens': 1024,
         }
         assert not ChatPreference.objects.exists()
 
@@ -65,6 +70,99 @@ class TestChatPreferences:
         assert conversation.json()['model_id'] == model_id
         assert ChatPreference.objects.get(user=user).default_model_id == model_id
         assert not ChatPreference.objects.filter(user=other_user).exists()
+
+    def test_generation_defaults_drive_new_conversations_only(
+        self,
+        auth_client,
+        user,
+    ):
+        updated = auth_client.patch(
+            '/api/account/preferences/',
+            {'default_temperature': 0.2, 'default_max_tokens': 2048},
+            format='json',
+        )
+        conversation = auth_client.post(
+            '/api/conversations/', {'title': 'Custom generation'}, format='json',
+        )
+
+        assert updated.status_code == 200
+        assert updated.json()['default_temperature'] == 0.2
+        assert updated.json()['default_max_tokens'] == 2048
+        assert updated.json()['effective_temperature'] == 0.2
+        assert updated.json()['effective_max_tokens'] == 2048
+        assert conversation.status_code == 201
+        assert conversation.json()['temperature'] == 0.2
+        assert conversation.json()['max_tokens'] == 2048
+        preference = ChatPreference.objects.get(user=user)
+        assert preference.default_model_id is None
+
+    @pytest.mark.parametrize(('patch_value', 'code'), [
+        ({'default_temperature': True}, 'invalid_default_temperature'),
+        ({'default_temperature': 'nan'}, 'invalid_default_temperature'),
+        ({'default_temperature': 1.1}, 'invalid_default_temperature'),
+        ({'default_max_tokens': True}, 'invalid_default_max_tokens'),
+        ({'default_max_tokens': 63}, 'invalid_default_max_tokens'),
+        ({'default_max_tokens': 64.5}, 'invalid_default_max_tokens'),
+        ({'default_max_tokens': 8193}, 'invalid_default_max_tokens'),
+    ])
+    def test_invalid_generation_defaults_are_rejected(
+        self,
+        auth_client,
+        patch_value,
+        code,
+    ):
+        response = auth_client.patch(
+            '/api/account/preferences/', patch_value, format='json',
+        )
+
+        assert response.status_code == 400
+        assert response.json()['code'] == code
+        assert not ChatPreference.objects.exists()
+
+    def test_model_specific_limit_is_enforced_and_existing_value_is_clamped(
+        self,
+        auth_client,
+        user,
+    ):
+        riva = 'nvidia/riva-translate-4b-instruct-v2'
+        ChatPreference.objects.create(user=user, default_max_tokens=8192)
+
+        selected = auth_client.patch(
+            '/api/account/preferences/', {'default_model_id': riva}, format='json',
+        )
+        rejected = auth_client.patch(
+            '/api/account/preferences/', {'default_max_tokens': 4097}, format='json',
+        )
+        conversation = auth_client.post(
+            '/api/conversations/', {'title': 'Riva bounded'}, format='json',
+        )
+
+        assert selected.status_code == 200, selected.content
+        assert selected.json()['default_max_tokens'] == 8192
+        assert selected.json()['effective_max_tokens'] == 4096
+        assert rejected.status_code == 400
+        assert rejected.json()['code'] == 'invalid_default_max_tokens'
+        assert conversation.json()['max_tokens'] == 4096
+
+    def test_reset_generation_defaults_keeps_selected_model(self, auth_client, user):
+        ChatPreference.objects.create(
+            user=user,
+            default_model_id=_alternative_model(),
+            default_temperature=0.2,
+            default_max_tokens=2048,
+        )
+
+        response = auth_client.patch(
+            '/api/account/preferences/',
+            {'default_temperature': None, 'default_max_tokens': None},
+            format='json',
+        )
+
+        assert response.status_code == 200
+        preference = ChatPreference.objects.get(user=user)
+        assert preference.default_model_id == _alternative_model()
+        assert preference.default_temperature is None
+        assert preference.default_max_tokens is None
 
     def test_null_or_empty_value_minimizes_data_by_deleting_preference(
         self,
@@ -167,3 +265,7 @@ class TestChatPreferences:
         user.delete()
 
         assert not ChatPreference.objects.exists()
+
+    def test_database_rejects_generation_defaults_outside_global_bounds(self, user):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            ChatPreference.objects.create(user=user, default_temperature=2.0)

@@ -58,6 +58,8 @@ class TestAccountExport:
         chat_preference = ChatPreference.objects.create(
             user=user,
             default_model_id=DEFAULT_MODEL_ID,
+            default_temperature=0.2,
+            default_max_tokens=2048,
         )
         deletion = AccountDeletionRequest.objects.create(
             user=user,
@@ -135,6 +137,8 @@ class TestAccountExport:
         assert payload['preferences_and_security']['default_chat_model_updated_at'] == (
             chat_preference.updated_at.isoformat().replace('+00:00', 'Z')
         )
+        assert payload['preferences_and_security']['default_chat_temperature'] == 0.2
+        assert payload['preferences_and_security']['default_chat_max_tokens'] == 2048
         assert payload['preferences_and_security']['account_deletion'] == {
             'scheduled': True,
             'requested_at': deletion.requested_at.isoformat().replace('+00:00', 'Z'),

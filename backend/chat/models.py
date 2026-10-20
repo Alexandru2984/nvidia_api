@@ -213,8 +213,38 @@ class ChatPreference(models.Model):
         on_delete=models.CASCADE,
         primary_key=True,
     )
-    default_model_id = models.CharField(max_length=120)
+    default_model_id = models.CharField(max_length=120, null=True, blank=True)
+    default_temperature = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(TEMPERATURE_MIN), MaxValueValidator(TEMPERATURE_MAX)],
+    )
+    default_max_tokens = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(MAX_TOKENS_MIN), MaxValueValidator(MAX_TOKENS_MAX)],
+    )
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(default_temperature__isnull=True)
+                | (
+                    models.Q(default_temperature__gte=TEMPERATURE_MIN)
+                    & models.Q(default_temperature__lte=TEMPERATURE_MAX)
+                ),
+                name='chat_pref_temperature_range',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(default_max_tokens__isnull=True)
+                | (
+                    models.Q(default_max_tokens__gte=MAX_TOKENS_MIN)
+                    & models.Q(default_max_tokens__lte=MAX_TOKENS_MAX)
+                ),
+                name='chat_pref_max_tokens_range',
+            ),
+        ]
 
     def __str__(self):
         return f'ChatPreference(user={self.user_id}, model={self.default_model_id})'

@@ -15,6 +15,10 @@ async function mockAPI(
     effective_default_model_id: 'test/model',
     service_default_model_id: 'test/model',
     configured_default_available: null,
+    default_temperature: null,
+    default_max_tokens: null,
+    effective_temperature: 0.7,
+    effective_max_tokens: 1024,
   }
   let conversation = {
     id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
@@ -50,6 +54,9 @@ async function mockAPI(
       conversation = {
         id: 2, title: payload.title || 'New Chat', model_id: payload.model_id,
         message_count: 0, messages: [], is_pinned: false, archived_at: null,
+        temperature: chatPreference.effective_temperature,
+        max_tokens: chatPreference.effective_max_tokens,
+        system_prompt: '',
         created_at: '2026-10-05T12:02:00Z', updated_at: '2026-10-05T12:02:00Z',
       }
       return route.fulfill({ status: 201, json: conversation })
@@ -87,12 +94,25 @@ async function mockAPI(
       } } })
     }
     if (path === '/api/account/preferences/' && route.request().method() === 'PATCH') {
-      const { default_model_id: modelId } = route.request().postDataJSON()
+      const patch = route.request().postDataJSON()
+      const modelId = Object.hasOwn(patch, 'default_model_id')
+        ? patch.default_model_id
+        : chatPreference.default_model_id
+      const temperature = Object.hasOwn(patch, 'default_temperature')
+        ? patch.default_temperature
+        : chatPreference.default_temperature
+      const maxTokens = Object.hasOwn(patch, 'default_max_tokens')
+        ? patch.default_max_tokens
+        : chatPreference.default_max_tokens
       chatPreference = {
         default_model_id: modelId,
         effective_default_model_id: modelId || 'test/model',
         service_default_model_id: 'test/model',
         configured_default_available: modelId ? true : null,
+        default_temperature: temperature,
+        default_max_tokens: maxTokens,
+        effective_temperature: temperature ?? 0.7,
+        effective_max_tokens: maxTokens ?? 1024,
       }
       return route.fulfill({ status: 200, json: chatPreference })
     }
@@ -745,6 +765,34 @@ test('default chat model persists and drives the next conversation', async ({ pa
   await page.getByRole('button', { name: 'New chat' }).click()
   expect((await createRequest).postDataJSON()).toMatchObject({ model_id: 'text/model' })
   await expect(page.getByLabel('Chat model')).toHaveValue('text/model')
+  await expectNoPageOverflow(page)
+})
+
+test('generation defaults are persisted and applied to a new conversation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Settings', { exact: true }).click()
+
+  await page.locator('#default-temperature').fill('0.3')
+  await page.getByLabel('Maximum output tokens').fill('2048')
+  const preferenceRequest = page.waitForRequest((request) => (
+    new URL(request.url()).pathname === '/api/account/preferences/'
+      && request.method() === 'PATCH'
+  ))
+  await page.getByRole('button', { name: 'Save generation defaults' }).click()
+  expect((await preferenceRequest).postDataJSON()).toEqual({
+    default_temperature: 0.3,
+    default_max_tokens: 2048,
+  })
+
+  await page.getByRole('button', { name: 'Close settings' }).click()
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByRole('button', { name: 'New chat' }).click()
+  await page.getByTitle('Conversation settings (system prompt, temperature, max tokens)').click()
+  await expect(page.locator('.convo-settings input[type="range"]')).toHaveValue('0.3')
+  await expect(page.locator('.convo-settings input[type="number"]')).toHaveValue('2048')
   await expectNoPageOverflow(page)
 })
 

@@ -1780,6 +1780,11 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 }
 .settings-field { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; font-size: 13px; }
 .chat-defaults select { width: 100%; min-height: 40px; }
+.generation-defaults { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.generation-default-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .55fr); gap: 14px; }
+.generation-default-grid input[type="range"] { width: 100%; accent-color: var(--accent); }
+.generation-default-grid input[type="number"] { width: 100%; }
+.generation-default-hint { margin-top: 4px !important; }
 .settings-inline-status { margin-top: 8px !important; margin-bottom: 0 !important; }
 .settings-warning {
   margin: 10px 0 0;
@@ -2161,6 +2166,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 }
 @media (max-width: 760px) {
   .app { grid-template-columns: minmax(0, 1fr); }
+  .generation-default-grid { grid-template-columns: 1fr; gap: 4px; }
   .sidebar { visibility: hidden; padding-bottom: env(safe-area-inset-bottom); }
   .app.sidebar-open .sidebar { visibility: visible; }
   .topbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; }

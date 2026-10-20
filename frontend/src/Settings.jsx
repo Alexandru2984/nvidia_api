@@ -23,23 +23,68 @@ function ChatDefaultsPanel({ models, onDefaultModelChange }) {
   const [preference, setPreference] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [temperature, setTemperature] = useState('')
+  const [maxTokens, setMaxTokens] = useState('')
 
   useEffect(() => {
     let cancelled = false
     api.accountPreferences()
-      .then((value) => { if (!cancelled) setPreference(value) })
+      .then((value) => {
+        if (cancelled) return
+        setPreference(value)
+        setTemperature(String(value.effective_temperature ?? ''))
+        setMaxTokens(String(value.effective_max_tokens ?? ''))
+      })
       .catch((e) => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
   }, [])
+
+  function applyPreference(value) {
+    setPreference(value)
+    setTemperature(String(value.effective_temperature ?? ''))
+    setMaxTokens(String(value.effective_max_tokens ?? ''))
+  }
 
   async function changeDefault(event) {
     const modelId = event.target.value || null
     setBusy(true)
     setError(null)
     try {
-      const updated = await api.updateAccountPreferences(modelId)
-      setPreference(updated)
+      const updated = await api.updateAccountPreferences({ default_model_id: modelId })
+      applyPreference(updated)
       onDefaultModelChange(updated.effective_default_model_id || '')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveGenerationDefaults() {
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await api.updateAccountPreferences({
+        default_temperature: Number(temperature),
+        default_max_tokens: Number(maxTokens),
+      })
+      applyPreference(updated)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resetGenerationDefaults() {
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await api.updateAccountPreferences({
+        default_temperature: null,
+        default_max_tokens: null,
+      })
+      applyPreference(updated)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -54,6 +99,10 @@ function ChatDefaultsPanel({ models, onDefaultModelChange }) {
   const recommended = models.find(
     (model) => model.id === preference?.service_default_model_id,
   )
+  const effectiveModel = models.find(
+    (model) => model.id === preference?.effective_default_model_id,
+  )
+  const generation = effectiveModel?.generation
 
   return (
     <section className="settings-section chat-defaults">
@@ -86,6 +135,50 @@ function ChatDefaultsPanel({ models, onDefaultModelChange }) {
           </select>
         </label>
       ) : !error && <p role="status">Loading chat defaults…</p>}
+      {preference && generation && (
+        <div className="generation-defaults">
+          <div className="generation-default-grid">
+            <label className="settings-field" htmlFor="default-temperature">
+              <span>Temperature: {Number(temperature).toFixed(1)}</span>
+              <input
+                id="default-temperature"
+                type="range"
+                min={generation.temperature.min}
+                max={generation.temperature.max}
+                step={generation.temperature.step}
+                value={temperature}
+                disabled={busy}
+                onChange={(event) => setTemperature(event.target.value)}
+              />
+            </label>
+            <label className="settings-field" htmlFor="default-max-tokens">
+              <span>Maximum output tokens</span>
+              <input
+                id="default-max-tokens"
+                type="number"
+                min={generation.max_tokens.min}
+                max={generation.max_tokens.max}
+                step={generation.max_tokens.step}
+                value={maxTokens}
+                disabled={busy}
+                onChange={(event) => setMaxTokens(event.target.value)}
+              />
+            </label>
+          </div>
+          <p className="muted generation-default-hint">
+            Applied only to new conversations using {effectiveModel.name}. You can still adjust
+            each conversation independently.
+          </p>
+          <div className="settings-actions">
+            <button type="button" className="primary" disabled={busy} onClick={saveGenerationDefaults}>
+              {busy ? 'Saving…' : 'Save generation defaults'}
+            </button>
+            <button type="button" className="link" disabled={busy} onClick={resetGenerationDefaults}>
+              Reset generation defaults
+            </button>
+          </div>
+        </div>
+      )}
       {busy && <p className="muted settings-inline-status" role="status">Saving preference…</p>}
       {preference?.configured_default_available === false && (
         <p className="settings-warning" role="status">

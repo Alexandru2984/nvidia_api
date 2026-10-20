@@ -287,9 +287,9 @@ export const api = {
   // Account
   accountUsage: () => request('/account/usage/'),
   accountPreferences: () => request('/account/preferences/'),
-  updateAccountPreferences: (default_model_id) =>
+  updateAccountPreferences: (patch) =>
     request('/account/preferences/', {
-      method: 'PATCH', body: JSON.stringify({ default_model_id }),
+      method: 'PATCH', body: JSON.stringify(patch),
     }),
   accountExportUrl: () => `${BASE}/account/export/`,
   accountDeletion: () => request('/account/deletion/'),

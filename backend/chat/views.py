@@ -960,6 +960,31 @@ def _available_default_model(user):
     return _effective_default_model_id(user, available)
 
 
+def _effective_generation_defaults(preference, model_id):
+    if model_id is None:
+        return None, None
+    generation = model_generation_limits(model_id)
+    temperature_limits = generation['temperature']
+    token_limits = generation['max_tokens']
+    configured_temperature = (
+        preference.default_temperature if preference is not None else None
+    )
+    configured_max_tokens = (
+        preference.default_max_tokens if preference is not None else None
+    )
+    temperature = (
+        temperature_limits['default']
+        if configured_temperature is None
+        else min(max(configured_temperature, temperature_limits['min']), temperature_limits['max'])
+    )
+    max_tokens = (
+        token_limits['default']
+        if configured_max_tokens is None
+        else min(max(configured_max_tokens, token_limits['min']), token_limits['max'])
+    )
+    return temperature, max_tokens
+
+
 def _unavailable_model_response():
     return Response(
         {'error': 'This model is currently unavailable. Choose another model.'},
@@ -1103,10 +1128,13 @@ def conversations(request):
         return Response({'error': f'Unknown model_id: {model_id}'}, status=status.HTTP_400_BAD_REQUEST)
     if requested_model and model_id in unavailable_model_ids():
         return _unavailable_model_response()
-    generation = model_generation_limits(model_id)
     User = get_user_model()
     with transaction.atomic():
         User.objects.select_for_update().only('pk').get(pk=request.user.pk)
+        preference = ChatPreference.objects.filter(user_id=request.user.pk).first()
+        default_temperature, default_max_tokens = _effective_generation_defaults(
+            preference, model_id,
+        )
         conversation_count = Conversation.objects.filter(user=request.user).count()
         if conversation_count >= settings.CHAT_MAX_CONVERSATIONS_PER_USER:
             security_log.warning(
@@ -1122,8 +1150,8 @@ def conversations(request):
             user=request.user,
             title=title,
             model_id=model_id,
-            temperature=generation['temperature']['default'],
-            max_tokens=generation['max_tokens']['default'],
+            temperature=default_temperature,
+            max_tokens=default_max_tokens,
         )
     return Response(_conversation_data(convo), status=status.HTTP_201_CREATED)
 
@@ -1468,9 +1496,8 @@ def account_usage(request):
 
 
 def _chat_preference_payload(user, available_models=None):
-    configured = ChatPreference.objects.filter(user_id=user.pk).values_list(
-        'default_model_id', flat=True,
-    ).first()
+    preference = ChatPreference.objects.filter(user_id=user.pk).first()
+    configured = preference.default_model_id if preference is not None else None
     if available_models is None:
         down = unavailable_model_ids()
         available_models = [
@@ -1478,17 +1505,25 @@ def _chat_preference_payload(user, available_models=None):
         ]
     available_ids = {model['id'] for model in available_models}
     service_default = _preferred_model_id(available_models)
+    effective_model = configured if configured in available_ids else service_default
+    effective_temperature, effective_max_tokens = _effective_generation_defaults(
+        preference, effective_model,
+    )
     return {
         'default_model_id': configured,
-        'effective_default_model_id': (
-            configured
-            if configured in available_ids
-            else service_default
-        ),
+        'effective_default_model_id': effective_model,
         'service_default_model_id': service_default,
         'configured_default_available': (
             configured in available_ids if configured is not None else None
         ),
+        'default_temperature': (
+            preference.default_temperature if preference is not None else None
+        ),
+        'default_max_tokens': (
+            preference.default_max_tokens if preference is not None else None
+        ),
+        'effective_temperature': effective_temperature,
+        'effective_max_tokens': effective_max_tokens,
     }
 
 
@@ -1501,38 +1536,110 @@ def account_preferences(request):
     if request.method == 'GET':
         return Response(_chat_preference_payload(request.user))
 
-    if not isinstance(request.data, dict) or set(request.data.keys()) != {'default_model_id'}:
+    allowed_fields = {
+        'default_model_id', 'default_temperature', 'default_max_tokens',
+    }
+    requested_fields = set(request.data.keys()) if isinstance(request.data, dict) else set()
+    if not requested_fields or not requested_fields <= allowed_fields:
         return Response({
-            'error': 'Only default_model_id may be changed.',
+            'error': (
+                'Only default_model_id, default_temperature, and '
+                'default_max_tokens may be changed.'
+            ),
             'code': 'invalid_preferences_payload',
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    model_id = request.data.get('default_model_id')
-    if model_id is None or model_id == '':
-        model_id = None
-    elif not isinstance(model_id, str) or model_id not in MODEL_IDS:
-        return Response({
-            'error': 'default_model_id must identify a known chat model or be null.',
-            'code': 'invalid_default_model',
         }, status=status.HTTP_400_BAD_REQUEST)
 
     down = unavailable_model_ids()
     available_models = [model for model in NVIDIA_MODELS if model['id'] not in down]
-    if model_id is not None and model_id in down:
-        return Response({
-            'error': 'This model is currently unavailable. Choose another model.',
-            'code': 'model_unavailable',
-        }, status=status.HTTP_409_CONFLICT)
 
     with transaction.atomic():
         get_user_model().objects.select_for_update().only('pk').get(pk=request.user.pk)
-        if model_id is None:
+        preference = ChatPreference.objects.filter(user_id=request.user.pk).first()
+        values = {
+            'default_model_id': preference.default_model_id if preference else None,
+            'default_temperature': preference.default_temperature if preference else None,
+            'default_max_tokens': preference.default_max_tokens if preference else None,
+        }
+        if 'default_model_id' in requested_fields:
+            model_id = request.data.get('default_model_id')
+            if model_id is None or model_id == '':
+                model_id = None
+            elif not isinstance(model_id, str) or model_id not in MODEL_IDS:
+                return Response({
+                    'error': 'default_model_id must identify a known chat model or be null.',
+                    'code': 'invalid_default_model',
+                }, status=status.HTTP_400_BAD_REQUEST)
+            if model_id is not None and model_id in down:
+                return Response({
+                    'error': 'This model is currently unavailable. Choose another model.',
+                    'code': 'model_unavailable',
+                }, status=status.HTTP_409_CONFLICT)
+            values['default_model_id'] = model_id
+
+        effective_model = (
+            values['default_model_id']
+            if values['default_model_id'] in {model['id'] for model in available_models}
+            else _preferred_model_id(available_models)
+        )
+        if effective_model is None:
+            return Response({
+                'error': 'No chat models are currently available.',
+                'code': 'no_available_models',
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        generation = model_generation_limits(effective_model)
+
+        if 'default_temperature' in requested_fields:
+            raw_temperature = request.data.get('default_temperature')
+            if raw_temperature is None:
+                values['default_temperature'] = None
+            else:
+                try:
+                    if isinstance(raw_temperature, bool):
+                        raise ValueError
+                    temperature = float(raw_temperature)
+                except (TypeError, ValueError):
+                    temperature = math.nan
+                limits = generation['temperature']
+                if not math.isfinite(temperature) or not (
+                    limits['min'] <= temperature <= limits['max']
+                ):
+                    return Response({
+                        'error': (
+                            f"temperature must be between {limits['min']:g} "
+                            f"and {limits['max']:g} for the effective default model"
+                        ),
+                        'code': 'invalid_default_temperature',
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                values['default_temperature'] = temperature
+
+        if 'default_max_tokens' in requested_fields:
+            raw_max_tokens = request.data.get('default_max_tokens')
+            if raw_max_tokens is None:
+                values['default_max_tokens'] = None
+            else:
+                try:
+                    if isinstance(raw_max_tokens, bool):
+                        raise ValueError
+                    max_tokens = int(raw_max_tokens)
+                    if isinstance(raw_max_tokens, float) and not raw_max_tokens.is_integer():
+                        raise ValueError
+                except (TypeError, ValueError):
+                    max_tokens = -1
+                limits = generation['max_tokens']
+                if not limits['min'] <= max_tokens <= limits['max']:
+                    return Response({
+                        'error': (
+                            f"max_tokens must be between {limits['min']} "
+                            f"and {limits['max']} for the effective default model"
+                        ),
+                        'code': 'invalid_default_max_tokens',
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                values['default_max_tokens'] = max_tokens
+
+        if all(value is None for value in values.values()):
             ChatPreference.objects.filter(user_id=request.user.pk).delete()
         else:
-            ChatPreference.objects.update_or_create(
-                user=request.user,
-                defaults={'default_model_id': model_id},
-            )
+            ChatPreference.objects.update_or_create(user=request.user, defaults=values)
     return Response(_chat_preference_payload(request.user, available_models))
 
 
@@ -3974,7 +4081,7 @@ def export_account(request):
         'archived_days', 'updated_at',
     ).first()
     chat_preference = ChatPreference.objects.filter(user_id=user_id).values(
-        'default_model_id', 'updated_at',
+        'default_model_id', 'default_temperature', 'default_max_tokens', 'updated_at',
     ).first()
     acceptance = ProviderDisclosureAcceptance.objects.filter(user_id=user_id).values(
         'version', 'accepted_at',
@@ -4010,6 +4117,12 @@ def export_account(request):
             'default_chat_model_updated_at': (
                 _export_timestamp(chat_preference['updated_at'])
                 if chat_preference else None
+            ),
+            'default_chat_temperature': (
+                chat_preference['default_temperature'] if chat_preference else None
+            ),
+            'default_chat_max_tokens': (
+                chat_preference['default_max_tokens'] if chat_preference else None
             ),
             'archived_chat_retention_days': retention['archived_days'] if retention else 0,
             'archived_chat_retention_updated_at': (
