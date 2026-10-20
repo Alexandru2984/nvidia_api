@@ -2671,6 +2671,13 @@ is required before describing those controls as complete.
   `404` for fabricated media. Signed backend rollback/restore completed in two
   seconds each; frontend rollback/restore completed in zero seconds each and
   both exact new releases were restored.
+- Public-notice commit `7cab0d481321f771604fa1255c022fc8dfbf27ad` was then
+  activated as signed frontend release
+  `/var/www/aichat-releases/release-20261020T155148_997206201` with the same key.
+  Its live assets contain notice version `2026-10-20.2`. A second signed
+  frontend rollback/restore completed in zero seconds each; origin and edge
+  repeated the full `200`/`403`/`404` contract, and the independent security
+  monitor finished with `Result=success` and exit status zero.
 - Residual preference work is product scope rather than a hidden security claim:
   persist generation parameters, theme, language, compact and reduced-motion
   modes only with the same owner, export/deletion, validation and fallback
