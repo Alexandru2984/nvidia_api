@@ -10,6 +10,7 @@ urlpatterns = [
     path('health/', views.health),
     path('auth/me/', views.auth_me),
     path('account/usage/', views.account_usage),
+    path('account/preferences/', views.account_preferences),
     path('account/chat-retention/', views.account_chat_retention),
     path('account/deletion/', views.account_deletion),
     path('account/export/', views.export_account),

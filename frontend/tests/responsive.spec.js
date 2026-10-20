@@ -10,6 +10,12 @@ async function mockAPI(
   providerDisclosureAccepted = true,
 ) {
   let disclosureAccepted = providerDisclosureAccepted
+  let chatPreference = {
+    default_model_id: null,
+    effective_default_model_id: 'test/model',
+    service_default_model_id: 'test/model',
+    configured_default_available: null,
+  }
   let conversation = {
     id: 1, title: 'A useful conversation', model_id: conversationModel, message_count: 2,
     is_pinned: false, archived_at: null,
@@ -38,6 +44,15 @@ async function mockAPI(
         },
         next_cursor: null,
       } })
+    }
+    if (path === '/api/conversations/' && route.request().method() === 'POST') {
+      const payload = route.request().postDataJSON()
+      conversation = {
+        id: 2, title: payload.title || 'New Chat', model_id: payload.model_id,
+        message_count: 0, messages: [], is_pinned: false, archived_at: null,
+        created_at: '2026-10-05T12:02:00Z', updated_at: '2026-10-05T12:02:00Z',
+      }
+      return route.fulfill({ status: 201, json: conversation })
     }
     if (path === '/api/conversations/1/' && route.request().method() === 'PATCH') {
       const patch = route.request().postDataJSON()
@@ -70,6 +85,16 @@ async function mockAPI(
       return route.fulfill({ status: 200, json: { provider_disclosure: {
         required_version: version, accepted: true, accepted_at: '2026-10-15T01:00:00Z',
       } } })
+    }
+    if (path === '/api/account/preferences/' && route.request().method() === 'PATCH') {
+      const { default_model_id: modelId } = route.request().postDataJSON()
+      chatPreference = {
+        default_model_id: modelId,
+        effective_default_model_id: modelId || 'test/model',
+        service_default_model_id: 'test/model',
+        configured_default_available: modelId ? true : null,
+      }
+      return route.fulfill({ status: 200, json: chatPreference })
     }
     const data = {
       '/api/auth/me/': {
@@ -148,6 +173,7 @@ async function mockAPI(
           prompt_characters: 420, resets_at: '2026-10-06T00:00:00Z', enabled: true,
         },
       },
+      '/api/account/preferences/': chatPreference,
       '/api/account/chat-retention/': {
         archived_days: 0,
         choices: [
@@ -694,6 +720,33 @@ for (const width of [320, 390, 768, 1440]) {
     await expectNoPageOverflow(page)
   })
 }
+
+test('default chat model persists and drives the next conversation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await page.getByTitle('Settings', { exact: true }).click()
+
+  const preferenceRequest = page.waitForRequest((request) => (
+    new URL(request.url()).pathname === '/api/account/preferences/'
+      && request.method() === 'PATCH'
+  ))
+  await page.getByLabel('Default chat model').selectOption('text/model')
+  expect((await preferenceRequest).postDataJSON()).toEqual({ default_model_id: 'text/model' })
+  await expect(page.getByLabel('Default chat model')).toHaveValue('text/model')
+
+  await page.getByRole('button', { name: 'Close settings' }).click()
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  const createRequest = page.waitForRequest((request) => (
+    new URL(request.url()).pathname === '/api/conversations/'
+      && request.method() === 'POST'
+  ))
+  await page.getByRole('button', { name: 'New chat' }).click()
+  expect((await createRequest).postDataJSON()).toMatchObject({ model_id: 'text/model' })
+  await expect(page.getByLabel('Chat model')).toHaveValue('text/model')
+  await expectNoPageOverflow(page)
+})
 
 test('mobile drawer closes with Escape and returns keyboard focus', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

@@ -67,6 +67,7 @@ from .models import (
     AttachmentUploadAttempt,
     AuthenticatedSession,
     ChatHistoryRetention,
+    ChatPreference,
     ChatStorageGate,
     Conversation,
     ConversationGenerationLease,
@@ -892,7 +893,7 @@ def list_models(request):
         result = probe_results.get(model['id'])
         model['performance'] = _public_model_performance(result)
         models.append(model)
-    default = _preferred_model_id(models)
+    default = _effective_default_model_id(request.user, models)
     return Response({
         'models': models,
         'default': default,
@@ -943,9 +944,20 @@ def _preferred_model_id(models):
     return recommended or (models[0]['id'] if models else None)
 
 
-def _available_default_model():
+def _effective_default_model_id(user, available_models):
+    configured = ChatPreference.objects.filter(user_id=user.pk).values_list(
+        'default_model_id', flat=True,
+    ).first()
+    available_ids = {model['id'] for model in available_models}
+    if configured in available_ids:
+        return configured
+    return _preferred_model_id(available_models)
+
+
+def _available_default_model(user):
     down = unavailable_model_ids()
-    return _preferred_model_id([model for model in NVIDIA_MODELS if model['id'] not in down])
+    available = [model for model in NVIDIA_MODELS if model['id'] not in down]
+    return _effective_default_model_id(user, available)
 
 
 def _unavailable_model_response():
@@ -1084,7 +1096,7 @@ def conversations(request):
     if (r := _rate_limited(request)): return r
     title = (request.data.get('title') or 'New Chat').strip()[:200] or 'New Chat'
     requested_model = request.data.get('model_id')
-    model_id = requested_model or _available_default_model()
+    model_id = requested_model or _available_default_model(request.user)
     if model_id is None:
         return Response({'error': 'No chat models are currently available.'}, status=503)
     if model_id not in MODEL_IDS:
@@ -1453,6 +1465,75 @@ def account_usage(request):
         ),
         'ai_today': user_usage_snapshot(request.user),
     })
+
+
+def _chat_preference_payload(user, available_models=None):
+    configured = ChatPreference.objects.filter(user_id=user.pk).values_list(
+        'default_model_id', flat=True,
+    ).first()
+    if available_models is None:
+        down = unavailable_model_ids()
+        available_models = [
+            model for model in NVIDIA_MODELS if model['id'] not in down
+        ]
+    available_ids = {model['id'] for model in available_models}
+    service_default = _preferred_model_id(available_models)
+    return {
+        'default_model_id': configured,
+        'effective_default_model_id': (
+            configured
+            if configured in available_ids
+            else service_default
+        ),
+        'service_default_model_id': service_default,
+        'configured_default_available': (
+            configured in available_ids if configured is not None else None
+        ),
+    }
+
+
+@api_view(['GET', 'PATCH'])
+@ratelimit(key='user', method='GET', rate='60/m', block=False)
+@ratelimit(key='user', method='PATCH', rate='20/h', block=False)
+def account_preferences(request):
+    """Read or replace the authenticated owner's persisted chat defaults."""
+    if (r := _rate_limited(request)): return r
+    if request.method == 'GET':
+        return Response(_chat_preference_payload(request.user))
+
+    if not isinstance(request.data, dict) or set(request.data.keys()) != {'default_model_id'}:
+        return Response({
+            'error': 'Only default_model_id may be changed.',
+            'code': 'invalid_preferences_payload',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    model_id = request.data.get('default_model_id')
+    if model_id is None or model_id == '':
+        model_id = None
+    elif not isinstance(model_id, str) or model_id not in MODEL_IDS:
+        return Response({
+            'error': 'default_model_id must identify a known chat model or be null.',
+            'code': 'invalid_default_model',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    down = unavailable_model_ids()
+    available_models = [model for model in NVIDIA_MODELS if model['id'] not in down]
+    if model_id is not None and model_id in down:
+        return Response({
+            'error': 'This model is currently unavailable. Choose another model.',
+            'code': 'model_unavailable',
+        }, status=status.HTTP_409_CONFLICT)
+
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().only('pk').get(pk=request.user.pk)
+        if model_id is None:
+            ChatPreference.objects.filter(user_id=request.user.pk).delete()
+        else:
+            ChatPreference.objects.update_or_create(
+                user=request.user,
+                defaults={'default_model_id': model_id},
+            )
+    return Response(_chat_preference_payload(request.user, available_models))
 
 
 def _chat_retention_payload(retention):
@@ -3892,6 +3973,9 @@ def export_account(request):
     retention = ChatHistoryRetention.objects.filter(user_id=user_id).values(
         'archived_days', 'updated_at',
     ).first()
+    chat_preference = ChatPreference.objects.filter(user_id=user_id).values(
+        'default_model_id', 'updated_at',
+    ).first()
     acceptance = ProviderDisclosureAcceptance.objects.filter(user_id=user_id).values(
         'version', 'accepted_at',
     ).first()
@@ -3920,6 +4004,13 @@ def export_account(request):
             'last_login': _export_timestamp(request.user.last_login),
         },
         'preferences_and_security': {
+            'default_chat_model_id': (
+                chat_preference['default_model_id'] if chat_preference else None
+            ),
+            'default_chat_model_updated_at': (
+                _export_timestamp(chat_preference['updated_at'])
+                if chat_preference else None
+            ),
             'archived_chat_retention_days': retention['archived_days'] if retention else 0,
             'archived_chat_retention_updated_at': (
                 _export_timestamp(retention['updated_at']) if retention else None

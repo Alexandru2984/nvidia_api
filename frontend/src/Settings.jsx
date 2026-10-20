@@ -19,6 +19,86 @@ function formatBytes(bytes) {
 }
 
 
+function ChatDefaultsPanel({ models, onDefaultModelChange }) {
+  const [preference, setPreference] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.accountPreferences()
+      .then((value) => { if (!cancelled) setPreference(value) })
+      .catch((e) => { if (!cancelled) setError(e.message) })
+    return () => { cancelled = true }
+  }, [])
+
+  async function changeDefault(event) {
+    const modelId = event.target.value || null
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await api.updateAccountPreferences(modelId)
+      setPreference(updated)
+      onDefaultModelChange(updated.effective_default_model_id || '')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const configured = preference?.default_model_id || ''
+  const configuredMissing = Boolean(
+    configured && !models.some((model) => model.id === configured),
+  )
+  const recommended = models.find(
+    (model) => model.id === preference?.service_default_model_id,
+  )
+
+  return (
+    <section className="settings-section chat-defaults">
+      <h2>Chat defaults</h2>
+      <p className="muted">
+        Choose the model used for new conversations. Existing conversations keep their model.
+      </p>
+      {preference ? (
+        <label className="settings-field" htmlFor="default-chat-model">
+          <span>Default chat model</span>
+          <select
+            id="default-chat-model"
+            value={configured}
+            onChange={changeDefault}
+            disabled={busy || models.length === 0}
+          >
+            <option value="">
+              Service recommendation{recommended ? ` — ${recommended.name}` : ''}
+            </option>
+            {configuredMissing && (
+              <option value={configured} disabled>
+                Saved model unavailable — {configured.split('/').pop()}
+              </option>
+            )}
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name} — {model.vendor}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : !error && <p role="status">Loading chat defaults…</p>}
+      {busy && <p className="muted settings-inline-status" role="status">Saving preference…</p>}
+      {preference?.configured_default_available === false && (
+        <p className="settings-warning" role="status">
+          Your saved model is unavailable. New chats use the current service recommendation
+          until it recovers, or you can choose another model.
+        </p>
+      )}
+      {error && <p className="login-error" role="alert">{error}</p>}
+    </section>
+  )
+}
+
+
 function TwoFactorPanel() {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
@@ -775,7 +855,15 @@ function StoragePanel() {
   </section>
 }
 
-export default function Settings({ onClose, onLoggedOut, onOpenCommands, theme, onThemeChange }) {
+export default function Settings({
+  onClose,
+  onLoggedOut,
+  onOpenCommands,
+  theme,
+  onThemeChange,
+  models,
+  onDefaultModelChange,
+}) {
   return (
     <div className="settings-wrap">
       <header className="settings-header">
@@ -807,6 +895,10 @@ export default function Settings({ onClose, onLoggedOut, onOpenCommands, theme, 
             </select>
           </label>
         </section>
+        <ChatDefaultsPanel
+          models={models}
+          onDefaultModelChange={onDefaultModelChange}
+        />
         <section className="settings-section settings-privacy">
           <h2>Privacy &amp; data</h2>
           <p className="muted">

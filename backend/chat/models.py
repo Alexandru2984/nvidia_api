@@ -204,6 +204,22 @@ class ChatHistoryRetention(models.Model):
         return f'ChatHistoryRetention(user={self.user_id}, days={self.archived_days})'
 
 
+class ChatPreference(models.Model):
+    """Owner-selected chat defaults; an absent row means service defaults."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name='chat_preference',
+        on_delete=models.CASCADE,
+        primary_key=True,
+    )
+    default_model_id = models.CharField(max_length=120)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'ChatPreference(user={self.user_id}, model={self.default_model_id})'
+
+
 class AccountDeletionRequest(models.Model):
     """Owner-requested, cancelable deadline for complete live-account deletion."""
 

@@ -13,6 +13,7 @@ from chat.models import (
     Attachment,
     AuthenticatedSession,
     ChatHistoryRetention,
+    ChatPreference,
     Conversation,
     DailyAIUsage,
     GenerationRequest,
@@ -54,6 +55,10 @@ class TestAccountExport:
     ):
         caplog.set_level('WARNING', logger='security')
         ChatHistoryRetention.objects.create(user=user, archived_days=90)
+        chat_preference = ChatPreference.objects.create(
+            user=user,
+            default_model_id=DEFAULT_MODEL_ID,
+        )
         deletion = AccountDeletionRequest.objects.create(
             user=user,
             execute_after=timezone.now() + timedelta(days=7),
@@ -126,6 +131,10 @@ class TestAccountExport:
         assert payload['schema_version'] == 1
         assert payload['account']['username'] == user.username
         assert payload['preferences_and_security']['archived_chat_retention_days'] == 90
+        assert payload['preferences_and_security']['default_chat_model_id'] == DEFAULT_MODEL_ID
+        assert payload['preferences_and_security']['default_chat_model_updated_at'] == (
+            chat_preference.updated_at.isoformat().replace('+00:00', 'Z')
+        )
         assert payload['preferences_and_security']['account_deletion'] == {
             'scheduled': True,
             'requested_at': deletion.requested_at.isoformat().replace('+00:00', 'Z'),

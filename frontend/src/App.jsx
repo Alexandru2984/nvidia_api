@@ -2288,6 +2288,8 @@ export default function App() {
             <Settings
               theme={theme}
               onThemeChange={setTheme}
+              models={models}
+              onDefaultModelChange={setDefaultModel}
               onClose={() => setMode('chat')}
               onOpenCommands={() => setCommandPaletteOpen(true)}
               onLoggedOut={() => { setMode('chat'); handleLogout() }}

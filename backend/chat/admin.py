@@ -9,6 +9,7 @@ from .models import (
     AccountDeletionRequest,
     AdminAuditEvent,
     ChatHistoryRetention,
+    ChatPreference,
     Conversation,
     DailyAIUsage,
     GlobalAIUsage,
@@ -83,6 +84,12 @@ class ChatHistoryRetentionAdmin(ReadOnlyUsageAdmin):
     list_display = ('user', 'archived_days', 'updated_at')
     list_filter = ('archived_days',)
     search_fields = ('user__username', 'user__email')
+
+
+@admin.register(ChatPreference)
+class ChatPreferenceAdmin(ReadOnlyUsageAdmin):
+    list_display = ('user', 'default_model_id', 'updated_at')
+    search_fields = ('user__username', 'user__email', 'default_model_id')
 
 
 @admin.register(AccountDeletionRequest)
