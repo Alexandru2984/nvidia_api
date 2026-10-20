@@ -755,6 +755,9 @@ test('default chat model persists and drives the next conversation', async ({ pa
   await page.getByLabel('Default chat model').selectOption('text/model')
   expect((await preferenceRequest).postDataJSON()).toEqual({ default_model_id: 'text/model' })
   await expect(page.getByLabel('Default chat model')).toHaveValue('text/model')
+  await expect(page.getByRole('status')).toContainText(
+    'Text Only is now the default for new conversations.',
+  )
 
   await page.getByRole('button', { name: 'Close settings' }).click()
   await page.getByRole('button', { name: 'Open conversations' }).click()
@@ -786,6 +789,9 @@ test('generation defaults are persisted and applied to a new conversation', asyn
     default_temperature: 0.3,
     default_max_tokens: 2048,
   })
+  await expect(page.getByRole('status')).toContainText(
+    'Generation defaults saved: temperature 0.3 and up to 2,048 output tokens.',
+  )
 
   await page.getByRole('button', { name: 'Close settings' }).click()
   await page.getByRole('button', { name: 'Open conversations' }).click()

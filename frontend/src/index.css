@@ -1786,6 +1786,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 .generation-default-grid input[type="number"] { width: 100%; }
 .generation-default-hint { margin-top: 4px !important; }
 .settings-inline-status { margin-top: 8px !important; margin-bottom: 0 !important; }
+.settings-success { margin: 10px 0 0; color: #b9d878; font-size: 13px; }
 .settings-warning {
   margin: 10px 0 0;
   padding: 10px 12px;
@@ -1859,6 +1860,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   border-color: #c78a22;
 }
 :root[data-theme="light"] .model-badge.positive { color: #426c00; }
+:root[data-theme="light"] .settings-success { color: #426c00; }
 .app { height: 100dvh; width: 100%; grid-template-columns: 280px minmax(0, 1fr); overflow: hidden; }
 .topbar { min-height: 64px; height: auto; flex-shrink: 0; padding-block: 8px; }
 .convo-search { width: calc(100% - 24px); }

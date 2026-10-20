@@ -22,6 +22,7 @@ function formatBytes(bytes) {
 function ChatDefaultsPanel({ models, onDefaultModelChange }) {
   const [preference, setPreference] = useState(null)
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
   const [busy, setBusy] = useState(false)
   const [temperature, setTemperature] = useState('')
   const [maxTokens, setMaxTokens] = useState('')
@@ -49,10 +50,15 @@ function ChatDefaultsPanel({ models, onDefaultModelChange }) {
     const modelId = event.target.value || null
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       const updated = await api.updateAccountPreferences({ default_model_id: modelId })
       applyPreference(updated)
       onDefaultModelChange(updated.effective_default_model_id || '')
+      const selected = models.find((model) => model.id === updated.effective_default_model_id)
+      setNotice(modelId
+        ? `${selected?.name || 'The selected model'} is now the default for new conversations.`
+        : `Service recommendation${selected ? ` — ${selected.name}` : ''} restored for new conversations.`)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -63,12 +69,17 @@ function ChatDefaultsPanel({ models, onDefaultModelChange }) {
   async function saveGenerationDefaults() {
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       const updated = await api.updateAccountPreferences({
         default_temperature: Number(temperature),
         default_max_tokens: Number(maxTokens),
       })
       applyPreference(updated)
+      setNotice(
+        `Generation defaults saved: temperature ${updated.effective_temperature} and up to `
+        + `${Number(updated.effective_max_tokens).toLocaleString()} output tokens.`,
+      )
     } catch (e) {
       setError(e.message)
     } finally {
@@ -79,12 +90,19 @@ function ChatDefaultsPanel({ models, onDefaultModelChange }) {
   async function resetGenerationDefaults() {
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       const updated = await api.updateAccountPreferences({
         default_temperature: null,
         default_max_tokens: null,
       })
       applyPreference(updated)
+      const selected = models.find((model) => model.id === updated.effective_default_model_id)
+      setNotice(
+        `Generation defaults reset${selected ? ` for ${selected.name}` : ''}: temperature `
+        + `${updated.effective_temperature} and up to `
+        + `${Number(updated.effective_max_tokens).toLocaleString()} output tokens.`,
+      )
     } catch (e) {
       setError(e.message)
     } finally {
@@ -180,6 +198,7 @@ function ChatDefaultsPanel({ models, onDefaultModelChange }) {
         </div>
       )}
       {busy && <p className="muted settings-inline-status" role="status">Saving preference…</p>}
+      {!busy && notice && <p className="settings-success" role="status">{notice}</p>}
       {preference?.configured_default_available === false && (
         <p className="settings-warning" role="status">
           Your saved model is unavailable. New chats use the current service recommendation
