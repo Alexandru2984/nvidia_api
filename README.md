@@ -177,6 +177,7 @@ session-revocation handles are exactly 64 lowercase hexadecimal characters.
 | GET/POST | `/auth/2fa/*` | varies | session | Status, enrollment, verification, disable, and recovery-code rotation. |
 | GET/DELETE | `/auth/sessions/*` | — | session | Lists indexed, opaque non-bearer handles without decoding the global session table; revocation requires recent strong authentication. |
 | GET | `/account/usage/` | — | session | Attachment bytes, saved conversation/message counts and limits, plus today's durable chat/image budgets and UTC reset. |
+| GET/PATCH | `/account/preferences/` | `{default_model_id?, default_temperature?, default_max_tokens?}` | session | Owner-scoped defaults for new conversations. PATCH requires a non-empty strict subset, accepts null to reset each value, enforces exact JSON types plus the effective model's generation limits, and returns configured and effective values. Existing conversations are unchanged. |
 | GET/PATCH | `/account/chat-retention/` | `{archived_days}` | session | Owner-scoped opt-in lifecycle. Accepts 0 (keep until manually deleted), 30, 90, 180, or 365 days; only inactive archived conversations qualify. |
 | GET/POST/DELETE | `/account/deletion/` | `{password, code?}` for mutations | session | Shows, schedules, or cancels owner-scoped account deletion. The default grace period is seven days; scheduling is idempotent and never extends an existing deadline. Cancellation closes at the deadline. |
 | GET | `/account/export/` | — | recent strong session | Owner-only JSON stream containing account/chat/preferences/usage data and an attachment manifest, never file bodies or authentication secrets. Limited to 2/day and rejected before streaming above the validated record/byte ceilings. |
@@ -392,6 +393,12 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   persistent, authorization and whole-service failures are alerted and explicit
   in the authenticated UI without exposing provider bodies.
 - `/api/models/` subtracts the resolved unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
+- The account owner can persist or reset a default model, temperature and maximum
+  output-token limit from responsive Settings controls; Model Explorer can also
+  set the model default without switching the active chat. Direct generation-
+  preference writes enforce the effective model contract. A later model change
+  safely clamps previously stored generic values for new conversations without
+  mutating either the saved preference or any existing conversation.
 - Each catalog row exposes `purpose`, `recommended`, conservative `best_for`,
   input `capabilities`, and a model-specific `generation` contract. The UI groups assistant/coding/translation/safety/
   specialized models and derives its image/document picker from that contract;

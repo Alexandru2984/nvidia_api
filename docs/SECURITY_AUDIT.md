@@ -2689,9 +2689,71 @@ is required before describing those controls as complete.
   rollback/restore completed in zero seconds each, repeated origin/edge probes
   passed, and the monitor returned success with exit status zero.
 - Residual preference work is product scope rather than a hidden security claim:
-  persist generation parameters, theme, language, compact and reduced-motion
-  modes only with the same owner, export/deletion, validation and fallback
-  contract. The broader yellow-verdict governance items below remain open.
+  persist theme, language, compact and reduced-motion modes only with the same
+  owner, export/deletion and validation contract. The broader yellow-verdict
+  governance items below remain open.
+
+### Owner-scoped generation defaults and emergency dependency remediation — 2026-10-20
+
+- Commit `6c62742` extends the one-to-one preference with nullable temperature
+  and maximum-output-token defaults. `GET` returns configured and model-effective
+  values; `PATCH` accepts only a non-empty subset of the three documented
+  preference fields, and null independently resets either generation value. New
+  conversations resolve these values under the owner lock while existing
+  conversations remain unchanged.
+- Global database checks and model-specific API bounds prevent unsafe values.
+  A stored generic value is safely clamped when the selected model later has a
+  narrower contract, without destroying the owner's value for a future model.
+  Booleans, non-finite temperatures, fractional token counts, over/underflow,
+  unknown fields and unavailable explicit models fail closed. Follow-up commit
+  `75caa30` closes JSON type confusion by rejecting numeric strings and every
+  non-integer JSON token value instead of relying on Python coercion.
+- Generation preferences are owner-scoped, rate-limited, included in the
+  recent-auth account export and cascade-deleted with the account. The responsive
+  Settings UI exposes model-derived bounds plus explicit save/reset actions.
+  CISO review remained yellow/“mitigate then ship”: parameter tampering and cost
+  amplification, inconsistent settings after a model switch, and cross-owner
+  access were the material risks; strict types/bounds, safe effective clamping,
+  owner locking, export and lifecycle tests cover them without a new vendor,
+  credential, egress path or sensitive-content class.
+- The same run discovered two fresh dependency advisories. Commit `1b140c8`
+  moves Vite from 8.3.2 to 8.3.4, beyond the `launch-editor` Windows command-
+  argument advisory's fixed 8.3.3 boundary, and certifi from 2026.4.22 to
+  2026.10.19, removing exposure to the critical compromised-intermediate-CA
+  advisory. The certifi wheel is pinned to one reviewed SHA-256 in the production
+  lock; the deterministic CycloneDX inventory contains the same 24 components.
+  Upstream package names, publishers and release evidence were reviewed; no new
+  install hook, runtime service, credential, telemetry path or deployment
+  permission was introduced. `npm audit --audit-level=low` and `pip-audit` both
+  report zero known vulnerabilities.
+- All 636 backend, 104 operational and 55 responsive browser tests passed after
+  the strict-type follow-up. Django/schema checks, ESLint, the Vite 8.3.4
+  production build, Bash syntax, ShellCheck, exact lock validation and SBOM
+  checks passed. Visual inspection at 390 pixels showed the generation controls
+  readable without overflow; the version `2026-10-20.3` Privacy Center was also
+  inspected at 320 pixels and explicitly names the stored temperature and output-
+  token preferences.
+- Verified pre-migration dump
+  `/home/micu/backups/nvidia_db/nvidia_db_20261020_234819_436748603.sql.gz` was
+  created, and backward-compatible migration
+  `0032_chatpreference_generation_defaults` applied successfully. The signed
+  24-package Python release
+  `/opt/aichat-python-envs/release-20261020T205009_057267156`, signed backend
+  release `/opt/aichat-backend-releases/release-20261020T205446_268724397`, and
+  signed frontend release
+  `/var/www/aichat-releases/release-20261020T205318_384476028` are active. The
+  backend is bound to exact commit `75caa3087df7794b2d0eae06c30d98079378f008`,
+  the public frontend to privacy commit
+  `723772174b37a4dd4d81eaae14b0ebe61357eb7d`, and all signatures verify with key
+  fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+- Signed production rollback and exact restore completed in 2/1 seconds for the
+  final backend, 1/2 seconds for equivalent hash-lock/SBOM Python environments,
+  and 0/0 seconds for the final Privacy Center frontend. Final origin and
+  Cloudflare probes returned `200` for the app, privacy page, health and security
+  contact, `403` for anonymous conversation/preference APIs, and `404` for
+  fabricated media. The independent manifest/configuration monitor ended with
+  `Result=success` and exit status zero.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
@@ -2718,6 +2780,10 @@ remain open.
 - [NVIDIA Nemotron 3.5 Lightning model card](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard)
 - [NVIDIA GLM 5.3 Flash model card](https://build.nvidia.com/z-ai/glm-5.3-flash/modelcard)
 - [CycloneDX specification overview](https://cyclonedx.org/specification/overview/)
+- [certifi compromised-intermediate advisory](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)
+- [launch-editor argument-escaping advisory](https://github.com/advisories/GHSA-698v-4r3x-3vcv)
+- [Vite 8.3.4 release](https://github.com/vitejs/vite/releases/tag/v8.3.4)
+- [certifi 2026.10.19 release and provenance](https://pypi.org/project/certifi/2026.10.19/)
 - [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
 - [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)
 - [NVIDIA Riva Translate v2 API contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-riva-translate-4b-instruct-v2-infer)
