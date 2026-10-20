@@ -889,6 +889,7 @@ export default function App() {
   const [pendingAttachments, setPendingAttachments] = useState([])
   const [excludedAttachmentIds, setExcludedAttachmentIds] = useState([])
   const [attachmentNotice, setAttachmentNotice] = useState(null)
+  const [modelExplorerRequest, setModelExplorerRequest] = useState(0)
   const [previewAttachment, setPreviewAttachment] = useState(null)
   const [providerDisclosureOpen, setProviderDisclosureOpen] = useState(false)
   const [providerDisclosureBusy, setProviderDisclosureBusy] = useState(false)
@@ -2236,6 +2237,7 @@ export default function App() {
                 availabilityCheckedAt={availabilityCheckedAt}
                 availability={modelAvailability}
                 disabled={sending}
+                openForAttachmentsRequest={modelExplorerRequest}
                 onSelect={handleSwitchModel}
               />
             )}
@@ -2444,9 +2446,16 @@ export default function App() {
                 {incompatiblePending.length} pending attachment{incompatiblePending.length === 1 ? '' : 's'}{' '}
                 {incompatiblePending.length === 1 ? 'is' : 'are'} not compatible with {currentModel?.name}.
               </span>
-              <button type="button" className="link" onClick={removeIncompatibleAttachments}>
-                Remove incompatible
-              </button>
+              <div className="attachment-warn-actions">
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => setModelExplorerRequest((request) => request + 1)}
+                >Find compatible model</button>
+                <button type="button" className="link" onClick={removeIncompatibleAttachments}>
+                  Remove incompatible
+                </button>
+              </div>
             </div>
           )}
           {attachmentMenuOpen && (

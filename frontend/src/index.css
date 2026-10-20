@@ -1370,6 +1370,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
 }
 .attachment-warn { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .attachment-warn .link { flex: 0 0 auto; color: inherit; }
+.attachment-warn-actions { display: flex; align-items: center; gap: 12px; }
 .attachment-notice {
   max-width: 760px;
   margin: 0 auto 8px;
@@ -2047,6 +2048,7 @@ button.link:disabled { color: var(--text-dim); cursor: not-allowed; text-decorat
   .attachment-choice { min-height: 62px; }
   .attachment-warn { align-items: stretch; flex-direction: column; }
   .attachment-warn .link { min-height: 40px; }
+  .attachment-warn-actions { align-items: stretch; flex-direction: column; gap: 0; }
   .document-preview-backdrop { padding: 0; }
   .document-preview {
     width: 100%;

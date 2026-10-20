@@ -48,6 +48,16 @@ function writePreferences(preferences) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences)) } catch {}
 }
 
+function restoreFocus(returnFocusRef, triggerRef) {
+  const requestedTarget = returnFocusRef.current
+  requestAnimationFrame(() => {
+    const target = requestedTarget?.isConnected && !requestedTarget.disabled
+      ? requestedTarget
+      : triggerRef.current
+    target?.focus()
+  })
+}
+
 function contextLabel(tokens) {
   if (!tokens) return 'Unknown context'
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}K context` : `${tokens} context`
@@ -106,7 +116,7 @@ function comparisonValue(model, field, attachments) {
 
 export default function ModelExplorer({
   models, currentModelId, attachments = [], availabilityCheckedAt, availability,
-  disabled = false, onSelect,
+  disabled = false, openForAttachmentsRequest = 0, onSelect,
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -118,6 +128,8 @@ export default function ModelExplorer({
   const [compareIds, setCompareIds] = useState([])
   const [choosingId, setChoosingId] = useState(null)
   const triggerRef = useRef(null)
+  const returnFocusRef = useRef(null)
+  const handledOpenRequestRef = useRef(openForAttachmentsRequest)
   const dialogRef = useRef(null)
   const searchRef = useRef(null)
   const resultsRef = useRef(null)
@@ -143,6 +155,18 @@ export default function ModelExplorer({
   }, [])
 
   useEffect(() => {
+    if (!openForAttachmentsRequest
+        || openForAttachmentsRequest === handledOpenRequestRef.current) return
+    handledOpenRequestRef.current = openForAttachmentsRequest
+    returnFocusRef.current = document.activeElement
+    setQuery('')
+    setPurpose('all')
+    setFavoritesOnly(false)
+    setCompatibleOnly(true)
+    setOpen(true)
+  }, [openForAttachmentsRequest])
+
+  useEffect(() => {
     if (!open) return
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -152,7 +176,7 @@ export default function ModelExplorer({
       if (event.key === 'Escape') {
         event.preventDefault()
         setOpen(false)
-        triggerRef.current?.focus()
+        restoreFocus(returnFocusRef, triggerRef)
         return
       }
       if (event.key !== 'Tab') return
@@ -263,7 +287,7 @@ export default function ModelExplorer({
       if (selected !== false) {
         rememberRecent(modelId)
         setOpen(false)
-        triggerRef.current?.focus()
+        restoreFocus(returnFocusRef, triggerRef)
       }
     } finally {
       setChoosingId(null)
@@ -280,7 +304,8 @@ export default function ModelExplorer({
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled || models.length === 0}
-        onClick={() => {
+        onClick={(event) => {
+          returnFocusRef.current = event.currentTarget
           rememberRecent(currentModelId)
           setOpen(true)
         }}
@@ -291,7 +316,7 @@ export default function ModelExplorer({
         <div className="model-explorer-backdrop" onMouseDown={(event) => {
           if (event.target === event.currentTarget) {
             setOpen(false)
-            triggerRef.current?.focus()
+            restoreFocus(returnFocusRef, triggerRef)
           }
         }}>
           <section
@@ -315,7 +340,7 @@ export default function ModelExplorer({
                 aria-label="Close model explorer"
                 onClick={() => {
                   setOpen(false)
-                  triggerRef.current?.focus()
+                  restoreFocus(returnFocusRef, triggerRef)
                 }}
               >×</button>
             </header>

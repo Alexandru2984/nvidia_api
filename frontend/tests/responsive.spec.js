@@ -944,6 +944,36 @@ test('switching models makes incompatible pending images explicit and recoverabl
   await expectNoPageOverflow(page)
 })
 
+test('attachment warning opens compatible models and restores focus safely', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await page.getByLabel('Choose images').setInputFiles({
+    name: 'diagram.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+  })
+  await expect(page.getByAltText('diagram.png')).toBeVisible()
+
+  await page.getByLabel('Chat model').selectOption('text/model')
+  const warning = page.getByRole('alert')
+  await warning.getByRole('button', { name: 'Find compatible model' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a model' })
+  await expect(dialog.getByRole('button', { name: /Fits 1 current file/ })).toHaveAttribute(
+    'aria-pressed', 'true',
+  )
+  await expect(dialog.getByRole('button', { name: 'Use Test Vision' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Use Text Only' })).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/attachment-recovery-390.png' })
+  await dialog.getByRole('button', { name: 'Use Test Vision' }).click()
+
+  await expect(page.getByLabel('Chat model')).toHaveValue('test/model')
+  await expect(warning).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Open model explorer' })).toBeFocused()
+  await expectNoPageOverflow(page)
+})
+
 test('a pending file can be excluded without deleting it or blocking the selected model', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockAPI(page)
