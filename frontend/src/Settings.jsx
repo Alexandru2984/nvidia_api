@@ -791,6 +791,14 @@ export default function Settings({ onClose, onLoggedOut, theme, onThemeChange })
             </select>
           </label>
         </section>
+        <section className="settings-section settings-privacy">
+          <h2>Privacy &amp; data</h2>
+          <p className="muted">
+            Review what the service stores, what is sent to NVIDIA, current retention periods,
+            your export and deletion controls, and the governance items still awaiting operator review.
+          </p>
+          <a href="/privacy/">Open the complete privacy notice</a>
+        </section>
         <StoragePanel />
         <PasswordPanel />
         <TwoFactorPanel />

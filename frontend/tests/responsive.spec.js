@@ -175,6 +175,32 @@ test('application shell contains no cross-origin scripts', async ({ page }) => {
   await expect(page.locator('script[src^="http://"], script[src^="https://"]')).toHaveCount(0)
 })
 
+test('public privacy center is responsive and performs no API bootstrap', async ({ page }) => {
+  const apiRequests = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/api/')) apiRequests.push(request.url())
+  })
+
+  for (const width of [320, 1440]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/privacy/')
+    await expect(page).toHaveTitle('Privacy & data · AI Chat Hub')
+    await expect(page.getByRole('heading', { name: 'Know where your data goes.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Important governance gaps' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Retention in the application' })).toBeVisible()
+    await expect(page.getByText('90 days; global aggregate usage is retained 400 days.')).toBeVisible()
+    await expect(page.getByText(/No dedicated privacy contact is currently published/)).toBeVisible()
+    await expect(page.getByRole('link', { name: 'GitHub security advisory form' })).toHaveAttribute(
+      'href', 'https://github.com/Alexandru2984/nvidia_api/security/advisories/new',
+    )
+    await expect(page.locator('[href^="javascript:"], [href^="data:"]')).toHaveCount(0)
+    await expectNoPageOverflow(page)
+    await page.screenshot({ path: `test-results/privacy-${width}.png` })
+  }
+
+  expect(apiRequests).toEqual([])
+})
+
 test('private file library rejects fabricated attachment URLs', async ({ page }) => {
   await mockAPI(page)
   await page.route('**/api/attachments/**', (route) => {
@@ -288,6 +314,9 @@ test('provider disclosure gates the first request and remains usable on mobile',
   await expect(dialog).toContainText('Only documents and images marked as included')
   await expect(dialog.getByRole('link', { name: 'privacy policy' })).toHaveAttribute(
     'href', 'https://www.nvidia.com/en-us/about-nvidia/privacy-policy/',
+  )
+  await expect(dialog.getByRole('link', { name: 'complete privacy notice' })).toHaveAttribute(
+    'href', '/privacy/',
   )
   expect(providerRequests).toBe(0)
   await expectNoPageOverflow(page)
@@ -641,6 +670,10 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(page.getByLabel('Message storage used')).toHaveAttribute('value', '2')
     await expect(page.getByRole('heading', { name: "Today's AI usage" })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Export your data' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Privacy & data' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Open the complete privacy notice' })).toHaveAttribute(
+      'href', '/privacy/',
+    )
     await expect(page.getByLabel('Daily chat requests used')).toHaveAttribute('value', '4')
     await expect(page.getByLabel('Daily generated images used')).toHaveAttribute('value', '1')
     await page.getByLabel('Color theme').selectOption('light')
@@ -657,6 +690,7 @@ for (const width of [320, 390, 768, 1440]) {
     await mockAPI(page, false)
     await page.goto('/')
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Privacy & data' })).toHaveAttribute('href', '/privacy/')
     await expectNoPageOverflow(page)
   })
 }

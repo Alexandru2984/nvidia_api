@@ -593,6 +593,9 @@ function AuthScreen({ initialMode = 'login', onLoggedIn, registrationMode }) {
             <>No account yet? <button type="button" className="link" onClick={() => switchMode('register')}>Create one</button></>
           )}
         </div>
+        <div className="login-privacy-link">
+          <a href="/privacy/">Privacy &amp; data</a>
+        </div>
       </form>
     </div>
   )

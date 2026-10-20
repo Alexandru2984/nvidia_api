@@ -75,7 +75,7 @@ export default function ProviderDisclosure({
             it does not copy your prompt or filenames.
           </p>
           <p className="provider-disclosure-links">
-            Review NVIDIA's{' '}
+            Review the app's <a href="/privacy/">complete privacy notice</a>, NVIDIA's{' '}
             <a href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/" target="_blank" rel="noreferrer">
               privacy policy
             </a>{' '}and{' '}
