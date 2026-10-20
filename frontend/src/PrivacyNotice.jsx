@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export const PRIVACY_NOTICE_VERSION = '2026-10-20.2'
+export const PRIVACY_NOTICE_VERSION = '2026-10-20.3'
 
 const SECURITY_CONTACT = 'https://github.com/Alexandru2984/nvidia_api/security/advisories/new'
 
@@ -98,9 +98,9 @@ export default function PrivacyNotice() {
             <article className="privacy-card">
               <h3>Chats &amp; files</h3>
               <p>
-                Prompts, assistant responses, conversation settings and titles, your default-model
-                preference, uploaded files, extracted document text, generated images, and inclusion
-                choices.
+                Prompts, assistant responses, conversation settings and titles, your default model
+                and generation preferences (temperature and maximum output tokens), uploaded files,
+                extracted document text, generated images, and inclusion choices.
               </p>
             </article>
             <article className="privacy-card">
@@ -219,7 +219,7 @@ export default function PrivacyNotice() {
             <li><strong>Export:</strong> download an account JSON export or an individual conversation export.</li>
             <li><strong>Delete:</strong> remove files and conversations, delete immediately, or schedule account deletion with a grace period.</li>
             <li><strong>Retention:</strong> choose automatic deletion for inactive archived chats.</li>
-            <li><strong>Chat defaults:</strong> choose or reset the model used for new conversations.</li>
+            <li><strong>Chat defaults:</strong> choose or reset the model, temperature, and maximum output tokens used for new conversations.</li>
             <li><strong>Provider choice:</strong> cancel before the first NVIDIA-bound request and include or exclude supported files per message.</li>
             <li><strong>Account security:</strong> enable 2FA, review sessions, and revoke other sessions.</li>
           </ul>

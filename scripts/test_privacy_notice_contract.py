@@ -94,11 +94,14 @@ class PrivacyNoticeContractTests(unittest.TestCase):
         self.assertIn(public_claim, self.notice)
         self.assertIn(register_claim, self.register)
 
-    def test_default_model_preference_is_disclosed(self):
-        for claim in ('default-model', 'Chat defaults'):
+    def test_chat_generation_preferences_are_disclosed(self):
+        for claim in ('generation preferences', 'temperature', 'maximum output tokens', 'Chat defaults'):
             self.assertIn(claim, self.notice)
-        self.assertIn('Default chat-model preference', self.register)
+        self.assertIn('Default chat model and generation preferences', self.register)
+        self.assertIn('model-specific bounds', self.register)
         self.assertIn('unavailable', self.register)
+        for field in ('default_temperature', 'default_max_tokens'):
+            self.assertIn(field, self.models)
 
     def test_retention_claims_match_backend_defaults(self):
         expected = {

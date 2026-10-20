@@ -258,12 +258,13 @@ timed evidence.
   Add user-defined folders plus owner-scoped bulk move/delete/export.
 - Conversation branching and explicit alternative responses on regeneration.
 - Saved prompt library with variables, favorites, tags, and safe import/export.
-- **Per-user default model is shipped:** the owner can persist or reset the model
-  used by new conversations; catalog validation, rate limiting, account export,
-  cascade deletion and a non-destructive availability fallback are enforced by
-  the backend. Settings exposes the responsive control, and Model Explorer can
-  persist a card as the default without changing the active conversation. Add
-  persisted generation parameters, theme, language, compact mode, and
+- **Per-user chat defaults are shipped:** the owner can persist or reset the model,
+  temperature and maximum output-token defaults used by new conversations;
+  catalog validation, model-specific numeric bounds, safe clamping after model
+  changes, rate limiting, account export, cascade deletion and a non-destructive
+  availability fallback are enforced by the backend. Settings exposes responsive
+  controls, and Model Explorer can persist a card as the default without changing
+  the active conversation. Add persisted theme, language, compact mode, and
   reduced-motion mode.
 - Token/request/storage dashboard with daily/monthly budgets and downloadable
   personal usage history.
