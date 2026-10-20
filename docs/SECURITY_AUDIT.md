@@ -2627,6 +2627,55 @@ is required before describing those controls as complete.
   seconds. Repeated probes remained correct and the security monitor returned
   `Result=success` with exit status zero.
 
+### Owner-scoped default-model preference rollout — 2026-10-20
+
+- Commit `ee3ff3c` adds a one-to-one, cascade-deleted chat preference and an
+  authenticated `GET`/`PATCH /api/account/preferences/` contract. The write path
+  accepts only `default_model_id`, rejects overposting and non-catalog IDs,
+  refuses a model already known to be unavailable, rate-limits owner changes and
+  serializes first-write races on the owner row. Resetting removes the metadata
+  row rather than retaining an empty preference.
+- The authenticated model catalog and model-less conversation creation resolve
+  the same owner preference. If a saved model later becomes unavailable or is
+  retired, the service retains the owner's choice but safely selects the current
+  available recommendation; no provider call is involved in reading or changing
+  this metadata. Settings exposes a responsive selector, explicit service-default
+  reset and unavailable-preference explanation. Existing conversations keep
+  their model.
+- The preference is present in the recent-auth account export and is removed by
+  account cascade. Owner-isolation, strict payloads, unavailable-model refusal,
+  fallback without preference loss, no-model conversation creation, reset data
+  minimization, throttling and deletion are regression-tested. CISO review rated
+  the bounded change “mitigate then ship”: IDOR/tampering, retired-model safety,
+  export and deletion were the material risks, and the shipped controls cover
+  each without adding a vendor, network egress, credential or sensitive-content
+  category.
+- All 622 backend, 103 operational and 53 responsive browser tests passed.
+  Django/schema checks, ESLint, the production build, Bash syntax, ShellCheck,
+  immutable Action pins and 24 hash-locked runtime requirements passed; npm and
+  pip audits reported no known advisory. Visual inspection at 390 pixels showed
+  a readable, overflow-free control. Privacy notice and processing-register
+  version `2026-10-20.2` now name the persisted preference and owner control.
+- Before migration, verified dump
+  `/home/micu/backups/nvidia_db/nvidia_db_20261020_184750_366820201.sql.gz`
+  was created. Reversible migration `0031_chatpreference` applied successfully.
+  Signed backend release
+  `/opt/aichat-backend-releases/release-20261020T154758_957481640` and the initial
+  signed frontend release
+  `/var/www/aichat-releases/release-20261020T154846_395095859` were activated at
+  exact commit `ee3ff3ca5d95212dc500cbee2c2525bf6b13afd7`, verified by key
+  fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Origin and Cloudflare returned `200` for app, Privacy Center, health and
+  security contact, `403` for conversation and preference APIs anonymously, and
+  `404` for fabricated media. Signed backend rollback/restore completed in two
+  seconds each; frontend rollback/restore completed in zero seconds each and
+  both exact new releases were restored.
+- Residual preference work is product scope rather than a hidden security claim:
+  persist generation parameters, theme, language, compact and reduced-motion
+  modes only with the same owner, export/deletion, validation and fallback
+  contract. The broader yellow-verdict governance items below remain open.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

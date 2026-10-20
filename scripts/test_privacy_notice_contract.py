@@ -94,6 +94,12 @@ class PrivacyNoticeContractTests(unittest.TestCase):
         self.assertIn(public_claim, self.notice)
         self.assertIn(register_claim, self.register)
 
+    def test_default_model_preference_is_disclosed(self):
+        for claim in ('default-model', 'Chat defaults'):
+            self.assertIn(claim, self.notice)
+        self.assertIn('Default chat-model preference', self.register)
+        self.assertIn('unavailable', self.register)
+
     def test_retention_claims_match_backend_defaults(self):
         expected = {
             'ATTACHMENT_TTL_DAYS': (30, 'Unattached uploads', '30 days'),

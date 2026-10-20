@@ -1,6 +1,6 @@
 # AI Chat Hub technical data-processing register
 
-Version: `2026-10-20.1`  
+Version: `2026-10-20.2`
 Public notice: `/privacy/`  
 Scope: AI Chat Hub in `/home/micu/nvidia`
 
@@ -19,6 +19,7 @@ an answer.
 | 2FA secret and recovery-code hashes | Strong authentication | PostgreSQL; enrollment QR is displayed to the owner | Account lifetime or until disabled/regenerated | Recent password confirmation, encrypted 2FA secret, one-use recovery hashes | User-rights procedure and controller contact |
 | Authenticated-session metadata | Session management, owner review, abuse/security response | PostgreSQL and session store | 14-day sliding cookie, absolute maximum 30 days; expired rows cleaned daily | Opaque owner-scoped handles, secure/HTTP-only cookies, revocation, maximum active sessions | Exact journal/off-host security retention |
 | Prompts, assistant responses, titles and conversation settings | Provide and preserve chat functionality | PostgreSQL on the self-hosted service | Active chats until owner deletion; archived-chat choice is manual or 30/90/180/365 inactive days | Owner scoping, CSRF, object/byte quotas, export/delete controls, transaction boundaries | Lawful basis; formal rights-response process |
+| Default chat-model preference | Personalize newly created conversations | Owner-linked PostgreSQL row on the self-hosted service | Account lifetime, until reset, or account deletion | Owner scoping, catalog whitelist, rate limit, unavailable-model fallback, account export and cascade deletion | No separate governance decision currently evidenced |
 | Uploaded documents/images, extracted text and generated images | Model context, preview, download and generation | Restricted local attachment storage; metadata/text in PostgreSQL | Linked files follow their conversation/account; unattached files default to 30 days | Owner-scoped access, no public media route, ClamAV, isolated document parser, type/size/count limits, content-disposition | Whether accepted content categories need additional policy restrictions |
 | Selected prompt, relevant context, included documents/images, image prompt/settings | User-triggered chat or image generation | NVIDIA HTTPS endpoints | Local copy follows chat rules; NVIDIA retention/training is not evidenced | Versioned acknowledgement before egress, explicit attachment inclusion, exact endpoint allowlist, bounded response parsing, quotas/kill-switch | NVIDIA DPA, retention, training use, region, incident terms, production entitlement and real monetary cap |
 | Email address and verification/reset content | Account email delivery | Self-hosted mailcow at `mail.micutu.com` | Application rows as above; mail-system retention not evidenced | Dedicated application credential, STARTTLS, bounded sends, generic responses | Mail-system logs, DPA applicability, breach notification terms |
@@ -46,6 +47,9 @@ reporter-initiated disclosure.
   deletion can be immediate or scheduled with a 7-day grace period.
 - Owners can choose archived-chat deletion after 30, 90, 180 or 365 inactive
   days, or retain chats until manual deletion.
+- Owners can choose or reset the model used for new conversations. If a saved
+  model is temporarily unavailable, the service uses its current recommendation
+  without deleting the owner's preference.
 - Owners can review and revoke sessions, enable 2FA, and regenerate recovery
   codes.
 - A user may cancel before the first NVIDIA request and may include or exclude
