@@ -264,8 +264,9 @@ timed evidence.
   changes, rate limiting, account export, cascade deletion and a non-destructive
   availability fallback are enforced by the backend. Settings exposes responsive
   controls, and Model Explorer can persist a card as the default without changing
-  the active conversation. Add persisted theme, language, compact mode, and
-  reduced-motion mode.
+  the active conversation. A browser-local System/Dark/Light theme now follows
+  live device changes consistently across the app and Privacy Center. Add
+  cross-device theme, language, compact mode, and reduced-motion preferences.
 - Token/request/storage dashboard with daily/monthly budgets and downloadable
   personal usage history.
 - **Scheduled account deletion and visible status are shipped:** schedule/cancel

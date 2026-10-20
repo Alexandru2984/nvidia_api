@@ -2755,6 +2755,25 @@ is required before describing those controls as complete.
   fabricated media. The independent manifest/configuration monitor ended with
   `Result=success` and exit status zero.
 
+### System color-theme rollout — 2026-10-20
+
+- Commit `8fc6294` replaces duplicated binary theme logic with one bounded
+  System/Dark/Light browser preference shared by the application and public
+  Privacy Center. System mode subscribes to live browser color-scheme changes;
+  explicit overrides remain fixed. Invalid stored values fall back to System,
+  and only that non-identifying local preference is written—there is no API call,
+  account field, third-party request or new executable dependency.
+- A real-browser regression proves a system-light start, live transition to
+  system-dark, explicit-light override and bounded local persistence. All 56
+  responsive browser tests, ESLint, the Vite 8.3.4 production build and npm audit
+  passed; 320-pixel Settings inspection remained readable and overflow-free.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261020T205828_053890855` is active at exact
+  commit `8fc6294e928ff4c0ae07dc23384e7df211e12777`. Signed rollback/restoration
+  completed in 1/0 seconds. Origin and Cloudflare repeated the expected
+  `200`/`403`/`404` public/private/media contract, and the independent monitor
+  completed with `Result=success` and exit status zero.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

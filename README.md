@@ -216,6 +216,12 @@ the composer, Model Explorer, conversation history, Image studio, Settings, and
 theme switching. Arrow keys and Enter select an action; Escape restores focus.
 The palette does not store the query or send it to the API.
 
+Appearance defaults to the device color scheme. Choosing System follows live
+light/dark changes from the browser, while an explicit Dark or Light selection
+stays fixed. The bounded value is stored only in this browser and is shared by
+the authenticated application and the public Privacy Center; neither route sends
+it to an API.
+
 Before the first chat, regeneration, or image-generation request, the responsive
 UI explains exactly which selected prompt, conversation context, files, and image
 settings leave the self-hosted application for NVIDIA. Acceptance is versioned
