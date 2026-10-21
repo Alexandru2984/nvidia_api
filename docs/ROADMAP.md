@@ -139,6 +139,8 @@ timed evidence.
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.
   Purpose chips expose live available counts and omit empty categories.
+  Empty search/filter states provide a focus-safe one-step reset, including an
+  explicit all-model recovery from an empty compatibility-only result.
   Conservative “best for” guidance, rounded successful-probe latency, explicit
   sample caveats, and recommendation/latency/context/name sorting are shipped.
   Current-file compatibility is available as a responsive filter and intentionally

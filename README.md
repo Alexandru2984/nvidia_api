@@ -431,8 +431,10 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   filter to those models; deliberately excluded files do not constrain the result.
   Model cards and comparisons explain any current-file incompatibility.
   An incompatible-file warning opens the explorer directly in that safe filtered
-  state, while preserving keyboard focus even when choosing a compatible model
-  removes the warning that launched it.
+  state. Empty search/filter combinations provide a one-step reset; an empty
+  compatibility-only view can explicitly reveal all models for recovery. Both
+  paths preserve keyboard focus, including when choosing a compatible model
+  removes the warning that launched the explorer.
   Successful latency is rounded to 100 ms and explicitly labeled as one synthetic
   availability sample, not a quality benchmark; provider failure details stay
   server-side. Favorites and six recent model IDs are browser-local, bounded
