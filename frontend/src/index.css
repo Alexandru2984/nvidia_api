@@ -522,6 +522,20 @@ textarea { resize: none; line-height: 1.5; }
   border-color: rgba(118, 185, 0, .55);
   background: rgba(118, 185, 0, .1);
 }
+.filter-count {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  margin-left: 3px;
+  padding-inline: 4px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(139, 148, 158, .14);
+  color: currentColor;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.filter-chip.active .filter-count { background: rgba(118, 185, 0, .18); }
 .model-explorer-body {
   min-height: 0;
   flex: 1;

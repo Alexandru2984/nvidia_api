@@ -220,6 +220,13 @@ export default function ModelExplorer({
     attachmentCompatibilityForModel(attachments, model),
   ])), [attachments, models])
 
+  const purposeCounts = useMemo(() => models.reduce((counts, model) => {
+    const modelPurpose = model.purpose || 'assistant'
+    counts.set(modelPurpose, (counts.get(modelPurpose) || 0) + 1)
+    return counts
+  }, new Map()), [models])
+  const availablePurposes = PURPOSES.filter(([id]) => id === 'all' || purposeCounts.has(id))
+
   const compatibleModelCount = attachments.length
     ? models.filter((model) => compatibilityById.get(model.id)?.compatible).length
     : models.length
@@ -429,15 +436,18 @@ export default function ModelExplorer({
             )}
 
             <div className="purpose-filters" role="group" aria-label="Filter models by purpose">
-              {PURPOSES.map(([id, label]) => (
+              {availablePurposes.map(([id, label]) => {
+                const count = id === 'all' ? models.length : purposeCounts.get(id)
+                return (
                 <button
                   key={id}
                   type="button"
                   className={purpose === id ? 'filter-chip active' : 'filter-chip'}
                   aria-pressed={purpose === id}
                   onClick={() => setPurpose(id)}
-                >{label}</button>
-              ))}
+                >{label} <span className="filter-count">{count}</span></button>
+                )
+              })}
             </div>
 
             <div className="model-explorer-body">

@@ -1340,6 +1340,12 @@ test('model explorer searches, favorites, compares, and persists safely on mobil
   const dialog = page.getByRole('dialog', { name: 'Choose a model' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText('2 available', { exact: false })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'All 2', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Assistants 2', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /Coding/ })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: /Translation/ })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: /Safety/ })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: /Specialized/ })).toHaveCount(0)
   const search = page.getByPlaceholder('Search name, vendor, capability…')
   await expect(search).toBeFocused()
 
