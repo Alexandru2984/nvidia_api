@@ -205,8 +205,11 @@ Explorer cards, and comparison view identify the bounded cause: missing extracte
 document text, unsupported image input or MIME type, excessive image bytes or
 per-request image count, or an unsupported attachment kind. Each incompatible
 pending file is also marked in place; excluded files immediately return to a
-neutral state because they are not sent. Extracted document text can be previewed
-as inert text. Identical unlinked
+neutral state because they are not sent. Model image-count and aggregate-byte
+capacity likewise count only included files plus active uploads, while the
+bounded composer staging limit still counts every visible tile. The picker shows
+remaining image and file slots before selection. Extracted document text can be
+previewed as inert text. Identical unlinked
 content is deduplicated with a secret-keyed, owner-scoped fingerprint that is never
 serialized or logged. Failed files remain browser-local until retried or dismissed.
 Logout/session loss aborts in-flight work and clears pending previews so attachment

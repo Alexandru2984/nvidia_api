@@ -133,6 +133,8 @@ timed evidence.
   Individual pending tiles now identify the exact incompatible file and expose
   its reason accessibly; the compact mobile warning no longer inherits a vertical
   flex basis that previously left a large empty block above its recovery actions.
+  Excluded files no longer consume the selected model's request image or byte
+  budget, and the picker shows remaining model-image and composer-file slots.
 - **Model discovery is shipped:** search spans name/vendor/ID/description,
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.
