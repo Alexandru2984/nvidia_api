@@ -2886,6 +2886,27 @@ is required before describing those controls as complete.
   public/private/media contract, and the independent monitor ended with
   `Result=success` and exit status zero.
 
+### Counted Model Explorer purpose filters — 2026-10-21
+
+- Commit `7fd6428` derives Model Explorer purpose-filter counts exclusively from
+  the already owner-visible, availability-filtered model response. Empty purpose
+  categories are omitted and every remaining chip shows its exact available
+  count, reducing zero-result navigation without adding persistence, provider
+  work, telemetry or a new trust boundary.
+- Responsive regressions verify the two-model Assistant-only response renders
+  `All 2` and `Assistants 2` while omitting Coding, Translation, Safety and
+  Specialized. Visual inspection at 320 pixels showed compact, readable count
+  badges and no horizontal page overflow.
+- All 57 responsive browser tests, ESLint, the Vite production build and npm
+  low-severity audit passed, with zero known npm vulnerabilities. Signed frontend
+  release `/var/www/aichat-releases/release-20261021T015552_610428538` is active
+  at exact commit `7fd6428b03972df7ef816a9d480c57314e1155c9` and frontend tree
+  `0db8e72cc4ca3aaded7a69bdc0198a70eb330928`; its signature verifies with the
+  recorded production key. Signed rollback/restoration completed in 0/1 seconds.
+  Origin and Cloudflare retained the expected `200`/`403`/`404`
+  public/private/media contract, and the independent monitor ended with
+  `Result=success` and exit status zero.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

@@ -424,7 +424,9 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
   tokens and uses the provider's documented 0/512 defaults for new conversations.
 - The model explorer searches name/vendor/ID/capabilities/guidance, sorts by
   recommendation, last probe, context, or name, compares up to three available
-  models, and shows the runtime availability timestamp. When files are selected,
+  models, and shows the runtime availability timestamp. Purpose filters display
+  their current available-model counts and omit empty categories instead of
+  leading to avoidable zero-result views. When files are selected,
   it also reports how many live models accept the complete included set and can
   filter to those models; deliberately excluded files do not constrain the result.
   Model cards and comparisons explain any current-file incompatibility.

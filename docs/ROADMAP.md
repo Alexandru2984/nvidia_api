@@ -138,6 +138,7 @@ timed evidence.
 - **Model discovery is shipped:** search spans name/vendor/ID/description,
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.
+  Purpose chips expose live available counts and omit empty categories.
   Conservative “best for” guidance, rounded successful-probe latency, explicit
   sample caveats, and recommendation/latency/context/name sorting are shipped.
   Current-file compatibility is available as a responsive filter and intentionally
