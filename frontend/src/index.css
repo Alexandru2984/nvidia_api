@@ -543,6 +543,13 @@ textarea { resize: none; line-height: 1.5; }
   gap: 12px;
   padding: 0 20px 20px;
 }
+.model-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.model-empty .link { min-height: 36px; padding-inline: 10px; }
 .model-results {
   min-width: 0;
   flex: 1;

@@ -1349,6 +1349,15 @@ test('model explorer searches, favorites, compares, and persists safely on mobil
   const search = page.getByPlaceholder('Search name, vendor, capability…')
   await expect(search).toBeFocused()
 
+  await search.fill('model that does not exist')
+  await expect(dialog.getByText('No available models match these filters.')).toBeVisible()
+  await page.screenshot({ path: 'test-results/model-empty-recovery-320.png' })
+  await dialog.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(search).toHaveValue('')
+  await expect(search).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Use Test Vision' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Use Text Only' })).toBeVisible()
+
   await dialog.getByLabel('Sort models').selectOption('fastest')
   await expect(dialog.locator('.model-card-title strong').first()).toHaveText('Text Only')
   await expect(dialog.getByText('0.9s probe').first()).toBeVisible()

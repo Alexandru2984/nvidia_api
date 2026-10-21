@@ -296,6 +296,14 @@ export default function ModelExplorer({
     }))
   }
 
+  function clearModelFilters() {
+    setQuery('')
+    setPurpose('all')
+    setFavoritesOnly(false)
+    setCompatibleOnly(false)
+    requestAnimationFrame(() => searchRef.current?.focus())
+  }
+
   async function chooseModel(modelId) {
     if (disabled || choosingId) return
     setChoosingId(modelId)
@@ -439,13 +447,13 @@ export default function ModelExplorer({
               {availablePurposes.map(([id, label]) => {
                 const count = id === 'all' ? models.length : purposeCounts.get(id)
                 return (
-                <button
-                  key={id}
-                  type="button"
-                  className={purpose === id ? 'filter-chip active' : 'filter-chip'}
-                  aria-pressed={purpose === id}
-                  onClick={() => setPurpose(id)}
-                >{label} <span className="filter-count">{count}</span></button>
+                  <button
+                    key={id}
+                    type="button"
+                    className={purpose === id ? 'filter-chip active' : 'filter-chip'}
+                    aria-pressed={purpose === id}
+                    onClick={() => setPurpose(id)}
+                  >{label} <span className="filter-count">{count}</span></button>
                 )
               })}
             </div>
@@ -453,10 +461,15 @@ export default function ModelExplorer({
             <div className="model-explorer-body">
               <div ref={resultsRef} className="model-results" aria-live="polite">
                 {visibleModels.length === 0 && (
-                  <div className="empty-list">
-                    {compatibleOnly
-                      ? 'No available model can use every selected file. Exclude or remove incompatible files.'
-                      : 'No available models match these filters.'}
+                  <div className="empty-list model-empty">
+                    <span>
+                      {compatibleOnly
+                        ? 'No available model can use every selected file. Exclude or remove incompatible files.'
+                        : 'No available models match these filters.'}
+                    </span>
+                    <button type="button" className="link" onClick={clearModelFilters}>
+                      {compatibleOnly ? 'Show all models' : 'Clear filters'}
+                    </button>
                   </div>
                 )}
                 {visibleModels.map((model) => {
