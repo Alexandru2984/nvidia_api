@@ -881,6 +881,7 @@ export default function App() {
   const [registrationMode, setRegistrationMode] = useState('closed')
   const [models, setModels] = useState([])
   const [defaultModel, setDefaultModel] = useState('')
+  const [newConversationModel, setNewConversationModel] = useState('')
   const [availabilityCheckedAt, setAvailabilityCheckedAt] = useState(null)
   const [modelAvailability, setModelAvailability] = useState({
     state: 'unverified', checked_at: null, inconclusive_models: 0, unverified_models: 0,
@@ -1060,6 +1061,7 @@ export default function App() {
         if (cancelled) return
         setModels(m.models)
         setDefaultModel(m.default)
+        setNewConversationModel('')
         setAvailabilityCheckedAt(m.availability_checked_at || null)
         setModelAvailability({
           state: m.availability_checked_at ? 'verified' : 'unverified',
@@ -1140,7 +1142,7 @@ export default function App() {
     t.style.height = Math.min(t.scrollHeight, 200) + 'px'
   }, [draft])
 
-  const currentModelId = active?.model_id || defaultModel
+  const currentModelId = active?.model_id || newConversationModel || defaultModel
 
   const currentModel = useMemo(
     () => models.find((x) => x.id === currentModelId),
@@ -1239,6 +1241,7 @@ export default function App() {
       setConversationNotice(null)
       setActiveId(c.id)
       setActive(c)
+      setNewConversationModel('')
       setError(null)
       setSidebarOpen(false)
     } catch (e) {
@@ -1668,6 +1671,7 @@ export default function App() {
         setSearch('')
         setActiveId(convo.id)
         setActive(convo)
+        setNewConversationModel('')
       } catch (err) { setError(err.message); return }
     }
 
@@ -1956,7 +1960,7 @@ export default function App() {
 
   async function handleSwitchModel(modelId) {
     if (!active) {
-      setDefaultModel(modelId)
+      setNewConversationModel(modelId === defaultModel ? '' : modelId)
       return true
     }
     try {
@@ -1978,7 +1982,9 @@ export default function App() {
 
   async function handleSetDefaultModel(modelId) {
     const preference = await api.updateAccountPreferences({ default_model_id: modelId })
-    setDefaultModel(preference.effective_default_model_id || '')
+    const effectiveModelId = preference.effective_default_model_id || ''
+    setDefaultModel(effectiveModelId)
+    setNewConversationModel((selected) => selected === effectiveModelId ? '' : selected)
   }
 
   async function handleLogout() {
@@ -2003,6 +2009,7 @@ export default function App() {
     setActive(null)
     setActiveId(null)
     setImageGallery([])
+    setNewConversationModel('')
     setImageGalleryNextCursor(null)
     setImageGalleryLoadingMore(false)
     setLoadingEarlierMessages(false)

@@ -825,6 +825,32 @@ test('model explorer can persist a new default without switching the active chat
   await page.screenshot({ path: 'test-results/model-default-390.png' })
 })
 
+test('choosing a model for a new conversation does not rewrite the saved default', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  let preferenceWrites = 0
+  page.on('request', (request) => {
+    if (request.method() === 'PATCH'
+        && new URL(request.url()).pathname === '/api/account/preferences/') {
+      preferenceWrites += 1
+    }
+  })
+  await mockAPI(page)
+  await page.goto('/')
+
+  await page.getByLabel('Chat model').selectOption('text/model')
+  await expect(page.getByLabel('Chat model')).toHaveValue('text/model')
+  await page.getByRole('button', { name: 'Open model explorer' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a model' })
+  const defaultCard = dialog.getByRole('button', { name: 'Use Test Vision' }).locator('..')
+  const selectedCard = dialog.getByRole('button', { name: 'Use Text Only' }).locator('..')
+  await expect(defaultCard.locator('.default-pill')).toHaveText('Default')
+  await expect(defaultCard.getByRole('button', { name: 'Test Vision is the default model' })).toBeDisabled()
+  await expect(selectedCard.locator('.current-pill')).toHaveText('Current')
+  await expect(selectedCard.getByRole('button', { name: 'Set Text Only as default' })).toBeEnabled()
+  expect(preferenceWrites).toBe(0)
+  await expectNoPageOverflow(page)
+})
+
 test('system theme follows the browser while an explicit override stays fixed', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ colorScheme: 'light' })
