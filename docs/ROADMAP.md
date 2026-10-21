@@ -130,6 +130,9 @@ timed evidence.
   compatible-only explorer and restores focus to a stable control after selection.
   It can also exclude the complete incompatible subset without deleting any
   private file, with explicit feedback and a distinct destructive removal action.
+  Individual pending tiles now identify the exact incompatible file and expose
+  its reason accessibly; the compact mobile warning no longer inherits a vertical
+  flex basis that previously left a large empty block above its recovery actions.
 - **Model discovery is shipped:** search spans name/vendor/ID/description,
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.

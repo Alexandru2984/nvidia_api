@@ -2816,6 +2816,28 @@ is required before describing those controls as complete.
   anonymous conversation and preference APIs, and `404` for fabricated media;
   the independent monitor ended with `Result=success` and exit status zero.
 
+### Per-file attachment diagnostics rollout — 2026-10-21
+
+- Commit `1be1c36` carries the ordered compatibility diagnostic through to the
+  exact pending file. Incompatible image tiles receive a visible and accessible
+  warning marker; document tiles receive the bounded reason text. Excluded files
+  are intentionally absent from the compatibility calculation, so a private file
+  kept outside the next request is not falsely marked or sent.
+- The same change removes an accidental mobile `flex-basis` from the warning
+  summary. At 390 pixels the recovery panel now remains below 200 pixels instead
+  of stretching into unused vertical space; that bound, the no-image-input case,
+  and cumulative image-count selection are browser-regression tested.
+- All 56 responsive browser tests, ESLint, the Vite production build and the npm
+  low-severity audit passed, with zero known npm vulnerabilities. Signed frontend
+  release `/var/www/aichat-releases/release-20261021T014704_573833106` is active
+  at exact commit `1be1c36cc856d9b9afd2314587ef1f6a35b990eb` and frontend tree
+  `2e1b5fd1f32b37fc18af3f7b0dfcc1146ff2754a`; its signature verifies with key
+  fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Signed rollback/restoration completed in 0/1 seconds. Origin and Cloudflare
+  retained the expected `200`/`403`/`404` public/private/media contract, and the
+  independent monitor ended with `Result=success` and exit status zero.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,
