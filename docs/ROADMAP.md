@@ -121,8 +121,10 @@ timed evidence.
   chosen model can consume. Switching models makes incompatible pending/history
   media explicit, with backend enforcement independent of the browser. The
   explorer now evaluates the complete set of included pending files, reports and
-  filters models that fit it, and explains incompatibility on cards and in the
-  comparison view. Cumulative per-request image limits are enforced before send
+  filters models that fit it, and explains the exact bounded incompatibility
+  category on cards, in the comparison view, and beside the composer: missing
+  document text, image-input support, MIME format, byte size, count, or kind.
+  Cumulative per-request image limits are enforced before send
   and when reconstructing history, rather than validating each image in isolation.
   The incompatibility warning provides a one-step recovery into a reset,
   compatible-only explorer and restores focus to a stable control after selection.

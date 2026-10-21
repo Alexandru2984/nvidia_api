@@ -2789,6 +2789,33 @@ is required before describing those controls as complete.
   `200`/`403`/`404` contract, and the independent monitor returned success with
   exit status zero.
 
+### Detailed attachment-compatibility rollout — 2026-10-21
+
+- Commit `0a0e189` replaces the generic client warning with deterministic,
+  bounded reasons shared by the composer, Model Explorer cards and comparison
+  table. The categories mirror the existing server contract: missing extracted
+  document text, unsupported image input or MIME type, model byte ceiling,
+  cumulative per-request image count, and unsupported attachment kind. The
+  calculation remains local over already-visible attachment metadata and adds no
+  provider call, persistence, identifier, credential or content exposure.
+- Image-count evaluation is sequential and only consumes capacity for an image
+  that first passes type, modality, format and byte checks. Existing server-side
+  enforcement remains authoritative. Responsive regressions cover a model with
+  no image input and a lower-count model before provider work; visual inspection
+  at 390 pixels showed readable wrapping without horizontal overflow.
+- All 56 responsive browser tests, ESLint, the Vite production build and
+  `npm audit --audit-level=low` passed, with zero known npm vulnerabilities.
+  Signed frontend release
+  `/var/www/aichat-releases/release-20261020T222738_014344934` is active at exact
+  commit `0a0e1891448623aaa7fdcf4ea241518418eb4054` and frontend tree
+  `fd6292eb1ed4f34605a4e2bb176053a77207c414`; its signature verifies with key
+  fingerprint
+  `ced3b7c3d60778e7c0c95ad1dcfad7b44c57ad922c9e78f707eda2149596f1b1`.
+  Signed rollback/restoration completed in 0/0 seconds. Origin and Cloudflare
+  returned `200` for app, Privacy Center, health and security contact, `403` for
+  anonymous conversation and preference APIs, and `404` for fabricated media;
+  the independent monitor ended with `Result=success` and exit status zero.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,
