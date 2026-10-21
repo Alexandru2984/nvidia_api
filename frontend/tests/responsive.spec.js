@@ -1244,6 +1244,10 @@ test('a pending file can be excluded without deleting it or blocking the selecte
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Send without the excluded image')
   await expect(page.getByTitle('Send')).toBeEnabled()
   await expect(page.getByText('0 selected', { exact: false })).toBeVisible()
+  await page.getByLabel('Chat model').selectOption('test/model')
+  await page.getByRole('button', { name: 'Add attachments' }).click()
+  await expect(page.getByRole('button', { name: 'Add images' })).toBeEnabled()
+  await expect(page.getByText('1/1 image slot', { exact: false })).toBeVisible()
   await expectNoPageOverflow(page)
 })
 

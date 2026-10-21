@@ -1157,8 +1157,6 @@ export default function App() {
   const imageExtensions = currentCapabilities.attachment_extensions
     .filter((extension) => !DOCUMENT_EXTENSIONS.includes(extension))
   const imageAccept = imageExtensions.map((extension) => `.${extension}`).join(',')
-  const pendingImages = pendingAttachments.filter((attachment) =>
-    ['image', 'generated_image'].includes(attachment.kind))
   const excludedAttachmentSet = useMemo(
     () => new Set(excludedAttachmentIds),
     [excludedAttachmentIds],
@@ -1166,6 +1164,8 @@ export default function App() {
   const includedPendingAttachments = pendingAttachments.filter(
     (attachment) => !excludedAttachmentSet.has(attachment.id),
   )
+  const includedPendingImages = includedPendingAttachments.filter((attachment) =>
+    ['image', 'generated_image'].includes(attachment.kind))
   const queuedImages = uploadJobs.filter((job) => job.kind === 'image')
   const uploadingCount = uploadJobs.filter((job) => job.status === 'uploading').length
   const pendingCompatibility = attachmentCompatibilityForModel(
@@ -1178,10 +1178,16 @@ export default function App() {
   ))
   const pendingIncompatibilityReasons = attachmentCompatibilityReasonSummary(pendingCompatibility)
   const attachmentsBlocked = incompatiblePending.length > 0
-  const imageLimitReached = pendingImages.length + queuedImages.length
-    >= currentCapabilities.max_images
-  const fileLimitReached = pendingAttachments.length + uploadJobs.length
-    >= attachmentLimits.max_files_per_message
+  const imageSlotsRemaining = Math.max(
+    0,
+    currentCapabilities.max_images - includedPendingImages.length - queuedImages.length,
+  )
+  const fileSlotsRemaining = Math.max(
+    0,
+    attachmentLimits.max_files_per_message - pendingAttachments.length - uploadJobs.length,
+  )
+  const imageLimitReached = imageSlotsRemaining < 1
+  const fileLimitReached = fileSlotsRemaining < 1
   const maxImageBytes = Math.min(
     attachmentLimits.max_file_bytes,
     currentCapabilities.max_image_bytes || attachmentLimits.max_file_bytes,
@@ -1307,12 +1313,12 @@ export default function App() {
     )
     let imageSlots = Math.max(
       0,
-      currentCapabilities.max_images - pendingImages.length - queuedImages.length,
+      currentCapabilities.max_images - includedPendingImages.length - queuedImages.length,
     )
     let bytesAvailable = Math.max(
       0,
       attachmentLimits.max_bytes_per_message
-        - pendingAttachments.reduce((total, attachment) => total + attachment.size, 0)
+        - includedPendingAttachments.reduce((total, attachment) => total + attachment.size, 0)
         - uploadJobs.reduce((total, job) => total + job.size, 0),
     )
     const accepted = []
@@ -2655,7 +2661,7 @@ export default function App() {
                   <strong>Add images</strong>
                   <small>
                     {supportsVision
-                      ? `${imageExtensions.map((ext) => ext.toUpperCase()).join(', ')} · max ${currentCapabilities.max_images} · ${humanSize(maxImageBytes)} each`
+                      ? `${imageExtensions.map((ext) => ext.toUpperCase()).join(', ')} · ${imageSlotsRemaining}/${currentCapabilities.max_images} image slot${currentCapabilities.max_images === 1 ? '' : 's'} · ${humanSize(maxImageBytes)} each`
                       : `${currentModel?.name || 'This model'} does not accept images`}
                   </small>
                 </span>
@@ -2669,7 +2675,7 @@ export default function App() {
                 <span className="attachment-choice-icon" aria-hidden="true">≡</span>
                 <span>
                   <strong>Add documents</strong>
-                  <small>PDF, DOCX, TXT, MD · extracted securely as text</small>
+                  <small>PDF, DOCX, TXT, MD · {fileSlotsRemaining}/{attachmentLimits.max_files_per_message} file slots · extracted securely</small>
                 </span>
               </button>
               <p>Files are private to your account and their content is sent to NVIDIA only when you send.</p>
