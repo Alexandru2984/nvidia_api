@@ -409,8 +409,10 @@ NVIDIA retires NIM models regularly and `/v1/models` is unreliable in both direc
 - `/api/models/` subtracts the resolved unavailable set at request time — dead models disappear from the picker without a deploy. If the default model is down, the response falls back to the first available one.
 - The account owner can persist or reset a default model, temperature and maximum
   output-token limit from responsive Settings controls; Model Explorer can also
-  set the model default without switching the active chat. Direct generation-
-  preference writes enforce the effective model contract. A later model change
+  set the model default without switching the active chat. Choosing a model while
+  composing a not-yet-created conversation is a one-conversation draft choice
+  and never impersonates or rewrites that persisted account default. Direct
+  generation-preference writes enforce the effective model contract. A later model change
   safely clamps previously stored generic values for new conversations without
   mutating either the saved preference or any existing conversation.
 - Each catalog row exposes `purpose`, `recommended`, conservative `best_for`,

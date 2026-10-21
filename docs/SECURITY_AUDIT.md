@@ -2862,6 +2862,30 @@ is required before describing those controls as complete.
   public/private/media contract, and the independent monitor ended with
   `Result=success` and exit status zero.
 
+### Draft-model and account-default separation — 2026-10-21
+
+- Commit `4b671d1` separates the model selected for a not-yet-created
+  conversation from the owner-scoped account default. Changing the selector on
+  the welcome screen now affects only that draft conversation; it does not issue
+  a preference request, move the Default badge, or silently alter subsequent
+  default-model semantics. The explicit Settings and Model Explorer default
+  actions remain the only client paths that write the account preference.
+- A successful draft conversation creation clears the transient choice, as do
+  bootstrap and logout, preventing selection state from crossing account or
+  conversation boundaries. A new browser regression verifies zero preference
+  writes plus distinct Current and Default cards, while the existing regressions
+  still prove persisted defaults drive new conversations and do not mutate an
+  active chat.
+- All 57 responsive browser tests, ESLint, the Vite production build and npm
+  low-severity audit passed, with zero known npm vulnerabilities. Signed frontend
+  release `/var/www/aichat-releases/release-20261021T015313_611864796` is active
+  at exact commit `4b671d15157b0224a7fa799db5bae22f834621c7` and frontend tree
+  `ebabe1ab9f7b23d0e0ea72943671520f7e39ba60`; its signature verifies with the
+  recorded production key. Signed rollback/restoration completed in 0/1 seconds.
+  Origin and Cloudflare retained the expected `200`/`403`/`404`
+  public/private/media contract, and the independent monitor ended with
+  `Result=success` and exit status zero.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

@@ -271,7 +271,9 @@ timed evidence.
   changes, rate limiting, account export, cascade deletion and a non-destructive
   availability fallback are enforced by the backend. Settings exposes responsive
   controls, and Model Explorer can persist a card as the default without changing
-  the active conversation. A browser-local System/Dark/Light theme now follows
+  the active conversation. A model chosen for a not-yet-created chat remains a
+  separate one-conversation draft choice, so Current and Default labels never
+  claim a browser-only selection was persisted. A browser-local System/Dark/Light theme now follows
   live device changes consistently across the app and Privacy Center. Add
   cross-device theme, language, compact mode, and reduced-motion preferences.
 - Token/request/storage dashboard with daily/monthly budgets and downloadable
