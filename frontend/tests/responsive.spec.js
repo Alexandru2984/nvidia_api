@@ -1151,6 +1151,8 @@ test('switching models makes incompatible pending images explicit and recoverabl
   await page.getByLabel('Chat model').selectOption('text/model')
   const warning = page.getByRole('alert')
   await expect(warning).toContainText('is not compatible')
+  await expect(page.locator('.att-tile.image.incompatible')).toHaveCount(1)
+  await expect(page.getByLabel('Incompatible: image input is not supported')).toBeVisible()
   await expect(page.getByTitle('Send')).toBeDisabled()
   await page.getByRole('button', { name: 'Remove incompatible' }).click()
   await expect(warning).toHaveCount(0)
@@ -1209,6 +1211,7 @@ test('attachment warning can exclude files without deleting the private copy', a
   await page.getByLabel('Chat model').selectOption('text/model')
   const warning = page.getByRole('alert')
   await page.screenshot({ path: 'test-results/attachment-safe-recovery-390.png' })
+  expect((await warning.boundingBox())?.height).toBeLessThan(200)
   await warning.getByRole('button', { name: 'Exclude from request' }).click()
 
   await expect(warning).toHaveCount(0)
@@ -1432,6 +1435,8 @@ test('switching to a lower image-count model blocks overflow before provider wor
   await expect(page.locator('.att-tile.image')).toHaveCount(2)
   await page.getByLabel('Chat model').selectOption('limited/model')
   await expect(page.getByRole('alert')).toContainText('1 pending attachment is not compatible')
+  await expect(page.locator('.att-tile.image.incompatible')).toHaveCount(1)
+  await expect(page.getByLabel('Incompatible: per-request image limit is exceeded')).toBeVisible()
   await expect(page.getByTitle('Send')).toBeDisabled()
 
   await page.getByRole('button', { name: 'Open model explorer' }).click()

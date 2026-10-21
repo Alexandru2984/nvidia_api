@@ -9,6 +9,7 @@ import ModelExplorer from './ModelExplorer'
 import ProviderDisclosure, { PROVIDER_DISCLOSURE_VERSION } from './ProviderDisclosure'
 import {
   attachmentCompatibilityForModel,
+  attachmentCompatibilityReasonLabel,
   attachmentCompatibilityReasonSummary,
   capabilitiesFor,
   DOCUMENT_EXTENSIONS,
@@ -615,17 +616,32 @@ function MessageBody({ role, content }) {
   )
 }
 
-function AttachmentTile({ att, onRemove, compact, included = true, onToggle, onPreview }) {
+function AttachmentTile({
+  att,
+  onRemove,
+  compact,
+  included = true,
+  onToggle,
+  onPreview,
+  compatibilityIssue = '',
+}) {
   const isImage = att.kind === 'image' || att.kind === 'generated_image'
   const url = mediaUrl(att.url)
   if (isImage) {
     return (
-      <div className={`att-tile image ${compact ? 'compact' : ''} ${included ? '' : 'excluded'}`}>
+      <div className={`att-tile image ${compact ? 'compact' : ''} ${included ? '' : 'excluded'} ${compatibilityIssue ? 'incompatible' : ''}`}>
         {url ? (
           <a href={url} target="_blank" rel="noreferrer">
             <img src={url} alt={att.original_name} />
           </a>
         ) : <span className="attachment-url-unavailable">File link unavailable</span>}
+        {compatibilityIssue && (
+          <span
+            className="att-incompatibility-marker"
+            title={`Incompatible: ${compatibilityIssue}`}
+            aria-label={`Incompatible: ${compatibilityIssue}`}
+          >!</span>
+        )}
         {onToggle && (
           <label className="att-include" title={included ? 'Exclude from next message' : 'Include in next message'}>
             <input
@@ -643,13 +659,16 @@ function AttachmentTile({ att, onRemove, compact, included = true, onToggle, onP
     )
   }
   return (
-    <div className={`att-tile doc ${compact ? 'compact' : ''} ${included ? '' : 'excluded'}`}>
+    <div className={`att-tile doc ${compact ? 'compact' : ''} ${included ? '' : 'excluded'} ${compatibilityIssue ? 'incompatible' : ''}`}>
       <div className="att-doc-icon">{(fileExt(att.original_name) || 'DOC').toUpperCase()}</div>
       <div className="att-doc-meta">
         {url
           ? <a className="att-doc-name" href={url} title={att.original_name} download>{att.original_name}</a>
           : <span className="att-doc-name attachment-url-unavailable" title={att.original_name}>{att.original_name}</span>}
         <div className="att-doc-size">{humanSize(att.size)}{att.has_text ? ' · text extracted' : ''}</div>
+        {compatibilityIssue && (
+          <div className="att-doc-incompatibility">Not compatible · {compatibilityIssue}</div>
+        )}
         {onPreview && att.has_text && (
           <button
             type="button"
@@ -1154,6 +1173,9 @@ export default function App() {
     currentModel,
   )
   const incompatiblePending = pendingCompatibility.incompatible
+  const pendingIncompatibilityById = new Map(pendingCompatibility.diagnostics.map(
+    ({ attachment, reason }) => [attachment.id, attachmentCompatibilityReasonLabel(reason)],
+  ))
   const pendingIncompatibilityReasons = attachmentCompatibilityReasonSummary(pendingCompatibility)
   const attachmentsBlocked = incompatiblePending.length > 0
   const imageLimitReached = pendingImages.length + queuedImages.length
@@ -2580,6 +2602,7 @@ export default function App() {
                   onToggle={toggleAttachmentInclusion}
                   onPreview={openDocumentPreview}
                   included={!excludedAttachmentSet.has(a.id)}
+                  compatibilityIssue={pendingIncompatibilityById.get(a.id)}
                   compact
                 />
               ))}

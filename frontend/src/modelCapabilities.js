@@ -52,6 +52,7 @@ export function attachmentCompatibilityForModel(attachments, model) {
     ? Math.max(0, capabilities.max_images)
     : 0
   const incompatible = []
+  const diagnostics = []
   const reasonCounts = {}
 
   for (const attachment of attachments) {
@@ -62,20 +63,26 @@ export function attachmentCompatibilityForModel(attachments, model) {
     }
     if (!reason) continue
     incompatible.push(attachment)
+    diagnostics.push({ attachment, reason })
     reasonCounts[reason] = (reasonCounts[reason] || 0) + 1
   }
 
   return {
     compatible: incompatible.length === 0,
     incompatible,
+    diagnostics,
     reason_counts: reasonCounts,
     total: attachments.length,
   }
 }
 
+export function attachmentCompatibilityReasonLabel(reason) {
+  return COMPATIBILITY_REASON_LABELS.find(([key]) => key === reason)?.[1] || ''
+}
+
 export function attachmentCompatibilityReasonSummary(compatibility) {
   return COMPATIBILITY_REASON_LABELS
     .filter(([reason]) => compatibility?.reason_counts?.[reason])
-    .map(([, label]) => label)
+    .map(([reason]) => attachmentCompatibilityReasonLabel(reason))
     .join('; ')
 }
