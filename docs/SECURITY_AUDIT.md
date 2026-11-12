@@ -3032,6 +3032,28 @@ is required before describing those controls as complete.
   ended with `Result=success` and exit status zero, production state had no active
   issue, and an installed-code flap simulation produced no notification plan.
 
+### Python dependency advisory remediation — 2026-11-12
+
+- Commit `18b3302` updates Django REST framework 3.17.2 to 3.18.3 and pypdf
+  6.19.0 to 6.21.4. The minimal same-major pypdf update avoids an unnecessary
+  compatibility jump while clearing all 21 advisories previously reported for
+  these two packages. The resulting 24-wheel SHA-256 lock, deterministic
+  CycloneDX SBOM, `pip check` and `pip-audit` all pass.
+- All 647 backend and 125 operational tests, Django checks, Bash syntax,
+  ShellCheck and immutable GitHub Actions validation passed. The deploy built
+  two independently signed environments from the identical clean lock; an
+  earlier drill correctly refused to cross incompatible requirement locks.
+- Production runs
+  `/opt/aichat-python-envs/release-20261112T163227_086773856` with Django REST
+  framework 3.18.3 and pypdf 6.21.4. A live rollback to the retained clean-lock
+  environment and exact restoration completed in 2/2 seconds. Seven origin and
+  seven Cloudflare-edge public/private/media probes passed; the backend remains
+  active with zero restarts and the independent monitor ended successfully.
+- The current frontend audit is tracked separately: it reports one high Zod
+  advisory and a transitive moderate minimatch advisory through the ESLint
+  toolchain. Those findings are not runtime Python exposure and remain the next
+  isolated dependency stage.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,
@@ -3061,6 +3083,11 @@ remain open.
 - [launch-editor argument-escaping advisory](https://github.com/advisories/GHSA-698v-4r3x-3vcv)
 - [Vite 8.3.4 release](https://github.com/vitejs/vite/releases/tag/v8.3.4)
 - [certifi 2026.10.19 release and provenance](https://pypi.org/project/certifi/2026.10.19/)
+- [Django REST framework package history](https://pypi.org/project/djangorestframework/)
+- [pypdf releases](https://github.com/py-pdf/pypdf/releases)
+- [pypdf recursion advisory](https://github.com/advisories/GHSA-5849-834g-hvw5)
+- [Zod package versions](https://www.npmjs.com/package/zod?activeTab=versions)
+- [minimatch ReDoS advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
 - [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
 - [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)
 - [NVIDIA Riva Translate v2 API contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-riva-translate-4b-instruct-v2-infer)

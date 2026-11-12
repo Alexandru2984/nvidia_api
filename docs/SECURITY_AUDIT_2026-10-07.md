@@ -305,6 +305,20 @@ secret values are reproduced here.
   disabled by default. Three focused regressions passed; the installed monitor
   and unit match committed sources, the timer is enabled/active, and a manual
   run ended with no active issue and exit status zero.
+- 2026-11-12: commit `18b3302` updated Django REST framework from 3.17.2 to
+  3.18.3 and pypdf from 6.19.0 to 6.21.4, removing all 21 Python advisories
+  reported against those two packages while staying within pypdf's deployed
+  major version. The exact 24-wheel hash lock and CycloneDX SBOM validate, all
+  647 backend and 125 operational tests passed, and `pip check` plus the current
+  `pip-audit` report are clean. Two signed environments were built from the same
+  lock so rollback compatibility was preserved; production rollback/restoration
+  completed in 2/2 seconds and restored
+  `release-20261112T163227_086773856`. Seven origin and seven Cloudflare-edge
+  probes passed, the backend remains active with zero restarts, and the monitor
+  completed successfully. A separate current npm audit exposed one high Zod
+  advisory and one transitive moderate minimatch advisory (reported through five
+  package nodes); frontend dependency remediation remains the next isolated
+  stage rather than being hidden by this Python rollout.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
