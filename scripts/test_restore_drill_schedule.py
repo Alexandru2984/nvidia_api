@@ -63,15 +63,17 @@ class RestoreDrillScheduleTests(unittest.TestCase):
     def test_protected_change_watcher_covers_all_installed_artifacts(self):
         path_unit = WATCH.read_text(encoding='utf-8')
         for target in (
+            '/home/micu/nvidia/backend',
             '/etc/systemd/system/aichat-restore-drill.service',
             '/etc/systemd/system/aichat-restore-drill.timer',
             '/etc/aichat-release-provenance/private.pem',
             '/etc/aichat-release-provenance/public',
             '/usr/local/libexec/aichat-release-provenance',
+            '/usr/local/libexec/aichat-runtime-secret-check',
             '/usr/local/libexec/aichat-restore-drill',
         ):
             self.assertIn(f'PathChanged={target}\n', path_unit)
-        self.assertEqual(path_unit.count('PathChanged='), 23)
+        self.assertEqual(path_unit.count('PathChanged='), 25)
 
     def test_drill_accepts_only_explicit_production_path_overrides(self):
         drill = DRILL.read_text(encoding='utf-8')

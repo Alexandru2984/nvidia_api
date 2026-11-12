@@ -2,6 +2,7 @@
 Description=Watch AI Chat Hub protected configuration for changes
 
 [Path]
+PathChanged=/home/micu/nvidia/backend
 PathChanged=/home/micu/nvidia/backend/.env
 PathChanged=/home/micu/scripts/.env
 PathChanged=/etc/nginx/sites-available/aichat.micutu.com
@@ -24,6 +25,7 @@ PathChanged=/etc/aichat-release-provenance/private.pem
 PathChanged=/etc/aichat-release-provenance/public
 PathChanged=/usr/local/libexec/aichat-security-monitor
 PathChanged=/usr/local/libexec/aichat-release-provenance
+PathChanged=/usr/local/libexec/aichat-runtime-secret-check
 PathChanged=/usr/local/libexec/aichat-restore-drill
 Unit=aichat-config-watch.service
 

@@ -459,6 +459,7 @@ class SecurityMonitorTests(unittest.TestCase):
             Path(__file__).resolve().parents[1]
             / 'ops/systemd/aichat-config-watch.path'
         ).read_text(encoding='utf-8')
+        self.assertIn('PathChanged=/home/micu/nvidia/backend\n', path_unit)
         self.assertIn('PathChanged=/home/micu/nvidia/backend/.env\n', path_unit)
         self.assertIn('PathChanged=/etc/nginx/sites-available/aichat.micutu.com\n', path_unit)
         self.assertIn('PathChanged=/etc/aichat/model-status-private.pem\n', path_unit)
@@ -474,6 +475,10 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertIn('PathChanged=/usr/local/libexec/aichat-security-monitor\n', path_unit)
         self.assertIn(
             'PathChanged=/usr/local/libexec/aichat-release-provenance\n',
+            path_unit,
+        )
+        self.assertIn(
+            'PathChanged=/usr/local/libexec/aichat-runtime-secret-check\n',
             path_unit,
         )
 

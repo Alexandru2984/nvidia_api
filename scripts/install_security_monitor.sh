@@ -7,6 +7,7 @@ umask 077
 REPO_DIR='/home/micu/nvidia'
 SOURCE_MONITOR="$REPO_DIR/scripts/security_monitor.py"
 SOURCE_PROVENANCE="$REPO_DIR/scripts/release_provenance.py"
+SOURCE_SECRET_CHECK="$REPO_DIR/scripts/check_runtime_secret_hygiene.py"
 SOURCE_SERVICE="$REPO_DIR/ops/systemd/aichat-security-monitor.service"
 SOURCE_TIMER="$REPO_DIR/ops/systemd/aichat-security-monitor.timer"
 SOURCE_SYSUSERS="$REPO_DIR/ops/sysusers.d/aichat-monitor.conf"
@@ -17,6 +18,7 @@ SOURCE_RESTORE_SERVICE="$REPO_DIR/ops/systemd/aichat-restore-drill.service"
 SOURCE_RESTORE_TIMER="$REPO_DIR/ops/systemd/aichat-restore-drill.timer"
 TARGET_MONITOR='/usr/local/libexec/aichat-security-monitor'
 TARGET_PROVENANCE='/usr/local/libexec/aichat-release-provenance'
+TARGET_SECRET_CHECK='/usr/local/libexec/aichat-runtime-secret-check'
 TARGET_SERVICE='/etc/systemd/system/aichat-security-monitor.service'
 TARGET_TIMER='/etc/systemd/system/aichat-security-monitor.timer'
 TARGET_SYSUSERS='/etc/sysusers.d/aichat-monitor.conf'
@@ -31,6 +33,7 @@ BACKUP_DIR='/home/micu/backups/nvidia_db'
 RESTORE_LOG="$BACKUP_DIR/restore-drill.log"
 STATE_DIR='/var/lib/aichat-security-monitor'
 STATE_FILE="$STATE_DIR/state.json"
+RUNTIME_DIR='/home/micu/nvidia/backend'
 MONITOR_USER='aichat-monitor'
 CRONTAB_USER='micu'
 LEGACY_RESTORE_COMMENT='# Isolated restore/integrity drill (weekly)'
@@ -64,6 +67,7 @@ legacy_restore_count="$(
 }
 for source in \
   "$SOURCE_MONITOR" "$SOURCE_PROVENANCE" "$SOURCE_SERVICE" "$SOURCE_TIMER" "$SOURCE_SYSUSERS" \
+  "$SOURCE_SECRET_CHECK" \
   "$SOURCE_CONFIG_SERVICE" "$SOURCE_CONFIG_PATH" "$SOURCE_RESTORE_DRILL" \
   "$SOURCE_RESTORE_SERVICE" "$SOURCE_RESTORE_TIMER"; do
   [[ -f "$source" && ! -L "$source" ]] || {
@@ -71,6 +75,7 @@ for source in \
     exit 1
   }
 done
+"$SOURCE_SECRET_CHECK" --runtime-dir "$RUNTIME_DIR" --owner micu --group aichat
 [[ -f "$TARGET_PROVENANCE" && ! -L "$TARGET_PROVENANCE" \
   && "$(stat -c '%U:%G:%a' -- "$TARGET_PROVENANCE")" == 'root:root:755' ]] || {
   echo 'ERROR: installed release-provenance verifier is missing or unsafe' >&2
@@ -108,10 +113,11 @@ temporary="$(mktemp -d /run/aichat-monitor-install.XXXXXX)"
 getfacl --absolute-names -- "$BACKUP_PARENT" "$BACKUP_DIR" "$RESTORE_LOG" \
   > "$temporary/backup.acl"
 for target_name in \
-  monitor service timer sysusers config_service config_path \
+  monitor secret_check service timer sysusers config_service config_path \
   restore_drill restore_service restore_timer; do
   case "$target_name" in
     monitor) target="$TARGET_MONITOR" ;;
+    secret_check) target="$TARGET_SECRET_CHECK" ;;
     service) target="$TARGET_SERVICE" ;;
     timer) target="$TARGET_TIMER" ;;
     sysusers) target="$TARGET_SYSUSERS" ;;
@@ -212,6 +218,7 @@ rollback() {
     aichat-restore-drill.timer aichat-restore-drill.service \
     >/dev/null 2>&1 || true
   restore_target monitor "$TARGET_MONITOR"
+  restore_target secret_check "$TARGET_SECRET_CHECK"
   restore_target service "$TARGET_SERVICE"
   restore_target timer "$TARGET_TIMER"
   restore_target sysusers "$TARGET_SYSUSERS"
@@ -281,6 +288,7 @@ monitor_gid="$(id -g "$MONITOR_USER")"
 }
 
 install -o root -g root -m 0755 -- "$SOURCE_MONITOR" "$TARGET_MONITOR"
+install -o root -g root -m 0755 -- "$SOURCE_SECRET_CHECK" "$TARGET_SECRET_CHECK"
 install -o root -g root -m 0644 -- "$SOURCE_SERVICE" "$TARGET_SERVICE"
 install -o root -g root -m 0644 -- "$SOURCE_TIMER" "$TARGET_TIMER"
 install -o root -g root -m 0644 -- "$SOURCE_CONFIG_SERVICE" "$TARGET_CONFIG_SERVICE"
@@ -289,6 +297,7 @@ install -o root -g root -m 0755 -- "$SOURCE_RESTORE_DRILL" "$TARGET_RESTORE_DRIL
 install -o root -g root -m 0644 -- "$SOURCE_RESTORE_SERVICE" "$TARGET_RESTORE_SERVICE"
 install -o root -g root -m 0644 -- "$SOURCE_RESTORE_TIMER" "$TARGET_RESTORE_TIMER"
 cmp --silent -- "$SOURCE_MONITOR" "$TARGET_MONITOR"
+cmp --silent -- "$SOURCE_SECRET_CHECK" "$TARGET_SECRET_CHECK"
 cmp --silent -- "$SOURCE_SERVICE" "$TARGET_SERVICE"
 cmp --silent -- "$SOURCE_TIMER" "$TARGET_TIMER"
 cmp --silent -- "$SOURCE_CONFIG_SERVICE" "$TARGET_CONFIG_SERVICE"
@@ -296,6 +305,7 @@ cmp --silent -- "$SOURCE_CONFIG_PATH" "$TARGET_CONFIG_PATH"
 cmp --silent -- "$SOURCE_RESTORE_DRILL" "$TARGET_RESTORE_DRILL"
 cmp --silent -- "$SOURCE_RESTORE_SERVICE" "$TARGET_RESTORE_SERVICE"
 cmp --silent -- "$SOURCE_RESTORE_TIMER" "$TARGET_RESTORE_TIMER"
+"$TARGET_SECRET_CHECK" --runtime-dir "$RUNTIME_DIR" --owner micu --group aichat
 
 # The dedicated identity may traverse only the shared backup parent, list/stat
 # this application's backup directory, and read only the privacy-minimized
