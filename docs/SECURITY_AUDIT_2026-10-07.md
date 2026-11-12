@@ -284,6 +284,27 @@ secret values are reproduced here.
   rollback/restoration in 2/2 seconds, ten origin/edge probes and the independent
   monitor. Production still used the active dotenv at this checkpoint, so S-04
   and the Wave 4 exit gate remained open.
+- 2026-11-12: commits `938102a`, `6c63665`, `cd015f3` and `2006d6c` moved all
+  six active application-secret families out of dotenv into a fixed root-owned
+  file manifest. Dotenv now has zero inline secret assignments and six absolute
+  `*_FILE` pointers. The directory/files are `0750`/`0640`, and exact ACLs let
+  `aichat` and the owner administrator read but not modify them. Two guarded
+  attempts failed on traversal/access validation and restored the original
+  dotenv, removed staged credentials, restarted healthy and restored the watcher.
+  A restore-unit path mismatch then rolled its installer back; the fixed
+  installer correctly refused an active six-minute restore-failure alert rather
+  than clearing it, and completed after natural recovery. All 647 backend and
+  122 operational tests passed. A real backup and isolated restore, the monitor,
+  14 origin/edge probes and a signed backend rollback/restoration in 3/2 seconds
+  passed. Unique NVIDIA/SMTP issuance, provider-side rotation/revocation and
+  invalidation or disposal of historical quarantined values remain open, so
+  S-04 is reduced but not closed.
+- 2026-11-12: commit `bf53d44` stopped Telegram alert flapping without weakening
+  five-minute local evaluation. Reappearance no longer bypasses the per-key
+  cooldown, the production cooldown is 24 hours, and recovery notifications are
+  disabled by default. Three focused regressions passed; the installed monitor
+  and unit match committed sources, the timer is enabled/active, and a manual
+  run ended with no active issue and exit status zero.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

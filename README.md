@@ -85,6 +85,12 @@ file sources may never coexist. File inputs are bounded, canonical regular
 nonsymlinks; invalid UTF-8, control bytes, changes while opening and ambiguous
 sources fail closed without exposing values or paths. Required keys:
 
+Production uses the file-backed form for all six families. The root-managed
+directory `/etc/aichat/application-credentials` and every expected entry have a
+fixed manifest, ownership/mode and exact read-only ACL. The runtime dotenv holds
+only the six absolute `*_FILE` pointers; inline duplicates fail deployment.
+`aichat` and the owner administrator can read but cannot modify the files.
+
 ```
 DJANGO_SECRET_KEY=...
 DJANGO_DEBUG=False
@@ -520,7 +526,7 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
   integrity, all three active root-owned release manifests, executable-release
   retention, generation lease interruptions and repeated mismatched idempotency
-  keys, protected dotenv/vhost/unit/monitor changes, backup/restore
+  keys, protected dotenv/credential-directory/vhost/unit/monitor changes, backup/restore
   freshness, immediate scheduled-restore failure, ClamAV health/signature freshness, scanner
   failures, malware rejections, parser socket health, parser failures and installed
   parser executable integrity against the manifest-verified backend release, plus
@@ -528,6 +534,9 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   existing Telegram channel through a systemd credential, runs under the
   dedicated non-login `aichat-monitor` identity, keeps cooldown state under
   `/var/lib/aichat-security-monitor`, and never forwards raw log lines. A named
+  issue can notify Telegram at most once per 24 hours even if it resolves and
+  reappears; recovery messages are disabled by default. Local evaluation still
+  runs every five minutes.
   read-only ACL permits listing/statting this app's backup directory and reading
   only the privacy-minimized restore status; mode-`0600` database dumps remain
   unreadable to the monitor.

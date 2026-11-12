@@ -2982,6 +2982,56 @@ is required before describing those controls as complete.
   removal of secret values from dotenv, provider/mail uniqueness, rotation and
   revocation remained separate fail-closed gates.
 
+### Active application-secret extraction — 2026-11-12
+
+- Commits `938102a`, `6c63665`, `cd015f3` and `2006d6c` implement and harden an
+  atomic migration of the six active secret families. The resulting dotenv has
+  zero inline secret assignments and exactly six absolute `*_FILE` pointers.
+  `/etc/aichat/application-credentials` is `root:aichat` `0750`; its fixed six
+  regular nonsymlink entries are `root:aichat` `0640`. Exact ACLs grant `micu`
+  only traversal/read and grant no writer besides root. The checker validates
+  paths, manifest, metadata and ACLs without reading credential contents.
+- Rollback material existed only in a root-only `/run` directory for the duration
+  of migration and is absent after success. The first two attempts exposed a
+  missing parent traversal ACL and an ACL-unaware `test -r` false negative. Both
+  automatic rollbacks restored the original dotenv, removed the new directory,
+  restarted a healthy backend and restored the watcher. Real file opens and an
+  exact POSIX ACL comparison replaced the ambiguous access test.
+- The first monitor installation then exposed an installed-reader filename
+  mismatch in the isolated restore unit and restored every installed artifact.
+  Commit `2006d6c` pins the exact installed reader path. The next attempt was
+  correctly blocked by the resulting `restore_drill_failed` alert; state was not
+  cleared or bypassed. After the six-minute evidence window elapsed, the monitor
+  recovered naturally and installation completed with 28 protected targets.
+- All 647 backend and 122 operational tests, Bash syntax, ShellCheck, immutable
+  Action validation and the 24-package lock validation passed. A fresh database
+  backup and isolated restore passed. Signed backend release
+  `/opt/aichat-backend-releases/release-20261112T130158_450156885` is active at
+  exact commit `2006d6c615044ddff11d6996599045db69fa1fac`; signed rollback and
+  restoration completed in 3/2 seconds. Seven origin and seven Cloudflare-edge
+  probes passed, and the independent monitor ended with `Result=success` and
+  exit status zero.
+- This removes active inline storage but does not establish provider-level
+  uniqueness. NVIDIA/SMTP issuance, rotation and revocation, invalidation or
+  disposal of historical quarantined values, encrypted off-site recovery and
+  external security-log retention remain open.
+
+### Telegram alert-flap suppression — 2026-11-12
+
+- Commit `bf53d44` fixes a notification-state bug where every resolution emitted
+  a recovery message and the same issue's reappearance was treated as new,
+  bypassing the prior 30-minute cooldown. The timer was stopped before the change
+  so no further notification could be emitted during remediation.
+- Reappearance now retains the issue's prior send timestamp. Production permits
+  at most one alert per issue key per 24 hours, whether the condition stays
+  active or flaps, and recovery notifications are disabled by default. Detection,
+  journal evidence and local state evaluation still run every five minutes.
+- Forty-six monitor regressions, Bash syntax, ShellCheck and the credential and
+  restore integration suites passed. The installed monitor and unit are
+  byte-identical to committed sources; the timer is enabled/active, a manual run
+  ended with `Result=success` and exit status zero, production state had no active
+  issue, and an installed-code flap simulation produced no notification plan.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

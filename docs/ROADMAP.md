@@ -35,9 +35,11 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   timers run as the non-login `aichat` Unix user, with an unprivileged app-only
   database role and app-owned media/cache. File-backed input for all six
   application-secret families is shipped with ambiguity, canonical-path,
-  symlink, race, size, encoding and control-byte rejection. Keep the identity
-  invariant in deployment checks and complete the production migration to
-  systemd credentials during a controlled rotation. The
+  symlink, race, size, encoding and control-byte rejection. Production now uses
+  six root-managed files with exact read-only ACLs and only `*_FILE` pointers in
+  dotenv; deploy, backup, restore and monitoring validate that boundary. Keep
+  the identity invariant in deployment checks. Provider/mail rotation and
+  revocation, plus a KMS/HSM upgrade if the trust model expands, remain open. The
   HTTP origin is now a monitored permissioned Unix socket shared only with nginx;
   the former loopback TCP listener is closed and monitored against regression.
 - **Durable abuse and budget controls:** PostgreSQL-backed daily request budgets
@@ -80,7 +82,8 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   The monitor runs under a dedicated non-login identity, receives its Telegram
   configuration through a systemd credential, can read restore status but not
   database dumps, and validates those exact ACL boundaries on every run. A
-  systemd path unit now turns changes to protected dotenv, vhost, application
+  systemd path unit now turns changes to protected dotenv, the application
+  credential directory, vhost, application
   units, restore units/executable, monitor units/identity, the runtime directory
   or installed monitor/checker code into a fixed
   privacy-safe event within the same alert window. Routine request logging is now
@@ -89,6 +92,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   while retaining bounded request shape/status/latency. Add contract-spend
   correlation and an external log sink that preserves this field boundary and
   never logs prompts, cookies, OTPs, filenames, raw IPs, queries or secrets.
+  Telegram alerting is now flap-resistant: an issue key can notify at most once
+  per 24 hours across resolve/reappear cycles, recovery notifications are off by
+  default, and five-minute local detection remains enabled.
 - **Runtime dotenv-copy containment is shipped:** backend deploy and monitor
   installation fail closed unless the sole active dotenv has exact ownership,
   mode, type and size and no dotenv-like copy exists beside it. The root-owned
@@ -96,6 +102,13 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   copies were moved, without deletion, into a root-only `0700` quarantine with
   `0600` files. Provider/mail rotation, revocation and migration of the remaining
   active values to systemd credentials or KMS/HSM remain open Wave 4 gates.
+- **Active dotenv secret extraction is shipped:** all six application-secret
+  families moved atomically into a root-owned manifest with exact `0750`/`0640`
+  metadata and read-only ACLs; dotenv now contains pointers only. The transition
+  retained its plaintext rollback copy only in `/run`, proved fail-safe rollback
+  twice, then deleted it after backup, restore and health validation. Unique
+  NVIDIA/SMTP issuance, provider-side revocation and invalidation or disposal of
+  historical quarantined values remain open before Wave 4 closes.
 - **Recoverability:** the isolated database restore drill is now installed as a
   persistent weekly systemd timer, runs against the active immutable releases,
   is sandboxed to local PostgreSQL plus the private backup directory, and alerts
