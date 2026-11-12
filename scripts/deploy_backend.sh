@@ -19,6 +19,10 @@ APP_CREDENTIAL_CHECK_SOURCE="$REPO_DIR/scripts/check_application_credentials.py"
 APP_CREDENTIAL_CHECK='/usr/local/libexec/aichat-application-credential-check'
 DB_CONFIG_READER_SOURCE="$REPO_DIR/scripts/read_database_config.py"
 DB_CONFIG_READER='/usr/local/libexec/aichat-read-database-config'
+INCIDENT_RENDERER_SOURCE="$REPO_DIR/scripts/incident_controls.py"
+INCIDENT_RENDERER='/usr/local/libexec/aichat-incident-control-render'
+INCIDENT_COMMAND_SOURCE="$REPO_DIR/scripts/apply_incident_controls.sh"
+INCIDENT_COMMAND='/usr/local/sbin/aichat-incident-controls'
 APP_CREDENTIAL_DIR='/etc/aichat/application-credentials'
 LOCK_FILE='/run/aichat-release-operation.lock'
 MODEL_PROBE_USER='aichat-model-probe'
@@ -314,7 +318,8 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
 fi
 for tool in \
   "$RETENTION_TOOL" "$PROVENANCE_TOOL" "$RUNTIME_SECRET_CHECK_SOURCE" \
-  "$APP_CREDENTIAL_CHECK_SOURCE" "$DB_CONFIG_READER_SOURCE"; do
+  "$APP_CREDENTIAL_CHECK_SOURCE" "$DB_CONFIG_READER_SOURCE" \
+  "$INCIDENT_RENDERER_SOURCE" "$INCIDENT_COMMAND_SOURCE"; do
   [[ -x "$tool" && ! -L "$tool" ]] || {
     echo "ERROR: required release tool is missing or unsafe: $tool" >&2
     exit 1
@@ -331,16 +336,18 @@ cmp --silent -- "$RUNTIME_SECRET_CHECK_SOURCE" "$RUNTIME_SECRET_CHECK" || {
 }
 for source_target in \
   "$APP_CREDENTIAL_CHECK_SOURCE:$APP_CREDENTIAL_CHECK" \
-  "$DB_CONFIG_READER_SOURCE:$DB_CONFIG_READER"; do
+  "$DB_CONFIG_READER_SOURCE:$DB_CONFIG_READER" \
+  "$INCIDENT_RENDERER_SOURCE:$INCIDENT_RENDERER" \
+  "$INCIDENT_COMMAND_SOURCE:$INCIDENT_COMMAND"; do
   source="${source_target%%:*}"
   target="${source_target#*:}"
   [[ -x "$target" && ! -L "$target" \
     && "$(stat -c '%a:%U:%G' -- "$target")" == '755:root:root' ]] || {
-    echo 'ERROR: installed application-credential tooling is missing or unsafe' >&2
+    echo 'ERROR: installed operational tooling is missing or unsafe' >&2
     exit 1
   }
   cmp --silent -- "$source" "$target" || {
-    echo 'ERROR: installed application-credential tooling is stale' >&2
+    echo 'ERROR: installed operational tooling is stale' >&2
     exit 1
   }
 done

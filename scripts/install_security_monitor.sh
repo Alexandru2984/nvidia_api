@@ -10,6 +10,8 @@ SOURCE_PROVENANCE="$REPO_DIR/scripts/release_provenance.py"
 SOURCE_SECRET_CHECK="$REPO_DIR/scripts/check_runtime_secret_hygiene.py"
 SOURCE_APP_CREDENTIAL_CHECK="$REPO_DIR/scripts/check_application_credentials.py"
 SOURCE_DB_CONFIG_READER="$REPO_DIR/scripts/read_database_config.py"
+SOURCE_INCIDENT_RENDERER="$REPO_DIR/scripts/incident_controls.py"
+SOURCE_INCIDENT_COMMAND="$REPO_DIR/scripts/apply_incident_controls.sh"
 SOURCE_SERVICE="$REPO_DIR/ops/systemd/aichat-security-monitor.service"
 SOURCE_TIMER="$REPO_DIR/ops/systemd/aichat-security-monitor.timer"
 SOURCE_SYSUSERS="$REPO_DIR/ops/sysusers.d/aichat-monitor.conf"
@@ -23,6 +25,8 @@ TARGET_PROVENANCE='/usr/local/libexec/aichat-release-provenance'
 TARGET_SECRET_CHECK='/usr/local/libexec/aichat-runtime-secret-check'
 TARGET_APP_CREDENTIAL_CHECK='/usr/local/libexec/aichat-application-credential-check'
 TARGET_DB_CONFIG_READER='/usr/local/libexec/aichat-read-database-config'
+TARGET_INCIDENT_RENDERER='/usr/local/libexec/aichat-incident-control-render'
+TARGET_INCIDENT_COMMAND='/usr/local/sbin/aichat-incident-controls'
 TARGET_SERVICE='/etc/systemd/system/aichat-security-monitor.service'
 TARGET_TIMER='/etc/systemd/system/aichat-security-monitor.timer'
 TARGET_SYSUSERS='/etc/sysusers.d/aichat-monitor.conf'
@@ -75,6 +79,7 @@ for source in \
   "$SOURCE_MONITOR" "$SOURCE_PROVENANCE" "$SOURCE_SERVICE" "$SOURCE_TIMER" "$SOURCE_SYSUSERS" \
   "$SOURCE_SECRET_CHECK" \
   "$SOURCE_APP_CREDENTIAL_CHECK" "$SOURCE_DB_CONFIG_READER" \
+  "$SOURCE_INCIDENT_RENDERER" "$SOURCE_INCIDENT_COMMAND" \
   "$SOURCE_CONFIG_SERVICE" "$SOURCE_CONFIG_PATH" "$SOURCE_RESTORE_DRILL" \
   "$SOURCE_RESTORE_SERVICE" "$SOURCE_RESTORE_TIMER"; do
   [[ -f "$source" && ! -L "$source" ]] || {
@@ -124,12 +129,15 @@ getfacl --absolute-names -- "$BACKUP_PARENT" "$BACKUP_DIR" "$RESTORE_LOG" \
 for target_name in \
   monitor secret_check service timer sysusers config_service config_path \
   app_credential_check db_config_reader \
+  incident_renderer incident_command \
   restore_drill restore_service restore_timer; do
   case "$target_name" in
     monitor) target="$TARGET_MONITOR" ;;
     secret_check) target="$TARGET_SECRET_CHECK" ;;
     app_credential_check) target="$TARGET_APP_CREDENTIAL_CHECK" ;;
     db_config_reader) target="$TARGET_DB_CONFIG_READER" ;;
+    incident_renderer) target="$TARGET_INCIDENT_RENDERER" ;;
+    incident_command) target="$TARGET_INCIDENT_COMMAND" ;;
     service) target="$TARGET_SERVICE" ;;
     timer) target="$TARGET_TIMER" ;;
     sysusers) target="$TARGET_SYSUSERS" ;;
@@ -233,6 +241,8 @@ rollback() {
   restore_target secret_check "$TARGET_SECRET_CHECK"
   restore_target app_credential_check "$TARGET_APP_CREDENTIAL_CHECK"
   restore_target db_config_reader "$TARGET_DB_CONFIG_READER"
+  restore_target incident_renderer "$TARGET_INCIDENT_RENDERER"
+  restore_target incident_command "$TARGET_INCIDENT_COMMAND"
   restore_target service "$TARGET_SERVICE"
   restore_target timer "$TARGET_TIMER"
   restore_target sysusers "$TARGET_SYSUSERS"
@@ -306,6 +316,10 @@ install -o root -g root -m 0755 -- "$SOURCE_SECRET_CHECK" "$TARGET_SECRET_CHECK"
 install -o root -g root -m 0755 -- \
   "$SOURCE_APP_CREDENTIAL_CHECK" "$TARGET_APP_CREDENTIAL_CHECK"
 install -o root -g root -m 0755 -- "$SOURCE_DB_CONFIG_READER" "$TARGET_DB_CONFIG_READER"
+install -o root -g root -m 0755 -- \
+  "$SOURCE_INCIDENT_RENDERER" "$TARGET_INCIDENT_RENDERER"
+install -o root -g root -m 0755 -- \
+  "$SOURCE_INCIDENT_COMMAND" "$TARGET_INCIDENT_COMMAND"
 install -o root -g root -m 0644 -- "$SOURCE_SERVICE" "$TARGET_SERVICE"
 install -o root -g root -m 0644 -- "$SOURCE_TIMER" "$TARGET_TIMER"
 install -o root -g root -m 0644 -- "$SOURCE_CONFIG_SERVICE" "$TARGET_CONFIG_SERVICE"
@@ -317,6 +331,8 @@ cmp --silent -- "$SOURCE_MONITOR" "$TARGET_MONITOR"
 cmp --silent -- "$SOURCE_SECRET_CHECK" "$TARGET_SECRET_CHECK"
 cmp --silent -- "$SOURCE_APP_CREDENTIAL_CHECK" "$TARGET_APP_CREDENTIAL_CHECK"
 cmp --silent -- "$SOURCE_DB_CONFIG_READER" "$TARGET_DB_CONFIG_READER"
+cmp --silent -- "$SOURCE_INCIDENT_RENDERER" "$TARGET_INCIDENT_RENDERER"
+cmp --silent -- "$SOURCE_INCIDENT_COMMAND" "$TARGET_INCIDENT_COMMAND"
 cmp --silent -- "$SOURCE_SERVICE" "$TARGET_SERVICE"
 cmp --silent -- "$SOURCE_TIMER" "$TARGET_TIMER"
 cmp --silent -- "$SOURCE_CONFIG_SERVICE" "$TARGET_CONFIG_SERVICE"

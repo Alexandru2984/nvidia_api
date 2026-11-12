@@ -222,7 +222,7 @@ class ApplicationCredentialTests(unittest.TestCase):
             '/usr/local/libexec/aichat-read-database-config',
         ):
             self.assertIn(f'PathChanged={target}\n', watcher)
-        self.assertEqual(watcher.count('PathChanged='), 28)
+        self.assertEqual(watcher.count('PathChanged='), 30)
 
 
 if __name__ == '__main__':

@@ -77,10 +77,12 @@ class RestoreDrillScheduleTests(unittest.TestCase):
             '/usr/local/libexec/aichat-runtime-secret-check',
             '/usr/local/libexec/aichat-application-credential-check',
             '/usr/local/libexec/aichat-read-database-config',
+            '/usr/local/libexec/aichat-incident-control-render',
+            '/usr/local/sbin/aichat-incident-controls',
             '/usr/local/libexec/aichat-restore-drill',
         ):
             self.assertIn(f'PathChanged={target}\n', path_unit)
-        self.assertEqual(path_unit.count('PathChanged='), 28)
+        self.assertEqual(path_unit.count('PathChanged='), 30)
 
     def test_drill_accepts_only_explicit_production_path_overrides(self):
         drill = DRILL.read_text(encoding='utf-8')
