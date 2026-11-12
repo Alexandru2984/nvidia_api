@@ -12,6 +12,7 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=AICHAT_RUNTIME_DIR=/home/micu/nvidia/backend
 Environment=AICHAT_APP_DIR=/opt/aichat-backend-current
 Environment=AICHAT_PYTHON=/opt/aichat-python-current/bin/python
+Environment=AICHAT_DB_CONFIG_READER=/usr/local/libexec/aichat-read-database-config
 ExecStart=/usr/local/libexec/aichat-restore-drill
 StandardOutput=append:/home/micu/backups/nvidia_db/restore-drill.log
 StandardError=journal

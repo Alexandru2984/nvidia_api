@@ -21,6 +21,11 @@ class RestoreDrillScheduleTests(unittest.TestCase):
         self.assertIn('Environment=AICHAT_APP_DIR=/opt/aichat-backend-current\n', unit)
         self.assertIn('Environment=AICHAT_PYTHON=/opt/aichat-python-current/bin/python\n', unit)
         self.assertIn(
+            'Environment=AICHAT_DB_CONFIG_READER='
+            '/usr/local/libexec/aichat-read-database-config\n',
+            unit,
+        )
+        self.assertIn(
             'StandardOutput=append:/home/micu/backups/nvidia_db/restore-drill.log\n',
             unit,
         )
