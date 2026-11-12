@@ -5,6 +5,7 @@ import importlib.util
 import os
 import pwd
 import grp
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -131,6 +132,29 @@ class ApplicationCredentialTests(unittest.TestCase):
         with self.assertRaises(credentials.CredentialError):
             credentials.check_credentials(
                 self.output, self.managed, owner, group, owner,
+            )
+
+    def test_checker_accepts_only_the_exact_read_only_admin_acl(self):
+        owner, group = self.stage_and_normalize()
+        admin = 'nobody'
+        self.root.chmod(0o750)
+        subprocess.run(['setfacl', '-b', str(self.root), str(self.managed)], check=True)
+        subprocess.run(['setfacl', '-m', f'u:{admin}:--x', str(self.root)], check=True)
+        subprocess.run(['setfacl', '-m', f'u:{admin}:r-x', str(self.managed)], check=True)
+        for path in self.managed.iterdir():
+            subprocess.run(['setfacl', '-b', str(path)], check=True)
+            subprocess.run(['setfacl', '-m', f'u:{admin}:r--', str(path)], check=True)
+
+        credentials.check_credentials(
+            self.output, self.managed, owner, group, owner, admin,
+        )
+        subprocess.run(
+            ['setfacl', '-m', f'u:{admin}:rw-', str(self.managed / 'db-password')],
+            check=True,
+        )
+        with self.assertRaises(credentials.CredentialError):
+            credentials.check_credentials(
+                self.output, self.managed, owner, group, owner, admin,
             )
 
     def test_database_reader_supports_direct_and_file_backed_password(self):

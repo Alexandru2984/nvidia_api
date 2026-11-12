@@ -120,7 +120,7 @@ if (( EUID != 0 )); then
   echo 'ERROR: Python environment deployment must run as root' >&2
   exit 1
 fi
-for command in flock git sha256sum runuser curl systemctl readlink "$PYTHON"; do
+for command in flock git sha256sum runuser curl systemctl readlink getfacl head "$PYTHON"; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
@@ -151,12 +151,9 @@ cmp --silent -- "$APP_CREDENTIAL_CHECK_SOURCE" "$APP_CREDENTIAL_CHECK" || {
   --env-file "$RUNTIME_DIR/.env" --credential-dir "$APP_CREDENTIAL_DIR"
 for credential in "$APP_CREDENTIAL_DIR"/*; do
   for identity in aichat micu; do
-    runuser --user "$identity" -- test -r "$credential"
-    runuser --user "$identity" -- test ! -w "$credential"
+    runuser --user "$identity" -- head --bytes=1 "$credential" >/dev/null
   done
 done
-runuser --user aichat -- test ! -w "$APP_CREDENTIAL_DIR"
-runuser --user micu -- test ! -w "$APP_CREDENTIAL_DIR"
 if [[ ! -L "$APP_LIVE" ]]; then
   echo 'ERROR: active backend application release is missing or unsafe' >&2
   exit 1

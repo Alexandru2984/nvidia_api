@@ -299,7 +299,7 @@ if (( EUID != 0 )); then
   echo 'ERROR: backend deployment must run as root' >&2
   exit 1
 fi
-for command in flock git tar sha256sum runuser curl systemctl readlink \
+for command in flock git tar sha256sum runuser curl systemctl readlink getfacl head \
   getent id stat openssl cmp python3; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
@@ -357,12 +357,9 @@ fi
   --env-file "$RUNTIME_DIR/.env" --credential-dir "$APP_CREDENTIAL_DIR"
 for credential in "$APP_CREDENTIAL_DIR"/*; do
   for identity in aichat micu; do
-    runuser --user "$identity" -- test -r "$credential"
-    runuser --user "$identity" -- test ! -w "$credential"
+    runuser --user "$identity" -- head --bytes=1 "$credential" >/dev/null
   done
 done
-runuser --user aichat -- test ! -w "$APP_CREDENTIAL_DIR"
-runuser --user micu -- test ! -w "$APP_CREDENTIAL_DIR"
 validate_model_probe_boundary
 if (( CHECK_MODEL_PROBE_BOUNDARY_ONLY )); then
   echo 'Model-probe deployment boundary is valid.'

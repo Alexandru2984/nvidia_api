@@ -87,7 +87,7 @@ if (( EUID != 0 )); then
   echo 'ERROR: application credential migration must run as root' >&2
   exit 1
 fi
-for command in git install mktemp mv stat setfacl getfacl runuser systemctl curl flock; do
+for command in git install mktemp mv stat setfacl getfacl runuser systemctl curl flock head; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
@@ -155,10 +155,8 @@ environment_switched=1
 
 "$PYTHON" "$CHECKER" --env-file "$ENV_FILE" --credential-dir "$CREDENTIAL_DIR"
 for credential in "$CREDENTIAL_DIR"/*; do
-  runuser --user aichat -- test -r "$credential"
-  runuser --user aichat -- test ! -w "$credential"
-  runuser --user micu -- test -r "$credential"
-  runuser --user micu -- test ! -w "$credential"
+  runuser --user aichat -- head --bytes=1 "$credential" >/dev/null
+  runuser --user micu -- head --bytes=1 "$credential" >/dev/null
 done
 
 runuser --user aichat -- env --chdir=/opt/aichat-backend-current \

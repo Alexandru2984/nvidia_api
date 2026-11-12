@@ -7,6 +7,7 @@ import os
 import pwd
 import re
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -90,6 +91,22 @@ def _write_all(descriptor, payload):
         view = view[written:]
 
 
+def _check_acl(path, expected):
+    try:
+        result = subprocess.run(
+            ['getfacl', '--absolute-names', '--omit-header', '--', str(path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CredentialError('credential ACL cannot be inspected') from exc
+    entries = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    if result.returncode != 0 or entries != expected:
+        raise CredentialError('credential ACL is unsafe')
+
+
 def stage_credentials(env_file, staging_dir, output_env, final_dir):
     """Convert one exact inline assignment per secret into file pointers."""
     text, assignments, values = _read_environment(env_file)
@@ -134,7 +151,7 @@ def stage_credentials(env_file, staging_dir, output_env, final_dir):
         os.close(descriptor)
 
 
-def check_credentials(env_file, credential_dir, owner, group, env_owner):
+def check_credentials(env_file, credential_dir, owner, group, env_owner, admin_user=None):
     """Validate metadata and pointers without reading credential contents."""
     env_metadata = _regular_file(
         env_file, maximum=MAX_ENV_BYTES, label='runtime configuration',
@@ -162,6 +179,24 @@ def check_credentials(env_file, credential_dir, owner, group, env_owner):
         or stat.S_IMODE(directory_metadata.st_mode) != 0o750
     ):
         raise CredentialError('credential directory metadata is unsafe')
+    if admin_user:
+        parent_metadata = credential_dir.parent.lstat()
+        if (
+            not stat.S_ISDIR(parent_metadata.st_mode)
+            or credential_dir.parent.is_symlink()
+            or parent_metadata.st_uid != expected_uid
+            or parent_metadata.st_gid != expected_gid
+            or stat.S_IMODE(parent_metadata.st_mode) != 0o750
+        ):
+            raise CredentialError('credential parent metadata is unsafe')
+        _check_acl(credential_dir.parent, {
+            'user::rwx', f'user:{admin_user}:--x', 'group::r-x',
+            'mask::r-x', 'other::---',
+        })
+        _check_acl(credential_dir, {
+            'user::rwx', f'user:{admin_user}:r-x', 'group::r-x',
+            'mask::r-x', 'other::---',
+        })
 
     if {entry.name for entry in credential_dir.iterdir()} != set(SECRET_FILES.values()):
         raise CredentialError('credential directory entries do not match the manifest')
@@ -183,6 +218,11 @@ def check_credentials(env_file, credential_dir, owner, group, env_owner):
             or stat.S_IMODE(metadata.st_mode) != 0o640
         ):
             raise CredentialError(f'{name} credential metadata is unsafe')
+        if admin_user:
+            _check_acl(expected_path, {
+                'user::rw-', f'user:{admin_user}:r--', 'group::r--',
+                'mask::r--', 'other::---',
+            })
 
 
 def parse_args():
@@ -192,6 +232,7 @@ def parse_args():
     parser.add_argument('--owner', default='root')
     parser.add_argument('--group', default='aichat')
     parser.add_argument('--env-owner', default='micu')
+    parser.add_argument('--admin-user', default='micu')
     parser.add_argument('--stage-output-env', type=Path)
     parser.add_argument('--stage-credential-dir', type=Path)
     return parser.parse_args()
@@ -217,6 +258,7 @@ def main():
                 args.owner,
                 args.group,
                 args.env_owner,
+                args.admin_user,
             )
             print('Application credential boundary is valid.')
     except (CredentialError, KeyError) as exc:

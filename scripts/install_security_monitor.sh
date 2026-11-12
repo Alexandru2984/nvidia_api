@@ -52,7 +52,7 @@ if (( EUID != 0 )); then
   echo 'ERROR: security-monitor installation must run as root' >&2
   exit 1
 fi
-for command in getfacl setfacl systemctl systemd-sysusers install runuser git getent python3 cmp crontab; do
+for command in getfacl setfacl systemctl systemd-sysusers install runuser git getent python3 cmp crontab head; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
@@ -329,12 +329,9 @@ cmp --silent -- "$SOURCE_RESTORE_TIMER" "$TARGET_RESTORE_TIMER"
   --env-file "$RUNTIME_DIR/.env" --credential-dir "$APP_CREDENTIAL_DIR"
 for credential in "$APP_CREDENTIAL_DIR"/*; do
   for identity in aichat micu; do
-    runuser --user "$identity" -- test -r "$credential"
-    runuser --user "$identity" -- test ! -w "$credential"
+    runuser --user "$identity" -- head --bytes=1 "$credential" >/dev/null
   done
 done
-runuser --user aichat -- test ! -w "$APP_CREDENTIAL_DIR"
-runuser --user micu -- test ! -w "$APP_CREDENTIAL_DIR"
 
 # The dedicated identity may traverse only the shared backup parent, list/stat
 # this application's backup directory, and read only the privacy-minimized
