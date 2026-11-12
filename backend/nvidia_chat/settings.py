@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
+from .secret_settings import secret_setting
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 _runtime_dir_value = os.environ.get('AICHAT_RUNTIME_DIR')
@@ -32,12 +34,12 @@ load_dotenv(RUNTIME_DIR / '.env')
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true'
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
-if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = 'dev-only-insecure-key'
-    else:
-        raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DEBUG is off.')
+SECRET_KEY = secret_setting(
+    'DJANGO_SECRET_KEY',
+    required=not DEBUG,
+    default='dev-only-insecure-key',
+    max_bytes=4096,
+)
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h.strip()]
 
 
@@ -54,7 +56,7 @@ def _keyring_json_object(pairs):
 
 
 def _load_keyring(keys_name, active_name, development_domain):
-    raw = os.environ.get(keys_name, '').strip()
+    raw = secret_setting(keys_name, required=False, max_bytes=8192).strip()
     active = os.environ.get(active_name, '').strip()
     if not raw:
         if not DEBUG:
@@ -168,7 +170,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ['DB_NAME'],
         'USER': os.environ['DB_USER'],
-        'PASSWORD': os.environ['DB_PASSWORD'],
+        'PASSWORD': secret_setting('DB_PASSWORD', max_bytes=4096),
         'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
         'PORT': os.environ.get('DB_PORT', '5432'),
     }
@@ -600,7 +602,7 @@ def _nvidia_endpoint(name, default, hostname, path):
     return value
 
 
-NVIDIA_API_KEY = os.environ['NVIDIA_API_KEY']
+NVIDIA_API_KEY = secret_setting('NVIDIA_API_KEY', max_bytes=4096)
 NVIDIA_API_URL = _nvidia_endpoint(
     'NVIDIA_API_URL',
     'https://integrate.api.nvidia.com/v1/chat/completions',
@@ -626,7 +628,7 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = os.environ.get('SMTP_HOST', 'localhost')
 EMAIL_PORT = int(os.environ.get('SMTP_PORT', '465'))
 EMAIL_HOST_USER = os.environ.get('SMTP_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('SMTP_PASS', '')
+EMAIL_HOST_PASSWORD = secret_setting('SMTP_PASS', required=False, max_bytes=4096)
 EMAIL_USE_SSL = EMAIL_PORT == 465
 EMAIL_USE_TLS = not EMAIL_USE_SSL
 EMAIL_TIMEOUT = 15
