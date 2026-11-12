@@ -366,6 +366,15 @@ restore references, not plaintext into the repository.
 Exit gate: no provider/mail credential is reused across projects; no application
 secret is supplied in argv; rotation and revocation are tested and documented.
 
+Status 2026-11-12: **partial containment deployed; exit gate remains open**.
+Commit `e7a6964` added a content-free runtime checker and fail-closed deploy and
+monitor-install preflights. Three historical dotenv copies were quarantined
+without deletion behind root-only `0700`/`0600` boundaries, and the runtime
+directory plus installed checker joined the protected-configuration watcher.
+The active provider/mail credentials have not been claimed unique, rotated or
+revoked, and the active dotenv has not yet moved to systemd credentials or a
+KMS/HSM.
+
 ## Wave 5 — host patch and reboot closure (P0)
 
 - Take fresh application/database/config backups and verify available disk space.

@@ -502,6 +502,14 @@ The VPS pattern matches every other `*.micutu.com` app on this host:
   the installer removes only the exact legacy NVIDIA restore cron entry and
   restores it on failed rollout.
 - **Monitoring** — the host-wide `check_sites.sh` cron pings `https://aichat.micutu.com` every minute and alerts on failures.
+- **Runtime secret hygiene** — production keeps exactly one runtime dotenv at
+  `backend/.env`; it must be a nonsymlink regular file owned by `micu:aichat`,
+  mode `0640`, with a bounded nonzero size. `scripts/check_runtime_secret_hygiene.py`
+  rejects dotenv-like copies in the runtime directory without reading or logging
+  their contents. Backend deployment and security-monitor installation both run
+  this check before changing production, and the installed root-owned checker is
+  itself watched for drift. Historical copies belong in a separately protected
+  root-only quarantine or encrypted recovery store, never beside the active file.
 - **Security monitoring** — `aichat-security-monitor.timer` evaluates structured,
   privacy-minimized auth/admin/rate/budget events, privileged changes, audit
   integrity, all three active root-owned release manifests, executable-release
@@ -604,7 +612,8 @@ back to the prior target automatically while retaining both releases for review.
 
 The backend deploy script archives only tracked files from committed `HEAD`,
 rejects dirty tracked changes, symlinks, special files, secrets and mutable-state
-directories, and stages a root-owned `0755`/`0644` release below
+directories, rejects unsafe active-dotenv metadata or any dotenv-like runtime
+copy, and stages a root-owned `0755`/`0644` release below
 `/opt/aichat-backend-releases`. It verifies the manifest, runs Django and migration
 preflights as `aichat` (including real scanner and isolated-parser readiness),
 atomically switches `/opt/aichat-backend-current`, installs

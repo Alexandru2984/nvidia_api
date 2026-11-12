@@ -2928,6 +2928,37 @@ is required before describing those controls as complete.
   public/private/media contract, and the independent monitor ended with
   `Result=success` and exit status zero.
 
+### Runtime dotenv-copy containment rollout — 2026-11-12
+
+- The scoped CISO review rated redundant plaintext dotenv copies as an
+  information-disclosure and tampering risk across AI Chat Hub provider, mail and
+  application data. Its decision was yellow: mitigate before continuing, without
+  adding a vendor, egress path or new data category. Commit `e7a6964` implements
+  that containment without reading or logging secret values.
+- `scripts/check_runtime_secret_hygiene.py` requires the one active runtime
+  dotenv to be a bounded nonsymlink regular file with exact `micu:aichat` `0640`
+  metadata and rejects dotenv-like copies in the same directory. Backend deploy
+  and monitor installation execute it before mutation. The installed checker is
+  root-owned, byte-identical to the committed source and watched together with
+  runtime-directory changes; the path unit now has 25 exact targets.
+- Three historical dotenv copies were moved without deletion to
+  `/home/micu/backups/nvidia_config/runtime-dotenv-quarantine-20261112T122706Z`.
+  The directory is `root:root` `0700` and every quarantined file is `root:root`
+  `0600`. The active dotenv remained in place and passed the content-free
+  preflight.
+- All 114 operational tests, Bash syntax, ShellCheck and immutable GitHub Action
+  validation passed. The installed preflight, restore drill and independent
+  monitor completed successfully. A controlled path-unit rollback restored the
+  prior 23-target definition in 2.847 seconds and the current 25-target definition
+  in 5.786 seconds; the backend PID did not change. Seven origin and seven
+  Cloudflare-edge probes retained the expected `200` public, `403` anonymous
+  private and `404` media-denial contract.
+- Residual risk remains explicit: this is copy containment, not provider/mail
+  credential rotation. Unique issuance, tested revocation, migration of active
+  application roots to systemd credentials or KMS/HSM, encrypted off-site
+  recovery, external security-log retention and the shared-host P0 boundary are
+  still open.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

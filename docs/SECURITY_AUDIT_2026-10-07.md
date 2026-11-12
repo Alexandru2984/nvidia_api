@@ -261,6 +261,19 @@ secret values are reproduced here.
   check proved that behavior. Signed rollback/restore drills completed in 0/1
   seconds for frontend, 2/1 for backend and 2/1 for Python, followed by clean
   origin/edge probes and a successful monitor state with no active issue.
+- 2026-11-12: commit `e7a6964` partially contained S-04/S-13 runtime-secret
+  exposure. Backend deployment and monitor installation now fail closed on
+  unsafe active-dotenv metadata or any dotenv-like copy in the runtime directory,
+  without reading or logging values. The exact installed root-owned checker and
+  runtime directory joined the protected-configuration watcher. Three historical
+  copies were moved without deletion into a root-only `0700` quarantine with
+  `0600` files. All 114 operational tests passed; the installed preflight,
+  monitor and 25-target watcher passed; rollback to the prior 23-target watcher
+  and restoration completed in 2.847/5.786 seconds without restarting the
+  backend; 14 origin/edge public, private and media probes passed. This does not
+  close S-04: unique provider/mail credential issuance, rotation, revocation and
+  migration of the active dotenv values to systemd credentials or KMS/HSM remain
+  required.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

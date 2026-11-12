@@ -78,13 +78,21 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   configuration through a systemd credential, can read restore status but not
   database dumps, and validates those exact ACL boundaries on every run. A
   systemd path unit now turns changes to protected dotenv, vhost, application
-  units, restore units/executable, monitor units/identity or installed monitor code into a fixed
+  units, restore units/executable, monitor units/identity, the runtime directory
+  or installed monitor/checker code into a fixed
   privacy-safe event within the same alert window. Routine request logging is now
   minimized too: nginx does not duplicate this vhost into the host-wide combined
   log, and Gunicorn excludes IP, User-Agent, Referer, cookies and query strings
   while retaining bounded request shape/status/latency. Add contract-spend
   correlation and an external log sink that preserves this field boundary and
   never logs prompts, cookies, OTPs, filenames, raw IPs, queries or secrets.
+- **Runtime dotenv-copy containment is shipped:** backend deploy and monitor
+  installation fail closed unless the sole active dotenv has exact ownership,
+  mode, type and size and no dotenv-like copy exists beside it. The root-owned
+  installed checker and runtime-directory changes are watched. Three historical
+  copies were moved, without deletion, into a root-only `0700` quarantine with
+  `0600` files. Provider/mail rotation, revocation and migration of the remaining
+  active values to systemd credentials or KMS/HSM remain open Wave 4 gates.
 - **Recoverability:** the isolated database restore drill is now installed as a
   persistent weekly systemd timer, runs against the active immutable releases,
   is sandboxed to local PostgreSQL plus the private backup directory, and alerts
