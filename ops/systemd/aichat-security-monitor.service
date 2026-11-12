@@ -11,6 +11,8 @@ Group=aichat-monitor
 # aichat-group application runtime/secret below /home.
 SupplementaryGroups=systemd-journal clamav aichat-parser aichat-origin aichat
 LoadCredential=telegram.env:/home/micu/scripts/.env
+Environment=ALERT_COOLDOWN_SECONDS=86400
+Environment=RECOVERY_NOTIFICATIONS_ENABLED=false
 ExecStart=/usr/local/libexec/aichat-security-monitor --credentials=%d/telegram.env
 UMask=0077
 StateDirectory=aichat-security-monitor

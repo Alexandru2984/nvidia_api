@@ -1208,6 +1208,28 @@ def alert_text(issues, resolved=False):
     return '\n'.join(lines)
 
 
+def notification_plan(issues, state, now, cooldown, recovery_enabled=False):
+    """Plan bounded notifications without letting flapping bypass cooldown."""
+    previous = set(state.get('active', []))
+    last_sent = state.get('last_sent', {})
+    last_recovery = state.get('last_recovery', {})
+    notify = {
+        key: message for key, message in issues.items()
+        if key not in last_sent or now - int(last_sent[key]) >= cooldown
+    }
+    resolved = {}
+    if recovery_enabled:
+        resolved = {
+            key: 'Condition is no longer present.'
+            for key in previous - set(issues)
+            if key in last_sent and (
+                key not in last_recovery
+                or now - int(last_recovery[key]) >= cooldown
+            )
+        }
+    return notify, resolved
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true')
@@ -1292,26 +1314,37 @@ def main():
 
         state_path = Path(args.state_dir) / 'state.json'
         state = load_state(state_path)
-        previous = set(state.get('active', []))
         last_sent = state.get('last_sent', {})
+        last_recovery = state.get('last_recovery', {})
         now = int(time.time())
-        cooldown = int(os.environ.get('ALERT_COOLDOWN_SECONDS', '1800'))
-        notify = {
-            key: message for key, message in issues.items()
-            if key not in previous or now - int(last_sent.get(key, 0)) >= cooldown
-        }
-        resolved_keys = previous - set(issues)
+        cooldown = int(os.environ.get('ALERT_COOLDOWN_SECONDS', '86400'))
+        if not 3600 <= cooldown <= 7 * 86400:
+            raise RuntimeError('notification cooldown is outside the safe bound')
+        recovery_setting = os.environ.get(
+            'RECOVERY_NOTIFICATIONS_ENABLED', 'false',
+        ).strip().lower()
+        if recovery_setting not in {'true', 'false'}:
+            raise RuntimeError('recovery notification setting is invalid')
+        notify, resolved = notification_plan(
+            issues,
+            state,
+            now,
+            cooldown,
+            recovery_enabled=recovery_setting == 'true',
+        )
 
         if notify:
             send_telegram(args.credentials, alert_text(notify))
             for key in notify:
                 last_sent[key] = now
-        if resolved_keys:
-            resolved = {key: 'Condition is no longer present.' for key in resolved_keys}
+        if resolved:
             send_telegram(args.credentials, alert_text(resolved, resolved=True))
+            for key in resolved:
+                last_recovery[key] = now
 
         state['active'] = sorted(issues)
         state['last_sent'] = last_sent
+        state['last_recovery'] = last_recovery
         save_state(state_path, state)
         return 0
     except Exception as exc:  # noqa: BLE001 - final CLI boundary must fail closed

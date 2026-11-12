@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+ROOT = Path(__file__).resolve().parent.parent
 SPEC = importlib.util.spec_from_file_location(
     'security_monitor', Path(__file__).with_name('security_monitor.py'),
 )
@@ -341,6 +342,60 @@ class SecurityMonitorTests(unittest.TestCase):
         monitor.save_state(state_path, expected)
         self.assertEqual(monitor.load_state(state_path), expected)
         self.assertEqual(state_path.stat().st_mode & 0o777, 0o600)
+
+    def test_notification_cooldown_survives_resolution_and_reappearance(self):
+        now = 200_000
+        state = {'active': [], 'last_sent': {}}
+        issues = {'restore_drill_failed': 'fixture'}
+
+        notify, resolved = monitor.notification_plan(issues, state, now, 86_400)
+        self.assertEqual(notify, issues)
+        self.assertEqual(resolved, {})
+        state = {
+            'active': ['restore_drill_failed'],
+            'last_sent': {'restore_drill_failed': now},
+        }
+        notify, resolved = monitor.notification_plan({}, state, now + 300, 86_400)
+        self.assertEqual(notify, {})
+        self.assertEqual(resolved, {})
+        state['active'] = []
+        notify, resolved = monitor.notification_plan(
+            issues, state, now + 600, 86_400,
+        )
+        self.assertEqual(notify, {})
+        self.assertEqual(resolved, {})
+        notify, _ = monitor.notification_plan(
+            issues, state, now + 86_401, 86_400,
+        )
+        self.assertEqual(notify, issues)
+
+    def test_recovery_notifications_are_opt_in_and_cooled_down(self):
+        now = 300_000
+        state = {
+            'active': ['auth_burst'],
+            'last_sent': {'auth_burst': now - 60},
+            'last_recovery': {},
+        }
+        _, resolved = monitor.notification_plan(
+            {}, state, now, 86_400, recovery_enabled=False,
+        )
+        self.assertEqual(resolved, {})
+        _, resolved = monitor.notification_plan(
+            {}, state, now, 86_400, recovery_enabled=True,
+        )
+        self.assertEqual(resolved, {'auth_burst': 'Condition is no longer present.'})
+        state['last_recovery']['auth_burst'] = now
+        _, resolved = monitor.notification_plan(
+            {}, state, now + 300, 86_400, recovery_enabled=True,
+        )
+        self.assertEqual(resolved, {})
+
+    def test_monitor_unit_uses_daily_alert_cooldown_without_recovery_spam(self):
+        unit = (ROOT / 'ops/systemd/aichat-security-monitor.service').read_text(
+            encoding='utf-8',
+        )
+        self.assertIn('Environment=ALERT_COOLDOWN_SECONDS=86400\n', unit)
+        self.assertIn('Environment=RECOVERY_NOTIFICATIONS_ENABLED=false\n', unit)
 
     def test_state_rejects_unsafe_mode_or_different_owner(self):
         state_path = self.root / 'state' / 'state.json'
