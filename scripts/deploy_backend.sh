@@ -15,6 +15,11 @@ RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
 PROVENANCE_TOOL="$REPO_DIR/scripts/release_provenance.py"
 RUNTIME_SECRET_CHECK_SOURCE="$REPO_DIR/scripts/check_runtime_secret_hygiene.py"
 RUNTIME_SECRET_CHECK='/usr/local/libexec/aichat-runtime-secret-check'
+APP_CREDENTIAL_CHECK_SOURCE="$REPO_DIR/scripts/check_application_credentials.py"
+APP_CREDENTIAL_CHECK='/usr/local/libexec/aichat-application-credential-check'
+DB_CONFIG_READER_SOURCE="$REPO_DIR/scripts/read_database_config.py"
+DB_CONFIG_READER='/usr/local/libexec/aichat-read-database-config'
+APP_CREDENTIAL_DIR='/etc/aichat/application-credentials'
 LOCK_FILE='/run/aichat-release-operation.lock'
 MODEL_PROBE_USER='aichat-model-probe'
 MODEL_PROBE_CONFIG_DIR='/etc/aichat'
@@ -307,7 +312,9 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
 fi
-for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL" "$RUNTIME_SECRET_CHECK_SOURCE"; do
+for tool in \
+  "$RETENTION_TOOL" "$PROVENANCE_TOOL" "$RUNTIME_SECRET_CHECK_SOURCE" \
+  "$APP_CREDENTIAL_CHECK_SOURCE" "$DB_CONFIG_READER_SOURCE"; do
   [[ -x "$tool" && ! -L "$tool" ]] || {
     echo "ERROR: required release tool is missing or unsafe: $tool" >&2
     exit 1
@@ -322,6 +329,21 @@ cmp --silent -- "$RUNTIME_SECRET_CHECK_SOURCE" "$RUNTIME_SECRET_CHECK" || {
   echo 'ERROR: installed runtime-secret checker is stale' >&2
   exit 1
 }
+for source_target in \
+  "$APP_CREDENTIAL_CHECK_SOURCE:$APP_CREDENTIAL_CHECK" \
+  "$DB_CONFIG_READER_SOURCE:$DB_CONFIG_READER"; do
+  source="${source_target%%:*}"
+  target="${source_target#*:}"
+  [[ -x "$target" && ! -L "$target" \
+    && "$(stat -c '%a:%U:%G' -- "$target")" == '755:root:root' ]] || {
+    echo 'ERROR: installed application-credential tooling is missing or unsafe' >&2
+    exit 1
+  }
+  cmp --silent -- "$source" "$target" || {
+    echo 'ERROR: installed application-credential tooling is stale' >&2
+    exit 1
+  }
+done
 if [[ ! -x "$VENV_DIR/bin/python" || ! -f "$VENV_DIR/.release-manifest.sha256" ]]; then
   echo 'ERROR: immutable production Python environment is incomplete' >&2
   exit 1
@@ -331,6 +353,16 @@ if ! git_read diff --quiet -- || ! git_read diff --cached --quiet --; then
   exit 1
 fi
 "$RUNTIME_SECRET_CHECK" --runtime-dir "$RUNTIME_DIR" --owner micu --group aichat
+"$VENV_DIR/bin/python" "$APP_CREDENTIAL_CHECK" \
+  --env-file "$RUNTIME_DIR/.env" --credential-dir "$APP_CREDENTIAL_DIR"
+for credential in "$APP_CREDENTIAL_DIR"/*; do
+  for identity in aichat micu; do
+    runuser --user "$identity" -- test -r "$credential"
+    runuser --user "$identity" -- test ! -w "$credential"
+  done
+done
+runuser --user aichat -- test ! -w "$APP_CREDENTIAL_DIR"
+runuser --user micu -- test ! -w "$APP_CREDENTIAL_DIR"
 validate_model_probe_boundary
 if (( CHECK_MODEL_PROBE_BOUNDARY_ONLY )); then
   echo 'Model-probe deployment boundary is valid.'

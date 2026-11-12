@@ -11,6 +11,8 @@ else
 fi
 APP_DIR="${AICHAT_APP_DIR:-$RUNTIME_DIR}"
 PYTHON="${AICHAT_PYTHON:-$RUNTIME_DIR/venv/bin/python}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DB_CONFIG_READER="${AICHAT_DB_CONFIG_READER:-$SCRIPT_DIR/read_database_config.py}"
 ENV_FILE="$RUNTIME_DIR/.env"
 BACKUP_ROOT="${RESTORE_BACKUP_DIR:-/home/micu/backups/nvidia_db}"
 
@@ -22,6 +24,11 @@ for directory in "$RUNTIME_DIR" "$APP_DIR"; do
 done
 [[ "$PYTHON" == /* && -x "$PYTHON" ]] || {
   echo 'ERROR: Python interpreter must be an absolute executable path' >&2
+  exit 1
+}
+[[ "$DB_CONFIG_READER" == /* && -f "$DB_CONFIG_READER" \
+  && ! -L "$DB_CONFIG_READER" ]] || {
+  echo 'ERROR: database configuration reader is missing or unsafe' >&2
   exit 1
 }
 [[ -f "$APP_DIR/manage.py" && ! -L "$APP_DIR/manage.py" ]] || {
@@ -41,13 +48,7 @@ done
 exec 9>"$BACKUP_ROOT/.restore-drill.lock"
 flock -n 9 || { echo 'ERROR: another restore drill is running' >&2; exit 1; }
 
-mapfile -d '' -t DB_VALUES < <("$PYTHON" -c '
-import sys
-from dotenv import dotenv_values
-values = dotenv_values(sys.argv[1])
-for key in ("DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT"):
-    sys.stdout.write((values.get(key) or "") + "\0")
-' "$ENV_FILE")
+mapfile -d '' -t DB_VALUES < <("$PYTHON" "$DB_CONFIG_READER" "$ENV_FILE")
 [[ "${#DB_VALUES[@]}" == 5 ]] || { echo 'ERROR: cannot read database settings' >&2; exit 1; }
 
 DB_NAME="${DB_VALUES[0]}"

@@ -65,6 +65,7 @@ jobs:
           python ../scripts/test_release_provenance.py
           python ../scripts/test_generate_python_sbom.py
           python ../scripts/test_runtime_secret_hygiene.py
+          python ../scripts/test_application_credentials.py
           python ../scripts/generate_python_sbom.py requirements.lock \
             --commit "$GITHUB_SHA" --output /tmp/aichat-python.cdx.json
           python ../scripts/generate_python_sbom.py requirements.lock \

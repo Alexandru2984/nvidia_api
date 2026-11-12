@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
-# Daily PostgreSQL backup for AI Chat Hub. Reads credentials from
-# backend/.env, writes gzipped dumps, keeps the newest $KEEP.
+# Daily PostgreSQL backup for AI Chat Hub. Reads bounded database settings from
+# the runtime configuration and its optional file-backed password, writes
+# gzipped dumps, and keeps the newest $KEEP.
 #
 # Cron (daily at 02:30):
 #   30 2 * * * /home/micu/nvidia/scripts/backup_db.sh >> /home/micu/backups/nvidia_db/backup.log 2>&1
 set -euo pipefail
 umask 077
 
-BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend" && pwd)"
-ENV_FILE="$BACKEND_DIR/.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_DIR="${AICHAT_RUNTIME_DIR:-$(cd "$SCRIPT_DIR/../backend" && pwd)}"
+PYTHON="${AICHAT_PYTHON:-$RUNTIME_DIR/venv/bin/python}"
+DB_CONFIG_READER="${AICHAT_DB_CONFIG_READER:-$SCRIPT_DIR/read_database_config.py}"
+ENV_FILE="$RUNTIME_DIR/.env"
 OUT_DIR="${BACKUP_DIR:-$HOME/backups/nvidia_db}"
 KEEP="${KEEP:-7}"
 [[ "$KEEP" =~ ^[1-9][0-9]{0,2}$ ]] || { echo 'ERROR: KEEP must be 1..999' >&2; exit 1; }
+[[ "$RUNTIME_DIR" == /* && -d "$RUNTIME_DIR" && ! -L "$RUNTIME_DIR" ]] || {
+  echo 'ERROR: runtime directory is unsafe' >&2
+  exit 1
+}
+[[ "$PYTHON" == /* && -x "$PYTHON" && "$DB_CONFIG_READER" == /* \
+  && -f "$DB_CONFIG_READER" && ! -L "$DB_CONFIG_READER" ]] || {
+  echo 'ERROR: database configuration tooling is unsafe' >&2
+  exit 1
+}
 
 # Parse dotenv exactly as the application does; never source/eval the env file.
-mapfile -d '' -t DB_VALUES < <("$BACKEND_DIR/venv/bin/python" -c '
-import sys
-from dotenv import dotenv_values
-values = dotenv_values(sys.argv[1])
-for key in ("DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT"):
-    sys.stdout.write((values.get(key) or "") + "\0")
-' "$ENV_FILE")
+mapfile -d '' -t DB_VALUES < <("$PYTHON" "$DB_CONFIG_READER" "$ENV_FILE")
 [[ "${#DB_VALUES[@]}" == 5 ]] || { echo 'ERROR: Cannot read database settings' >&2; exit 1; }
 DB_NAME="${DB_VALUES[0]}"
 DB_USER="${DB_VALUES[1]}"
@@ -66,7 +73,7 @@ mv -- "$PARTIAL" "$FILE"
 
 # Retention: keep the newest $KEEP dumps.
 # Only exact dump names in this directory qualify; paths are passed as arguments.
-"$BACKEND_DIR/venv/bin/python" -c '
+"$PYTHON" -c '
 from pathlib import Path
 import re
 import sys

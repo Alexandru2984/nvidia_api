@@ -15,6 +15,9 @@ SERVICE='aichat-backend.service'
 PYTHON='/usr/bin/python3.14'
 RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
 PROVENANCE_TOOL="$REPO_DIR/scripts/release_provenance.py"
+APP_CREDENTIAL_CHECK_SOURCE="$REPO_DIR/scripts/check_application_credentials.py"
+APP_CREDENTIAL_CHECK='/usr/local/libexec/aichat-application-credential-check'
+APP_CREDENTIAL_DIR='/etc/aichat/application-credentials'
 LOCK_FILE='/run/aichat-release-operation.lock'
 BOOTSTRAP=0
 
@@ -129,12 +132,31 @@ if [[ ! -d "$REPO_DIR/.git" || -L "$REPO_DIR/.git" ]]; then
   echo 'ERROR: repository metadata is missing or unsafe' >&2
   exit 1
 fi
-for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL"; do
+for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL" "$APP_CREDENTIAL_CHECK_SOURCE"; do
   [[ -x "$tool" && ! -L "$tool" ]] || {
     echo "ERROR: required release tool is missing or unsafe: $tool" >&2
     exit 1
   }
 done
+[[ -x "$APP_CREDENTIAL_CHECK" && ! -L "$APP_CREDENTIAL_CHECK" \
+  && "$(stat -c '%a:%U:%G' -- "$APP_CREDENTIAL_CHECK")" == '755:root:root' ]] || {
+  echo 'ERROR: installed application-credential checker is missing or unsafe' >&2
+  exit 1
+}
+cmp --silent -- "$APP_CREDENTIAL_CHECK_SOURCE" "$APP_CREDENTIAL_CHECK" || {
+  echo 'ERROR: installed application-credential checker is stale' >&2
+  exit 1
+}
+"$LIVE_PATH/bin/python" "$APP_CREDENTIAL_CHECK" \
+  --env-file "$RUNTIME_DIR/.env" --credential-dir "$APP_CREDENTIAL_DIR"
+for credential in "$APP_CREDENTIAL_DIR"/*; do
+  for identity in aichat micu; do
+    runuser --user "$identity" -- test -r "$credential"
+    runuser --user "$identity" -- test ! -w "$credential"
+  done
+done
+runuser --user aichat -- test ! -w "$APP_CREDENTIAL_DIR"
+runuser --user micu -- test ! -w "$APP_CREDENTIAL_DIR"
 if [[ ! -L "$APP_LIVE" ]]; then
   echo 'ERROR: active backend application release is missing or unsafe' >&2
   exit 1
