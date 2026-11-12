@@ -40,8 +40,12 @@ Before merging any dependency update:
    and keep `requirements.txt` and the lock package sets identical. A Dependabot
    PR that changes only a requirement pin is intentionally not merge-ready.
 5. Run the full backend or frontend suite, the operational security tests,
-   dependency audit and immutable-Action check. Major framework/runtime changes
-   also require focused compatibility tests and an explicit rollback note.
+   dependency audit and immutable-Action check. Frontend review must also run
+   `npm audit signatures`: an invalid or missing registry signature fails the
+   gate, and available publisher provenance attestations are retained as review
+   evidence without claiming that every package publishes one. Major framework/
+   runtime changes also require focused compatibility tests and an explicit
+   rollback note.
 6. Merge only after a human has reviewed the upstream evidence and green CI.
    Build a commit-bound release from the resulting merge commit; never deploy
    Dependabot's branch, an uncommitted lock repair or an unreviewed CI artifact.

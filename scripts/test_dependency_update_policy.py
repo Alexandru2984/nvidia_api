@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / ".github/dependabot.yml"
 POLICY = ROOT / "docs/DEPENDENCY_UPDATE_POLICY.md"
+CI = ROOT / ".github/workflows/ci.yml"
 
 
 class DependencyUpdatePolicyTests(unittest.TestCase):
@@ -16,6 +17,7 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.config = CONFIG.read_text(encoding="utf-8")
         cls.policy = POLICY.read_text(encoding="utf-8")
+        cls.ci = CI.read_text(encoding="utf-8")
 
     def test_exact_ecosystem_directories_are_covered(self) -> None:
         pairs = re.findall(
@@ -48,8 +50,18 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             "human review",
             "green CI",
             "commit-bound release",
+            "npm audit signatures",
+            "invalid or missing registry signature fails",
         ):
             self.assertIn(required, self.policy)
+
+    def test_frontend_ci_verifies_vulnerabilities_and_registry_signatures(self) -> None:
+        self.assertEqual(self.ci.count("npm audit --audit-level=low"), 1)
+        self.assertEqual(self.ci.count("npm audit signatures"), 1)
+        self.assertLess(
+            self.ci.index("npm audit --audit-level=low"),
+            self.ci.index("npm audit signatures"),
+        )
 
 
 if __name__ == "__main__":

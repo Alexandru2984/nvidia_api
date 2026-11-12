@@ -98,6 +98,8 @@ jobs:
           test "$(cat dist/.release-frontend-tree)" = "$(git rev-parse HEAD:frontend)"
       - name: Audit dependencies
         run: npm audit --audit-level=low
+      - name: Verify registry signatures and provenance
+        run: npm audit signatures
       - name: Install test browser
         run: npx playwright install --with-deps chromium
       - name: Responsive browser tests
