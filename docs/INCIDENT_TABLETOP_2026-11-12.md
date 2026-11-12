@@ -60,13 +60,35 @@ active runtime rather than an ambient interpreter.
 | P1 | Isolate the shared cloudflared-to-nginx client-IP path, preferably with the documented HTTP-over-Unix-socket route | Shared tunnel maintenance; must not silently affect other applications | Direct-loopback spoof probe denied while edge identity remains correct |
 | P1 | Replicate privacy-minimized security evidence and encrypted backups off-host with separately held recovery material | External destination/key decision | Restore and evidence-retention exercise from the off-host copy |
 | P1 | Disable Cloudflare Browser Insights and retain the strict same-origin CSP | Cloudflare zone setting | Edge browser shows no injected remote/inline script |
-| P1 | Add a guarded, recoverable incident command for provider kill-switch/registration containment | Repository implementation | Dry-run, rollback and production-safe test without provider work |
+
+## Completed follow-up — 2026-11-13
+
+The guarded provider/registration action is closed by commit `5b51237`. The
+root-owned installed command validates fixed dependencies and credential
+boundaries, uses both the shared release lock and its own operation lock, writes
+only through an exclusive staged file, and keeps its sole exact rollback snapshot
+under `/run`. Failure after mutation restores that snapshot, restarts the backend
+and re-runs bounded health, private-API and media probes. Planned changes pause
+and restore the protected-config watcher so they do not create an artificial
+Telegram alert; the five-minute monitor and its 24-hour per-issue cooldown were
+not weakened.
+
+Ten focused regressions, 136 operational tests, ShellCheck and all 647 backend
+tests passed. The installed command and renderer are byte-identical root-owned
+`0755` files and joined the now 30-target protected-config watcher. Production
+dry-run confirmed `enabled/open` to `disabled/closed` without mutation. The live
+exercise found zero active generation requests, contained in 5 seconds, restored
+in 4 seconds, and produced the identical dotenv SHA-256 before and after. The
+backend returned with a distinct healthy PID and `NRestarts=0`; seven origin and
+seven Cloudflare-edge probes passed, the protected-config path and monitor/restore
+timers remained active, and the independent monitor reported no active issue. No
+provider request, account/data mutation, release switch or Telegram test
+notification occurred.
 
 ## Verdict
 
-The runbook is executable for local detection, signed recovery and isolated
-database validation, and the technical path completed in 14 seconds after the
-interpreter correction. Verdict remains **yellow / mitigate then ship**: local
-controls work, but provider revocation, independent admin perimeter, shared
-tunnel isolation, off-host evidence/backup and coordinated host maintenance
-require owner or external control-plane action.
+The runbook is executable for local detection, atomic provider/registration
+containment, signed recovery and isolated database validation. Verdict remains
+**yellow / mitigate then ship**: local controls work, but provider revocation,
+independent admin perimeter, shared tunnel isolation, off-host evidence/backup
+and coordinated host maintenance require owner or external control-plane action.

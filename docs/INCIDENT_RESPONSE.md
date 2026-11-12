@@ -88,6 +88,42 @@ allow unsigned state to restore availability.
 
 ## 2. Contain
 
+For suspected NVIDIA abuse or an application compromise where new work must stop,
+use the installed root-owned control instead of editing dotenv by hand. First
+validate the complete change without mutating production:
+
+```console
+sudo /usr/local/sbin/aichat-incident-controls --contain --dry-run
+```
+
+Then atomically disable new provider generation and close registration:
+
+```console
+sudo /usr/local/sbin/aichat-incident-controls --contain --apply
+```
+
+The command shares the release-operation lock, validates the secret/credential
+boundary, stages a mode-`0600` file, pauses only the protected-config watcher for
+the planned mutation, restarts and probes the backend, and automatically restores
+the exact prior dotenv on any failure. It logs only control names/values to the
+root-readable `authpriv` journal and never creates a persistent configuration
+backup. This blocks new local provider work; it does not revoke a provider-side
+credential or reconcile an already accepted external request.
+
+Record the pre-incident values before changing them. After provider reconciliation
+and eradication, restore the approved values explicitly; for the normal
+`enabled/open` state that is:
+
+```console
+sudo /usr/local/sbin/aichat-incident-controls \
+  --generation enabled --registration open --apply
+```
+
+Never run the exercise form during a real incident. In a planned maintenance
+window, `sudo /usr/local/sbin/aichat-incident-controls --exercise --apply`
+refuses to start while a generation request is active, proves `disabled/closed`,
+and restores and re-probes the exact initial configuration automatically.
+
 - Disable the affected route/account or put the application into maintenance
   mode if continued exposure is plausible.
 - Revoke suspicious Django sessions and Cloudflare/GitHub/provider tokens.
@@ -289,12 +325,13 @@ followed by re-signing that release.
 
 ## Exercise schedule
 
-Last exercise: 2026-11-12, signed-release compromise plus NVIDIA abuse. The
-14-second successful technical path verified all three active release signatures,
-the application-credential boundary, tamper regressions, the provider kill switch,
-an isolated production restore, origin/edge boundaries and the independent
-monitor. The initial ambient-Python command failed closed and was corrected to
-the exact active runtime. Evidence and open actions are recorded in
+Last exercise: the 2026-11-12 signed-release/NVIDIA-abuse tabletop was followed
+on 2026-11-13 by a live, self-restoring containment exercise. The initial tabletop
+technical path took 14 seconds. The follow-up atomically reached
+`disabled/closed` in 5 seconds and restored the byte-identical `enabled/open`
+dotenv in 4 seconds, with no active provider request. All 14 origin/edge probes,
+the backend and the independent monitor passed. Evidence and remaining actions
+are recorded in
 [`INCIDENT_TABLETOP_2026-11-12.md`](INCIDENT_TABLETOP_2026-11-12.md).
 
 - Quarterly: tabletop for credential theft plus private-attachment disclosure.

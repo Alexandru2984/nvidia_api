@@ -133,8 +133,13 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 - **Incident readiness tabletop is complete:** the 2026-11-12 SEV-1 exercise
   covered signed-release compromise, NVIDIA cost abuse and unauthorized export,
   with live integrity/health checks plus an isolated restore completing in 14
-  seconds. Close the dated external/provider/admin/tunnel/backup action items
-  before changing the audit verdict to green.
+  seconds. The follow-up root-owned incident command now atomically disables
+  generation and closes registration under shared/exclusive locks, validates the
+  credential boundary, rolls back the exact configuration on failure and offers
+  a no-active-request self-restoring exercise. Production containment/restoration
+  passed in 5/4 seconds with a byte-identical dotenv and 14 origin/edge probes.
+  Close the dated external/provider/admin/tunnel/backup action items before
+  changing the audit verdict to green.
 
 P0 acceptance: production probes pass, no service can directly serve private
 media, existing backups are private, a provider budget can be stopped without a

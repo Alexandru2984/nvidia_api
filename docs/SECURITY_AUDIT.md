@@ -3116,6 +3116,34 @@ is required before describing those controls as complete.
   credential-rotation, host-reboot, shared-tunnel, off-host evidence/backup or
   Cloudflare Browser Insights gates.
 
+### Atomic incident containment rollout — 2026-11-13
+
+- Commit `5b51237` adds a fixed-path, root-owned command for the two local
+  emergency controls: NVIDIA generation and registration mode. It validates the
+  runtime-secret and six-file application-credential boundaries before mutation,
+  takes the shared release lock plus a dedicated incident lock, writes through an
+  exclusive mode-`0600` stage and keeps its only exact rollback snapshot under
+  `/run`. It restarts and probes the service, verifies the settings Django loaded,
+  and automatically restores/re-probes the prior configuration after any error.
+- Planned mutation pauses and restores the protected-config path unit, preventing
+  an artificial alert without changing monitor evaluation or notification policy.
+  Both installed tools are root-owned, byte-identical to committed source and
+  covered by the expanded 30-target watcher. Privacy-safe `authpriv` events contain
+  only the selected control values.
+- Ten focused malicious-file/atomicity/deployment-contract regressions, all 136
+  operational tests, Bash syntax, ShellCheck and all 647 backend tests passed.
+  Production dry-run proved `enabled/open` to `disabled/closed` without mutation.
+  The live exercise refused active work by contract, observed zero active requests,
+  reached containment in 5 seconds and restored in 4 seconds. The exact dotenv
+  SHA-256 was unchanged, the backend returned under a distinct healthy PID with
+  `NRestarts=0`, 14 origin/Cloudflare probes passed, the protected-config path
+  and monitor/restore timers remained active, and the independent monitor ended
+  with no active issue. It sent no
+  provider request or Telegram test notification.
+- This closes the local command action, not NVIDIA credential revocation, contract
+  spend enforcement, staff 2FA/edge access, host maintenance, tunnel isolation,
+  off-host retention/backup or Cloudflare Browser Insights removal.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

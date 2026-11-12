@@ -354,6 +354,17 @@ secret values are reproduced here.
   The dated exercise record assigns the still-open staff-2FA/admin perimeter,
   provider rotation, host reboot, tunnel isolation, off-host evidence/backup and
   Browser Insights actions rather than claiming those external gates passed.
+- 2026-11-13: commit `5b51237` closed the tabletop's local containment-command
+  action. A root-owned atomic command now validates the application-credential
+  boundary, shares the release lock, stages only under `/run`, disables generation
+  and closes registration, proves the restarted settings and restores the exact
+  prior dotenv on any failure. Ten focused regressions, 136 operational tests,
+  ShellCheck and all 647 backend tests passed. Production dry-run made no change;
+  the no-active-request exercise contained/restored in 5/4 seconds with an
+  identical pre/post dotenv hash, a distinct healthy PID, zero restarts, 14
+  origin/edge probes and an independent monitor with no active issue. The
+  protected-config watcher now covers 30 paths. Provider-side revocation and the
+  other external/owner gates remain open.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
@@ -940,10 +951,11 @@ than exporting historical combined-log fields.
    each named public key, protect/backup the active private key separately, add
    upstream publisher attestations where available, and define an encrypted
    off-site/expiry lifecycle for supplemental retired-release archives.
-5. Add off-host logs, host/file integrity monitoring and provider/mail anomaly
-   detection; run the tabletop in `INCIDENT_RESPONSE.md`. Routine local request
-   logs are now content-minimized; preserve that field boundary in any external
-   sink rather than exporting raw IP, User-Agent, Referer, cookie or query data.
+5. The local tabletop and guarded provider/registration containment command are
+   deployed and exercised. Add off-host logs, host/file integrity monitoring and
+   provider/mail anomaly detection. Routine local request logs are now
+   content-minimized; preserve that field boundary in any external sink rather
+   than exporting raw IP, User-Agent, Referer, cookie or query data.
 6. CI Actions are pinned to reviewed full commit SHAs and Python production
    artifacts are locked by hash. A review-only, rate-bounded Dependabot policy is
    committed for npm, Python and Actions, with a regression test covering its
