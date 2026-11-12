@@ -332,6 +332,18 @@ secret values are reproduced here.
   browser checks and the independent monitor passed. The edge browser also
   reconfirmed the separately tracked Browser Insights injection; both Cloudflare
   scripts remain blocked by the unchanged CSP rather than being allowlisted.
+- 2026-11-12: commit `d21700f` adds a fail-closed npm registry-signature and
+  publisher-provenance gate after the vulnerability audit in frontend CI. A
+  regression test prevents removing either audit or reordering signature
+  verification ahead of vulnerability evaluation. Local execution against the
+  exact clean lock verified registry signatures for all 251 installed packages
+  and Sigstore provenance attestations for the 58 packages that publish them;
+  zero vulnerabilities and immutable-Action validation also passed. This
+  strengthens S-14 without overstating it: registry signatures bind package,
+  version and tarball integrity, while only the attested subset independently
+  exposes build/source provenance. The GitHub gate becomes remote enforcement
+  only after an owner-authorized push; no push or production runtime change was
+  made in this stage.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

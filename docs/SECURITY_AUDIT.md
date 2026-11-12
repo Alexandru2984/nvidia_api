@@ -3081,6 +3081,23 @@ is required before describing those controls as complete.
   `script-src 'self'` policy blocks. Disable Browser Insights at Cloudflare; do
   not weaken CSP to accommodate it.
 
+### npm registry-signature and provenance gate — 2026-11-12
+
+- Commit `d21700f` adds `npm audit signatures` to frontend CI after the existing
+  vulnerability audit. The command fails closed on a missing/invalid registry
+  signature and also validates available publisher provenance attestations. A
+  focused regression keeps both checks present and ordered, while the dependency
+  policy now requires signature failure to be handled as a supply-chain event.
+- Local execution against the committed clean tree verified registry signatures
+  for all 251 installed packages and Sigstore provenance attestations for the 58
+  packages that publish them. The vulnerability audit remains zero; the policy
+  and immutable GitHub Action suites passed.
+- This is CI-only and does not alter the production bundle, backend, data or
+  services, so no runtime deployment was required. It becomes a GitHub-side merge
+  gate only after an owner-authorized push. S-14 remains partially open because
+  registry integrity does not prove source/build provenance for the 193 packages
+  without attestations, and branch-protection evidence is still account-side.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,
@@ -3117,6 +3134,7 @@ remain open.
 - [minimatch ReDoS advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
 - [ESLint version support policy](https://eslint.org/version-support/)
 - [minimatch 11 change log](https://github.com/isaacs/minimatch/blob/main/changelog.md)
+- [npm registry-signature and attestation verification](https://docs.npmjs.com/cli/v11/commands/npm-audit/)
 - [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
 - [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)
 - [NVIDIA Riva Translate v2 API contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-riva-translate-4b-instruct-v2-infer)
