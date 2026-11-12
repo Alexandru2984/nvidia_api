@@ -3054,6 +3054,33 @@ is required before describing those controls as complete.
   toolchain. Those findings are not runtime Python exposure and remain the next
   isolated dependency stage.
 
+### Frontend dependency advisory remediation — 2026-11-12
+
+- Commit `b963839` moves Zod from 4.3.6 to 4.6.7 and ESLint from 10.2.1 to the
+  maintained 10.14.0 release. Because current ESLint still declares the affected
+  minimatch 10.x range, the lock uses an explicit minimatch 11.0.8 override. The
+  upstream 11.x breaking changes remove APIs that this ESLint configuration does
+  not call; full-tree lint, glob lint and config resolution exercise the paths
+  used here. The automatic alternative was rejected because it downgraded to
+  EOL ESLint 9.
+- A clean `npm ci` and audit cover 276 production, development and optional
+  dependency nodes with zero advisories. ESLint, the Vite production build and
+  all 57 Playwright checks passed, including attachment/model behavior and
+  responsive 320, 390, 768 and 1440 px layouts.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261112T214006_055503645` is active at exact
+  commit `b963839464764dd88e3f9c47dd560ae7ecf12070`. A live switch to the retained
+  release and exact restoration completed in 0/1 seconds without restarting the
+  backend. Seven origin and seven Cloudflare-edge public/private/media probes
+  passed; the backend remains active with zero restarts and the independent
+  monitor ended successfully.
+- Real-browser origin checks at 320 and 1440 px found no horizontal overflow,
+  cross-origin script, inline style, CSP violation or console error. Equivalent
+  edge checks found no unexpected error and reconfirmed only the known
+  Cloudflare Browser Insights remote/inline injection, which the unchanged
+  `script-src 'self'` policy blocks. Disable Browser Insights at Cloudflare; do
+  not weaken CSP to accommodate it.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,
@@ -3088,6 +3115,8 @@ remain open.
 - [pypdf recursion advisory](https://github.com/advisories/GHSA-5849-834g-hvw5)
 - [Zod package versions](https://www.npmjs.com/package/zod?activeTab=versions)
 - [minimatch ReDoS advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+- [ESLint version support policy](https://eslint.org/version-support/)
+- [minimatch 11 change log](https://github.com/isaacs/minimatch/blob/main/changelog.md)
 - [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
 - [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)
 - [NVIDIA Riva Translate v2 API contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-riva-translate-4b-instruct-v2-infer)

@@ -319,6 +319,19 @@ secret values are reproduced here.
   advisory and one transitive moderate minimatch advisory (reported through five
   package nodes); frontend dependency remediation remains the next isolated
   stage rather than being hidden by this Python rollout.
+- 2026-11-12: commit `b963839` removed the remaining frontend audit findings.
+  Zod moved from 4.3.6 to 4.6.7, ESLint moved from 10.2.1 to the maintained
+  10.14.0 release, and an explicit minimatch 11.0.8 override replaces the
+  vulnerable 10.x constraint until ESLint adopts 11.x upstream. The rejected
+  automatic alternative would have downgraded to EOL ESLint 9. A clean `npm ci`,
+  full/glob/config lint paths, production build, and all 57 Playwright tests
+  passed; the current 276-package audit reports zero advisories. Signed frontend
+  release `release-20261112T214006_055503645` is active at the exact commit;
+  production rollback/restoration completed in 0/1 seconds without changing the
+  backend PID. Seven origin and seven Cloudflare-edge probes, 320/1440 px origin
+  browser checks and the independent monitor passed. The edge browser also
+  reconfirmed the separately tracked Browser Insights injection; both Cloudflare
+  scripts remain blocked by the unchanged CSP rather than being allowlisted.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

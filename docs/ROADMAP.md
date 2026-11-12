@@ -277,9 +277,10 @@ timed evidence.
   weekly Dependabot proposal policy for npm, Python and Actions is committed,
   prohibits automated merge/deploy authority, and is CI-checked against weakened
   review boundaries. It becomes operational only after an authorized push and
-  verification of GitHub-side required review/CI settings. Local release
-  provenance is shipped; independent upstream artifact provenance remains the
-  next supply-chain control.
+  verification of GitHub-side required review/CI settings. Current Python and
+  npm audits are both zero after isolated signed rollouts and exercised
+  production rollback. Local release provenance is shipped; independent
+  upstream artifact provenance remains the next supply-chain control.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page
