@@ -33,8 +33,11 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   worker concurrency or materially opening registration traffic.
 - **Dedicated service identity:** the web process and application maintenance
   timers run as the non-login `aichat` Unix user, with an unprivileged app-only
-  database role and app-owned media/cache. Keep this invariant in deployment
-  checks and move secrets to systemd credentials during a future rotation. The
+  database role and app-owned media/cache. File-backed input for all six
+  application-secret families is shipped with ambiguity, canonical-path,
+  symlink, race, size, encoding and control-byte rejection. Keep the identity
+  invariant in deployment checks and complete the production migration to
+  systemd credentials during a controlled rotation. The
   HTTP origin is now a monitored permissioned Unix socket shared only with nginx;
   the former loopback TCP listener is closed and monitored against regression.
 - **Durable abuse and budget controls:** PostgreSQL-backed daily request budgets

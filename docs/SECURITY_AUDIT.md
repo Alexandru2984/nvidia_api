@@ -2959,6 +2959,29 @@ is required before describing those controls as complete.
   recovery, external security-log retention and the shared-host P0 boundary are
   still open.
 
+### File-backed application-secret compatibility — 2026-11-12
+
+- Commit `913d989` routes Django signing, 2FA, privileged-audit, database,
+  NVIDIA and optional mail secrets through one content-free resolver. Every
+  direct setting may be replaced by its exclusive absolute `*_FILE` setting.
+  Ambiguous sources, noncanonical paths, symlinks, inode replacement, special or
+  oversized files, invalid UTF-8 and control bytes fail closed without including
+  a value or path in the error.
+- Eleven focused regressions include a subprocess boot of production settings
+  entirely from six credential files. All 646 backend and 109 operational tests,
+  Django checks, Bash syntax, ShellCheck, immutable Action validation and the
+  24-package production lock validation passed.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261112T123807_217072521` activated at
+  exact commit `913d9898b8009ae72e83df813bac2e74a0fba28f`. A live rollback to
+  the retained release and exact restoration completed in 2/2 seconds. Five
+  origin and five Cloudflare-edge public/private/media probes passed and the
+  independent monitor ended with `Result=success` and exit status zero.
+- This compatibility stage deliberately left the active dotenv source unchanged.
+  Atomic systemd credential installation, migration of every service/preflight,
+  removal of secret values from dotenv, provider/mail uniqueness, rotation and
+  revocation remained separate fail-closed gates.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

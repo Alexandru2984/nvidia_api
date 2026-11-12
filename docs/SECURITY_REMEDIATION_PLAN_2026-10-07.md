@@ -366,11 +366,16 @@ restore references, not plaintext into the repository.
 Exit gate: no provider/mail credential is reused across projects; no application
 secret is supplied in argv; rotation and revocation are tested and documented.
 
-Status 2026-11-12: **partial containment deployed; exit gate remains open**.
+Status 2026-11-12: **file-input support and partial containment deployed; exit
+gate remains open**.
 Commit `e7a6964` added a content-free runtime checker and fail-closed deploy and
 monitor-install preflights. Three historical dotenv copies were quarantined
 without deletion behind root-only `0700`/`0600` boundaries, and the runtime
 directory plus installed checker joined the protected-configuration watcher.
+Commit `913d989` added mutually exclusive, bounded and content-free `*_FILE`
+resolution for all six application-secret families and was deployed with signed
+rollback evidence. Production migration to those inputs was not part of that
+compatibility rollout.
 The active provider/mail credentials have not been claimed unique, rotated or
 revoked, and the active dotenv has not yet moved to systemd credentials or a
 KMS/HSM.

@@ -77,7 +77,13 @@ also increase.
 
 ## Environment
 
-`backend/.env` is the file Django loads (`load_dotenv(BASE_DIR / '.env')`). Required keys:
+`backend/.env` supplies the default runtime configuration. Each application
+secret (`DJANGO_SECRET_KEY`, `TWO_FACTOR_KEYS`, `ADMIN_AUDIT_KEYS`,
+`DB_PASSWORD`, `NVIDIA_API_KEY`, and optional `SMTP_PASS`) can instead be
+supplied exclusively through its matching absolute `*_FILE` setting. Direct and
+file sources may never coexist. File inputs are bounded, canonical regular
+nonsymlinks; invalid UTF-8, control bytes, changes while opening and ambiguous
+sources fail closed without exposing values or paths. Required keys:
 
 ```
 DJANGO_SECRET_KEY=...

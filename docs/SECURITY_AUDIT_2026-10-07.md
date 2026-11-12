@@ -274,6 +274,16 @@ secret values are reproduced here.
   close S-04: unique provider/mail credential issuance, rotation, revocation and
   migration of the active dotenv values to systemd credentials or KMS/HSM remain
   required.
+- 2026-11-12: commit `913d989` shipped and deployed file-backed resolution for
+  Django signing, 2FA, privileged-audit, database, NVIDIA and mail secrets.
+  Direct and `*_FILE` sources are mutually exclusive; file inputs reject
+  noncanonical paths, symlinks, inode changes, special/oversized files, invalid
+  UTF-8 and control bytes without disclosing content or paths. All 646 backend
+  and 109 operational tests passed, including a six-file production-settings
+  boot. Signed release `release-20261112T123807_217072521` passed a real backend
+  rollback/restoration in 2/2 seconds, ten origin/edge probes and the independent
+  monitor. Production still used the active dotenv at this checkpoint, so S-04
+  and the Wave 4 exit gate remained open.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 
