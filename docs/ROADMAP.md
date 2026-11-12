@@ -130,8 +130,11 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   or unknown evidence fails closed, transactional rotation refuses to bless a
   tampered row, and the inventory gate prevents premature retirement. Move these
   root keys to systemd credentials or a KMS/HSM with the other application keys.
-- **Incident readiness:** execute the runbook and close exercise findings before
-  changing the audit verdict to green.
+- **Incident readiness tabletop is complete:** the 2026-11-12 SEV-1 exercise
+  covered signed-release compromise, NVIDIA cost abuse and unauthorized export,
+  with live integrity/health checks plus an isolated restore completing in 14
+  seconds. Close the dated external/provider/admin/tunnel/backup action items
+  before changing the audit verdict to green.
 
 P0 acceptance: production probes pass, no service can directly serve private
 media, existing backups are private, a provider budget can be stopped without a

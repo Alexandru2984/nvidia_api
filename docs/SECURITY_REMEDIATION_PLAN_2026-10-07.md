@@ -18,7 +18,8 @@ controls that directly form its trust boundary.
   recovery time and all shared-host workloads.
 - Current MTTD: under six minutes for covered application events; unbounded for
   webroot/script tampering and shared-identity privilege escalation.
-- Response: `INCIDENT_RESPONSE.md` exists; a timed tabletop remains required.
+- Response: `INCIDENT_RESPONSE.md` exists; the 2026-11-12 timed tabletop passed
+  its local technical path and records the remaining external action items.
 - Regulatory: preserve awareness time and obtain privacy/legal review for any
   qualifying breach; GDPR assessment may have a 72-hour notification window.
 - Supply chain: NVIDIA, Cloudflare, SMTP/mailcow, GitHub and the self-hosted
@@ -456,7 +457,8 @@ duplicate attachment consumption or destructive regeneration.
   dependency updates.
 - Publish complete privacy/retention/provider disclosures and record vendor/DPA/
   production-entitlement decisions.
-- Execute a timed incident tabletop and close every action item.
+- The 2026-11-12 timed incident tabletop is complete; close every dated action
+  item before final acceptance.
 
 Exit gate: load/abuse tests prove quotas and cleanup; high-risk tampering alerts
 off-host within target MTTD; supply-chain inputs are immutable/reviewed; privacy

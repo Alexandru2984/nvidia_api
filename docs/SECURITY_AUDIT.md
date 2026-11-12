@@ -3098,6 +3098,24 @@ is required before describing those controls as complete.
   registry integrity does not prove source/build provenance for the 193 packages
   without attestations, and branch-protection evidence is still account-side.
 
+### Timed incident tabletop — 2026-11-12
+
+- A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
+  scenario exercised declaration, evidence preservation, provider containment,
+  signed recovery, disclosure assessment and the no-re-signing invariant. The
+  first command used the ambient interpreter and failed closed before mutation;
+  the corrected active-runtime path completed in 14 seconds.
+- All three active release signatures, the six-file credential boundary, ten
+  provenance and 46 monitor regressions, the provider kill switch, a real
+  isolated database restore, ten origin/edge public/private probes and the
+  independent monitor passed. No provider request, account/data mutation,
+  release switch or Telegram test notification occurred.
+- The complete record and assigned gaps are in
+  [`INCIDENT_TABLETOP_2026-11-12.md`](INCIDENT_TABLETOP_2026-11-12.md). The
+  exercise closes the missing tabletop evidence, not the staff-2FA/Access,
+  credential-rotation, host-reboot, shared-tunnel, off-host evidence/backup or
+  Cloudflare Browser Insights gates.
+
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
 generation idempotency, saved-message byte ceilings, archived-chat retention,

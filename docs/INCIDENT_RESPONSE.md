@@ -289,6 +289,14 @@ followed by re-signing that release.
 
 ## Exercise schedule
 
+Last exercise: 2026-11-12, signed-release compromise plus NVIDIA abuse. The
+14-second successful technical path verified all three active release signatures,
+the application-credential boundary, tamper regressions, the provider kill switch,
+an isolated production restore, origin/edge boundaries and the independent
+monitor. The initial ambient-Python command failed closed and was corrected to
+the exact active runtime. Evidence and open actions are recorded in
+[`INCIDENT_TABLETOP_2026-11-12.md`](INCIDENT_TABLETOP_2026-11-12.md).
+
 - Quarterly: tabletop for credential theft plus private-attachment disclosure.
 - Quarterly: alert-path test for availability, authentication abuse, and NVIDIA
   spend.

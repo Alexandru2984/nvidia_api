@@ -344,6 +344,16 @@ secret values are reproduced here.
   exposes build/source provenance. The GitHub gate becomes remote enforcement
   only after an owner-authorized push; no push or production runtime change was
   made in this stage.
+- 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
+  compromise, NVIDIA cost abuse and possible unauthorized export. After an
+  ambient-Python command failed closed without mutation, the exact runtime path
+  completed the technical flow in 14 seconds: all three active signatures and
+  the application-credential boundary validated; 10 provenance and 46 monitor
+  regressions passed; the provider kill switch was confirmed; the production
+  isolated restore, ten origin/edge probes and independent monitor succeeded.
+  The dated exercise record assigns the still-open staff-2FA/admin perimeter,
+  provider rotation, host reboot, tunnel isolation, off-host evidence/backup and
+  Browser Insights actions rather than claiming those external gates passed.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

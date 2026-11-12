@@ -1,0 +1,72 @@
+# Incident tabletop — signed-release compromise and NVIDIA abuse
+
+Date: 2026-11-12  
+Exercise window: 21:48:50–21:49:27 UTC  
+Successful technical validation: 21:49:13–21:49:27 UTC (14 seconds)  
+Scope: AI Chat Hub only; no unrelated service, Cloudflare route, credential,
+account, provider request, user record or production release was changed.
+
+## Scenario and decisions
+
+The simulated trigger was a `frontend_provenance` alert accompanied by an
+unexpected NVIDIA cost signal and a possible unauthorized account export. The
+incident lead would declare SEV-1, preserve the awareness timestamp and the
+active release/signature/public-key evidence, stop release operations, disable
+new provider work, revoke suspicious sessions and the NVIDIA credential, and
+start legal/privacy assessment before attempting repair. A plausible personal-
+data disclosure starts the GDPR 72-hour assessment clock; it is not deferred
+until perfect scope is known.
+
+The team must not repair or re-sign a suspect release. Recovery selects a known-
+good signed target or builds a fresh commit-bound release after evidence capture.
+Signer rotation follows preservation and never replaces the retained public key
+needed to verify historical evidence. Provider reconciliation is required before
+retrying indeterminate work because NVIDIA is outside the local transaction.
+
+## Evidence exercised
+
+- Active frontend, backend and Python releases all passed Ed25519 verification
+  with the retained production public-key fingerprint. No private signing key was
+  read.
+- The root-managed six-file application-credential boundary passed its exact
+  manifest, ownership, mode, ACL and real-open checks without printing paths or
+  values.
+- Ten provenance regressions and 46 monitor regressions passed, including
+  altered-file/signature, unsafe topology/mode and notification-state cases.
+- Production settings expose the `AI_GENERATION_ENABLED` containment switch;
+  it was intentionally left enabled because this was an exercise. Registration
+  was observed as `open` and was not changed.
+- The production isolated-restore unit restored the newest private dump into a
+  random scratch database, verified schema/migrations and removed the scratch
+  database. systemd reported `Result=success` and exit status zero.
+- Origin and Cloudflare returned the expected status for root/health (`200`),
+  arbitrary media (`404`), and dotenv/private conversations (`403`).
+- The independent monitor completed with `Result=success`, exit status zero and
+  no artificial Telegram notification.
+
+The first operator command stopped safely after release verification because it
+used `/usr/bin/python3` for the credential checker and that interpreter does not
+contain `python-dotenv`. No production mutation occurred. The corrected command
+used `/opt/aichat-python-current/bin/python`; future exercises must use the exact
+active runtime rather than an ambient interpreter.
+
+## Open actions
+
+| Priority | Action | Owner / dependency | Review gate |
+| --- | --- | --- | --- |
+| P0 | Enroll the sole staff account in 2FA from a trusted device and place `/admin/` behind Cloudflare Access or VPN | Owner plus Cloudflare identity policy | Before the P0 admin gate can close |
+| P0 | Issue unique NVIDIA and SMTP credentials, revoke the reused values and prove per-credential usage alerts | Owner/provider control planes | Before S-04 can close |
+| P0 | Apply host/tunnel security updates and reboot with a shared-service maintenance window | Owner; affects other VPS applications | Coordinated window plus complete public-service validation |
+| P1 | Isolate the shared cloudflared-to-nginx client-IP path, preferably with the documented HTTP-over-Unix-socket route | Shared tunnel maintenance; must not silently affect other applications | Direct-loopback spoof probe denied while edge identity remains correct |
+| P1 | Replicate privacy-minimized security evidence and encrypted backups off-host with separately held recovery material | External destination/key decision | Restore and evidence-retention exercise from the off-host copy |
+| P1 | Disable Cloudflare Browser Insights and retain the strict same-origin CSP | Cloudflare zone setting | Edge browser shows no injected remote/inline script |
+| P1 | Add a guarded, recoverable incident command for provider kill-switch/registration containment | Repository implementation | Dry-run, rollback and production-safe test without provider work |
+
+## Verdict
+
+The runbook is executable for local detection, signed recovery and isolated
+database validation, and the technical path completed in 14 seconds after the
+interpreter correction. Verdict remains **yellow / mitigate then ship**: local
+controls work, but provider revocation, independent admin perimeter, shared
+tunnel isolation, off-host evidence/backup and coordinated host maintenance
+require owner or external control-plane action.
