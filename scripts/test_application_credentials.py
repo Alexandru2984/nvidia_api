@@ -179,6 +179,8 @@ class ApplicationCredentialTests(unittest.TestCase):
         self.assertIn("temporary=\"$(mktemp -d /run/", migration)
         self.assertIn('Application credential migration completed with no persistent', migration)
         self.assertIn('runuser --user micu -- env HOME=/home/micu', migration)
+        self.assertIn("setfacl -m 'u:micu:--x' -- \"$CREDENTIAL_PARENT\"", migration)
+        self.assertIn('setfacl --restore="$temporary/credential-parent.acl"', migration)
         self.assertIn('restore_watcher', migration)
         self.assertNotIn('/home/micu/backups/nvidia_config', migration)
 

@@ -54,6 +54,7 @@ cleanup_temporary() {
   if [[ -n "$temporary" && -d "$temporary" && ! -L "$temporary" ]]; then
     unlink -- "$temporary/env.before" 2>/dev/null || true
     unlink -- "$temporary/env.after" 2>/dev/null || true
+    unlink -- "$temporary/credential-parent.acl" 2>/dev/null || true
     rmdir -- "$temporary" 2>/dev/null || true
   fi
 }
@@ -72,6 +73,9 @@ rollback() {
   fi
   if (( credentials_switched )); then
     remove_credential_directory "$CREDENTIAL_DIR"
+  fi
+  if [[ -f "$temporary/credential-parent.acl" ]]; then
+    setfacl --restore="$temporary/credential-parent.acl" >/dev/null 2>&1 || true
   fi
   systemctl restart "$SERVICE" >/dev/null 2>&1 || true
   restore_watcher >/dev/null 2>&1 || true
@@ -119,6 +123,7 @@ temporary="$(mktemp -d /run/aichat-credential-migration.XXXXXX)"
 credential_stage="$(mktemp -d "$CREDENTIAL_PARENT/.application-credentials.XXXXXX")"
 runtime_next="$RUNTIME_DIR/.runtime-config-migration-$$"
 cp -a -- "$ENV_FILE" "$temporary/env.before"
+getfacl --absolute-names -- "$CREDENTIAL_PARENT" > "$temporary/credential-parent.acl"
 trap 'rollback "$?"' ERR INT TERM EXIT
 
 if systemctl is-active --quiet "$WATCHER"; then
@@ -136,6 +141,7 @@ chown root:aichat -- "$credential_stage" "$credential_stage"/*
 chmod 0750 -- "$credential_stage"
 chmod 0640 -- "$credential_stage"/*
 setfacl -b -- "$credential_stage" "$credential_stage"/*
+setfacl -m 'u:micu:--x' -- "$CREDENTIAL_PARENT"
 setfacl -m 'u:micu:r-x' -- "$credential_stage"
 setfacl -m 'u:micu:r--' -- "$credential_stage"/*
 
