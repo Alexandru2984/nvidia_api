@@ -3228,6 +3228,34 @@ is required before describing those controls as complete.
   remains signed and validated under the explicit transition path. A subsequent
   signed rollout will make both active and immediate rollback targets SBOM-aware.
 
+### Reviewed npm publisher-provenance baseline — 2026-11-13
+
+- Commit `5edc7ae` upgrades the frontend gate from reporting npm attestations to
+  enforcing a reviewed identity baseline. For each of the 58 attested Ubuntu CI
+  artifacts, policy now binds the exact lock path, name, version, SHA-512,
+  publisher repository/workflow/ref, GitHub repository and owner IDs, triggering
+  event and source commit. Fifty-seven statements must use SLSA v1; the sole
+  legacy SLSA v0.2 statement is restricted to the exact nested
+  `eslint-visitor-keys@3.4.3` lock path and its legacy build shape.
+- npm remains the cryptographic registry-signature/Sigstore verifier. Its JSON
+  evidence is then parsed with bounded duplicate-key-rejecting input and matched
+  to the exact lock and reviewed policy. Invalid or missing registry evidence,
+  malformed/off-host statements, subject/digest drift, a changed publisher,
+  workflow, ref, ID, event or source commit, and any new/lost attestation fail
+  CI before lint, build, browser download or tests. Baseline changes require the
+  explicit dependency-review process and cannot be copied automatically.
+- Live verification again found zero npm advisories, 251 valid registry
+  signatures and 58 valid attestations. All 173 operational regressions, five
+  immutable-Action regressions, Bash syntax and ShellCheck passed. The complete
+  lock has 276 entries: 193 installed packages currently expose signatures but
+  no provenance and 25 cross-platform/optional entries are absent from the
+  Ubuntu installation, so those 218 entries are reported outside the attested
+  baseline rather than described as verified.
+- This strengthens S-14 but does not establish upstream code safety or provenance
+  for the remaining lock entries. It changes future CI only; production code,
+  data, processes and release pointers were not changed, and remote enforcement
+  begins only after an owner-authorized push.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

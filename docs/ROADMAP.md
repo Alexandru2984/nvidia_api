@@ -312,8 +312,15 @@ timed evidence.
   deploy verifies its commit/tree/lock binding before the signed manifest covers
   it. The active release passed production rollback, while its retained signed
   rollback target remains the final explicitly transitional pre-SBOM artifact.
-  Remaining supply-chain work is the unattested npm/Python subset plus
-  account-side required-review/CI evidence.
+  CI now pins all 58 available npm attestations to their exact lock path,
+  artifact SHA-512 and signed publisher repository/workflow/ref, repository and
+  owner IDs, event and source commit. It permits the single legacy SLSA v0.2
+  statement only at its reviewed nested path; all other baseline entries require
+  SLSA v1. New, lost or changed provenance fails before project code executes.
+  Of the other 218 lock entries, 193 installed packages expose signatures but no
+  provenance and 25 cross-platform/optional entries are absent from Ubuntu CI;
+  none are called attested. Remaining supply-chain work is this unattested
+  npm/Python subset plus account-side required-review/CI evidence.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page

@@ -414,6 +414,21 @@ secret values are reproduced here.
   retained immediate rollback is an explicitly accepted signed pre-SBOM release;
   the SBOM inventories all cross-platform/dev/optional lock inputs rather than
   claiming all 276 execute in browsers.
+- 2026-11-13: commit `5edc7ae` turns npm publisher provenance into an exact
+  reviewed CI baseline instead of retaining it only as output. All 58 attested
+  Ubuntu artifacts bind lock path, name/version/SHA-512, publisher repository,
+  workflow/ref, repository and owner IDs, GitHub event and source commit.
+  Fifty-seven must use SLSA v1; the one legacy SLSA v0.2 statement is allowed
+  only for the exact nested `eslint-visitor-keys@3.4.3` path and shape. npm still
+  performs cryptographic signature/Sigstore verification; the bounded local
+  verifier rejects duplicate JSON, malformed/off-host evidence, lock/subject
+  drift and any new, missing or changed reviewed identity before frontend code
+  executes. Live checks found zero advisories, 251 signatures and 58 attestations;
+  all 173 operational and five Action-pin regressions, Bash and ShellCheck passed.
+  The other 218 lock entries comprise 193 installed signature-only packages and
+  25 Ubuntu-absent cross-platform/optional entries and are explicitly not called
+  attested. This CI-only stage changed no production state and requires an
+  authorized push for GitHub enforcement.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
@@ -804,7 +819,7 @@ prevents half-built trees from producing false integrity decisions by sharing
 the exclusive deploy/shared monitor operation lock without clearing prior alert
 state. This is strong local builder/deployer provenance and tamper evidence, but
 does not independently attest that an upstream publisher built an uncompromised
-wheel. Commit `76e3ab8` adds bounded weekly Dependabot proposals for the
+artifact. Commit `76e3ab8` adds bounded weekly Dependabot proposals for the
 frontend npm tree, Python runtime tree and GitHub Actions, plus a CI regression
 gate and an explicit review policy. The policy prohibits auto-merge/deploy,
 moving Action refs, credential or permission expansion and hash relaxation; it
@@ -818,6 +833,11 @@ still incomplete. Commit `aed3836` additionally verifies PEP 740/Sigstore
 provenance for the 12 exact locked wheels that currently publish it, using an
 isolated 32-wheel hash-locked verifier; the remaining 12 locked wheels publish no
 provenance and remain explicitly unverified.
+Commit `5edc7ae` also pins all 58 npm attestations available on the Ubuntu CI
+installation to their exact locked artifacts and signed publisher identities;
+new, lost or changed source/workflow evidence now fails before project code
+executes. The remaining 193 installed signature-only packages and 25 lock entries
+not installed on Ubuntu remain outside that attested baseline.
 
 Impact: a silently moved Action tag can no longer alter CI execution, a changed
 wheel cannot satisfy the committed lock, and a post-build release/manifest
@@ -835,7 +855,10 @@ and archive lifecycles, protect/backup the active private key separately, and
 record/verify upstream publisher attestations where the selected ecosystem and
 artifact provide them. Keep the reviewed Python policy synchronized only through
 human review; investigate any new, changed, lost or inconsistent provenance
-rather than automatically accepting registry metadata.
+rather than automatically accepting registry metadata. Keep the reviewed npm
+policy synchronized by the same process, including its exact SLSA schema/event
+exceptions; do not copy changed attestation output into policy merely to restore
+a green workflow.
 
 ### S-15 — Partially remediated — legal/vendor governance evidence is incomplete
 
