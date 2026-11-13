@@ -54,3 +54,29 @@ def enqueue_file_deletion(storage, file_name, *, using='default'):
         using=using,
         robust=True,
     )
+
+
+def discard_uncommitted_file(file_field, *, using='default'):
+    """Remove storage written by a database transaction that rolled back."""
+    if not getattr(file_field, '_committed', False):
+        return True
+    file_name = getattr(file_field, 'name', '')
+    storage = getattr(file_field, 'storage', None)
+    if not file_name or storage is None:
+        return True
+    try:
+        storage.delete(file_name)
+        return True
+    except Exception:
+        # The database transaction that owned the Attachment has already rolled
+        # back. Persist a fresh cleanup intent when possible; daily maintenance
+        # will retry it without requiring the missing Attachment row.
+        try:
+            PendingFileDeletion.objects.using(using).get_or_create(
+                file_name=file_name,
+            )
+        except Exception:
+            pass
+        # Never include exception text or the private storage name.
+        security_log.error('event=attachment_file_delete_failed')
+        return False

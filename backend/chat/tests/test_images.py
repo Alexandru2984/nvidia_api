@@ -5,6 +5,7 @@ import struct
 from unittest import mock
 
 import pytest
+from django.core.files.storage import default_storage
 
 from chat.malware import INFECTED, MalwareScanError
 from chat.models import Attachment
@@ -101,6 +102,30 @@ class TestGenerateImage:
         assert 'req-123' in m_get.call_args[0][0]
         assert m_get.call_args.kwargs['allow_redirects'] is False
         assert m_post.return_value.close.called
+
+    @mock.patch('chat.views.requests.post')
+    def test_database_rollback_discards_generated_storage_file(
+        self, m_post, auth_client,
+    ):
+        encoded = base64.b64encode(PNG_1PX).decode()
+        m_post.return_value = _resp(200, {'image': encoded})
+        saved_names = []
+        original_save = Attachment.save
+
+        def save_then_fail(instance, *args, **kwargs):
+            original_save(instance, *args, **kwargs)
+            saved_names.append(instance.file.name)
+            raise RuntimeError('forced database rollback')
+
+        with mock.patch.object(Attachment, 'save', save_then_fail):
+            response = auth_client.post(
+                self.URL, {'prompt': 'a red dot'}, format='json',
+            )
+
+        assert response.status_code == 500
+        assert saved_names
+        assert not Attachment.objects.exists()
+        assert all(not default_storage.exists(name) for name in saved_names)
 
     @mock.patch('chat.views.IMAGE_PROVIDER_MAX_POLLS', 3)
     @mock.patch('chat.views.requests.get')

@@ -10,6 +10,7 @@ from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 
+from chat.file_deletions import discard_uncommitted_file
 from chat.models import Attachment, PendingFileDeletion
 
 
@@ -89,3 +90,24 @@ def test_pending_file_retries_are_bounded_and_dry_run_is_safe(settings):
     call_command('cleanup_attachments', stdout=StringIO())
     assert not PendingFileDeletion.objects.exists()
     assert not any(default_storage.exists(name) for name in names)
+
+
+@pytest.mark.django_db
+def test_uncommitted_file_delete_failure_enters_private_outbox(caplog):
+    caplog.set_level('ERROR', logger='security')
+    name = default_storage.save(
+        f'rollback-test/{uuid.uuid4().hex}.txt',
+        ContentFile(b'private'),
+    )
+    file_field = mock.Mock(name='file-field')
+    file_field._committed = True
+    file_field.name = name
+    file_field.storage = default_storage
+
+    with mock.patch.object(default_storage, 'delete', side_effect=OSError('private path')):
+        assert discard_uncommitted_file(file_field) is False
+
+    assert PendingFileDeletion.objects.filter(file_name=name).exists()
+    messages = '\n'.join(record.getMessage() for record in caplog.records)
+    assert messages == 'event=attachment_file_delete_failed'
+    assert name not in messages

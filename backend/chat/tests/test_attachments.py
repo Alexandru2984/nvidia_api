@@ -8,6 +8,7 @@ from unittest import mock
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.files.storage import default_storage
 from django.db import transaction
 
 from chat.attachments import (
@@ -99,6 +100,28 @@ class TestUploadHappyPath:
         assert r.status_code == 201
         # original_name should not have slashes
         assert '/' not in r.json()['original_name']
+
+    def test_database_rollback_discards_new_storage_file(self, auth_client):
+        saved_names = []
+        original_save = Attachment.save
+
+        def save_then_fail(instance, *args, **kwargs):
+            original_save(instance, *args, **kwargs)
+            saved_names.append(instance.file.name)
+            raise RuntimeError('forced database rollback')
+
+        with mock.patch.object(Attachment, 'save', save_then_fail):
+            response = auth_client.post(
+                '/api/attachments/upload/',
+                {'file': _img_upload()},
+                format='multipart',
+            )
+
+        assert response.status_code == 500
+        assert saved_names
+        assert not Attachment.objects.exists()
+        assert all(not default_storage.exists(name) for name in saved_names)
+        assert not PendingFileDeletion.objects.exists()
 
 
 @pytest.mark.django_db

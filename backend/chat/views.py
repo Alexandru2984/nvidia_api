@@ -54,6 +54,7 @@ from .attachments import (
     image_within_limits,
     kind_for_mime,
 )
+from .file_deletions import discard_uncommitted_file
 from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
 from .model_status import get_status, unavailable_model_ids
 from .nvidia_client import (
@@ -2024,6 +2025,7 @@ def upload_attachment(request):
 
     # Race-free quota: lock the user row, recompute usage inside the lock, then
     # commit the new attachment. Two parallel uploads serialise here.
+    att = None
     try:
         with transaction.atomic():
             User.objects.select_for_update().get(pk=request.user.pk)
@@ -2053,7 +2055,7 @@ def upload_attachment(request):
                     'error': f'Storage quota exceeded. Limit {settings.MAX_USER_STORAGE // (1024 * 1024)}MB per user.',
                     'used': used, 'limit': settings.MAX_USER_STORAGE,
                 }, status=413)
-            att = Attachment.objects.create(
+            att = Attachment(
                 user=request.user,
                 file=f,
                 original_name=safe_name,
@@ -2063,8 +2065,10 @@ def upload_attachment(request):
                 extracted_text=extracted,
                 content_sha256=content_hash,
             )
+            att.save()
             _complete_upload_attempt(attempt, att, owns_attachment=True)
     except Exception:
+        discard_uncommitted_file(att.file if att is not None else None)
         log.exception('Upload failed for user_id=%s', request.user.pk)
         return Response({'error': 'Upload failed.'}, status=500)
     return _attachment_upload_response(att, deduplicated=False, response_status=201)
@@ -4597,6 +4601,7 @@ def generate_image(request):
     safe_slug = re.sub(r'[^a-z0-9]+', '-', prompt.lower())[:32].strip('-') or 'image'
     filename = f'{safe_slug}-{secrets.token_hex(4)}.png'
     User = get_user_model()
+    att = None
     try:
         with transaction.atomic():
             User.objects.select_for_update().filter(pk=request.user.pk).first()
@@ -4612,6 +4617,7 @@ def generate_image(request):
             )
             att.file.save(filename, image_file, save=True)
     except Exception:
+        discard_uncommitted_file(att.file if att is not None else None)
         log.exception('Generated image save failed for user=%s', request.user.pk)
         return Response({'error': 'Failed to save generated image.'}, status=500)
 
