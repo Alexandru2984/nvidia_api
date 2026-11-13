@@ -3490,6 +3490,25 @@ is required before describing those controls as complete.
   Chromium at 320/1440 px passed; deployment emitted no protected-config event
   and the independent monitor ended with empty active state.
 
+### Private storage-failure logging — 2026-11-14
+
+- Commit `86c49ee` removes exception text and tracebacks from direct-upload and
+  generated-image save failures. Filesystem exceptions commonly include their
+  target path; generated filenames contain a prompt-derived slug, so the prior
+  traceback could copy private prompt text into the system journal during an
+  otherwise handled 500 response.
+- Both paths retain a generic error-level operational record and internal user ID
+  for burst detection, while returning the same generic client response. Forced
+  post-write exceptions containing unique private markers prove neither marker
+  reaches captured logs and the rollback-safe file cleanup still completes.
+- All 693 backend and 177 operational tests, Python compilation, Bash syntax and
+  ShellCheck passed. Signed backend release
+  `/opt/aichat-backend-releases/release-20261113T235132_034990020` is active at
+  exact commit `86c49ee5333d8303b4dfe940659128a3a6447d89`; rollback to
+  `959931d` and restoration completed in 4/6 seconds. Origin/edge health passed,
+  PID `2594591` has `NRestarts=0`, deployment emitted no protected-config event
+  and the independent monitor ended with empty active state.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

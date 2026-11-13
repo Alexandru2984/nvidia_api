@@ -535,6 +535,16 @@ secret values are reproduced here.
   0/1-second rollback/restoration; backend PID/restart count did not change.
   Origin/edge, security metadata and 320/1440 px Chromium checks passed, and the
   monitor ended with empty active state.
+- 2026-11-14: commit `86c49ee` prevents handled attachment-storage failures from
+  exporting exception text or tracebacks to the journal. Storage errors can
+  include private paths, and generated filenames carry a prompt-derived slug;
+  the generic error record and internal user ID remain for detection. Regressions
+  inject private markers after real writes and prove log redaction plus complete
+  file rollback. All 693 backend and 177 operational tests plus compile/shell
+  checks passed. Signed release `release-20261113T235132_034990020` is active at
+  the exact commit after a 4/6-second rollback/restoration with zero automatic
+  restarts. Origin/edge health passed, no config event appeared and the monitor
+  ended with empty active state.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

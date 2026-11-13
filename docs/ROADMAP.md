@@ -104,7 +104,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   are among the 33 exact watched targets. Routine request logging is now
   minimized too: nginx does not duplicate this vhost into the host-wide combined
   log, and Gunicorn excludes IP, User-Agent, Referer, cookies and query strings
-  while retaining bounded request shape/status/latency. Add contract-spend
+  while retaining bounded request shape/status/latency. Handled attachment
+  storage failures also suppress exception text and tracebacks because paths can
+  contain filenames or prompt-derived slugs, while preserving a generic error
+  signal and internal actor ID. Add contract-spend
   correlation and an external log sink that preserves this field boundary and
   never logs prompts, cookies, OTPs, filenames, raw IPs, queries or secrets.
   Telegram alerting is now flap-resistant: an issue key can notify at most once
