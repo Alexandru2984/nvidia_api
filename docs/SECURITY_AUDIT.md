@@ -3141,6 +3141,33 @@ is required before describing those controls as complete.
   CI-only: production code, data, services and release pointers were unchanged,
   and GitHub enforcement starts only after an owner-authorized push.
 
+### CI untrusted-code boundary hardening — 2026-11-13
+
+- Commit `90f5ef7` prevents both checkout steps from persisting the read-only
+  workflow token into Git configuration and bounds backend/frontend jobs to 20
+  and 30 minutes. Frontend dependency installation now disables all package
+  lifecycle scripts and duplicate install-time audit/funding calls. ESLint and
+  Playwright resolve only lockfile-installed local executables; `npx` can no
+  longer fetch a missing package into the workflow.
+- Validation with a clean `npm ci --ignore-scripts` passed ESLint, the production
+  build and all 57 responsive Playwright tests. The audit remains at zero known
+  vulnerabilities; all 251 installed packages have valid registry signatures
+  and 58 expose verified publisher attestations. Five focused trust-boundary
+  regressions, all 151 operational regressions, five immutable-Action
+  regressions, Bash syntax and ShellCheck passed.
+- Testing exposed a nondeterministic fail-open edge in the release builder:
+  `env | grep -q` under `pipefail` could treat the producer's SIGPIPE as a failed
+  match after finding an ambient `VITE_*` name. The builder now enumerates only
+  exported variable names without a short-circuit pipeline. A padded environment
+  regression passed 20 consecutive repetitions, the live canary failed closed,
+  and a normal production build remained deterministic.
+- This does not make third-party code intrinsically safe: locked dependencies
+  still execute during lint, build and tests, and the explicit local Playwright
+  command downloads its browser. It removes ambient Git credentials, implicit
+  package execution/fetch and unbounded job duration. The change affects future
+  CI/builds only; no production release, process, data or service was changed,
+  and GitHub enforcement still requires an owner-authorized push.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

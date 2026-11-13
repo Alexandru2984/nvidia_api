@@ -369,6 +369,20 @@ secret values are reproduced here.
   immutable GitHub Action regressions, Bash syntax and ShellCheck. This changed
   no production runtime or release pointer and becomes remote enforcement only
   after an owner-authorized push.
+- 2026-11-13: commit `90f5ef7` removes persisted checkout credentials from both
+  CI jobs, bounds their execution to 20/30 minutes, disables npm lifecycle
+  scripts and replaces network-capable `npx` resolution with lockfile-installed
+  local commands. A clean script-free install passed ESLint, the production
+  build and all 57 responsive browser tests; npm reports zero advisories, 251
+  valid registry signatures and 58 publisher attestations. All 151 operational
+  and five immutable-Action regressions, Bash syntax and ShellCheck passed. The
+  same testing found a rare `pipefail`/SIGPIPE false negative in the ambient
+  `VITE_*` build guard; name-only exported-variable enumeration plus a padded
+  regression failed closed in 20/20 repetitions. Dependencies still execute
+  during lint/build/test and Playwright still explicitly downloads a browser,
+  but no later step inherits checkout credentials or permits implicit install
+  hooks or `npx` fallback. This is CI/build-only until an authorized push and
+  changed no production state.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

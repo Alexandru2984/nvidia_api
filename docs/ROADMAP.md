@@ -299,6 +299,10 @@ timed evidence.
   exact-wheel hash-locked and structurally constrained to the production
   artifacts plus the reviewed pytest closure. `pip-audit` runs from its own
   28-wheel hash-locked environment and audits itself plus both backend locks.
+  CI checkout no longer persists its read-only token, jobs have explicit time
+  bounds, npm lifecycle hooks are disabled, and frontend commands cannot fall
+  back to fetching missing `npx` packages. The release builder's ambient
+  `VITE_*` rejection is deterministic even with a large exported environment.
   Remaining supply-chain work is the unattested npm/Python subset plus
   account-side required-review/CI evidence.
 - **Private-history pagination and indexed search are shipped:** conversation
