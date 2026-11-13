@@ -61,6 +61,8 @@ Before merging any dependency update:
    The auditor runs from a separate isolated `requirements-audit.lock`; its
    `pip-audit` pin and complete transitive closure are hash-locked, package-set
    checked before installation and audited alongside both backend tool locks.
+   Because every audited file is a complete exact closure, disable pip-audit's
+   resolver so it cannot bootstrap unreviewed `pip`, wheel or setuptools code.
 5. Run the full backend or frontend suite, the operational security tests,
    dependency audit and immutable-Action check. Frontend review must also run
    `npm audit signatures`: an invalid or missing registry signature fails the
@@ -69,7 +71,9 @@ Before merging any dependency update:
    must run `verify_python_provenance.py`; a digest, signature, transparency-log
    or reviewed publisher identity mismatch fails the gate. Major framework/runtime
    changes also require focused compatibility tests and an explicit rollback
-   note.
+   note. In CI, locked dependency advisory/provenance/signature gates run before
+   importing or executing application, lint, build or test code; never move them
+   later merely to shorten the successful path.
 6. Merge only after a human has reviewed the upstream evidence and green CI.
    Build a commit-bound release from the resulting merge commit; never deploy
    Dependabot's branch, an uncommitted lock repair or an unreviewed CI artifact.

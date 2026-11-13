@@ -34,6 +34,7 @@ class CiTrustBoundaryTests(unittest.TestCase):
             self.workflow,
         )
         self.assertNotRegex(self.workflow, r"run:\s+npm ci\s*$")
+        self.assertIn("NPM_CONFIG_IGNORE_SCRIPTS: 'true'", self.workflow)
 
     def test_frontend_commands_cannot_fall_back_to_remote_npx_packages(self):
         self.assertNotRegex(self.workflow, r"run:\s+npx\s")
@@ -44,12 +45,33 @@ class CiTrustBoundaryTests(unittest.TestCase):
         )
         self.assertIn("run: npm run test:e2e", self.workflow)
 
-    def test_regression_suite_runs_before_dependency_audits(self):
-        regression = self.workflow.index("python ../scripts/test_ci_trust_boundary.py")
-        backend_audit = self.workflow.index("- name: Audit runtime dependencies")
-        frontend_audit = self.workflow.index("- name: Audit dependencies")
-        self.assertLess(regression, backend_audit)
-        self.assertLess(backend_audit, frontend_audit)
+    def test_python_installs_fail_closed_without_command_line_flags(self):
+        for required in (
+            "PIP_CONFIG_FILE: /dev/null",
+            "PIP_NO_INPUT: '1'",
+            "PIP_ONLY_BINARY: ':all:'",
+            "PIP_REQUIRE_HASHES: '1'",
+        ):
+            self.assertIn(required, self.workflow)
+        self.assertEqual(self.workflow.count("--disable-pip --strict -r"), 3)
+
+    def test_dependency_gates_precede_project_code_execution(self):
+        backend_audit = self.workflow.index("- name: Audit locked Python environments")
+        backend_install = self.workflow.index("- name: Install dependencies")
+        django = self.workflow.index("- name: Django system checks")
+        self.assertLess(backend_audit, backend_install)
+        self.assertLess(backend_install, django)
+
+        frontend = self.workflow.index("  frontend:")
+        frontend_install = self.workflow.index("- name: Install dependencies", frontend)
+        vulnerability_audit = self.workflow.index("- name: Audit dependencies", frontend)
+        signature_audit = self.workflow.index(
+            "- name: Verify registry signatures and provenance", frontend
+        )
+        lint = self.workflow.index("- name: Lint", frontend)
+        self.assertLess(frontend_install, vulnerability_audit)
+        self.assertLess(vulnerability_audit, signature_audit)
+        self.assertLess(signature_audit, lint)
 
 
 if __name__ == "__main__":

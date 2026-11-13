@@ -60,6 +60,10 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             "must not persist",
             "lifecycle scripts disabled",
             "`npx` fetch a missing package",
+            "gates run before",
+            "lint, build or test code",
+            "disable pip-audit's",
+            "cannot bootstrap unreviewed",
         ):
             self.assertIn(required, self.policy)
 
