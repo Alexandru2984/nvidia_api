@@ -276,6 +276,19 @@ validate_frontend_release() {
     echo "ERROR: frontend release tree does not match its commit: $release" >&2
     return 1
   }
+  if [[ -e "$release/.release-sbom.cdx.json" \
+    || -L "$release/.release-sbom.cdx.json" ]]; then
+    [[ -f "$release/.release-sbom.cdx.json" \
+      && ! -L "$release/.release-sbom.cdx.json" ]] || {
+      echo "ERROR: frontend release SBOM is unsafe: $release" >&2
+      return 1
+    }
+  elif (( require_provenance )); then
+    echo "ERROR: active frontend release has no embedded SBOM: $release" >&2
+    return 1
+  else
+    echo "NOTICE: rollback frontend release predates an embedded SBOM: $release" >&2
+  fi
 }
 
 select_rollback_target() {

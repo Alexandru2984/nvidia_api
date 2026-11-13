@@ -64,6 +64,9 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             "lint, build or test code",
             "disable pip-audit's",
             "cannot bootstrap unreviewed",
+            "Frontend changes must regenerate",
+            "selected SHA-512 integrity",
+            "new license identifier fails closed",
         ):
             self.assertIn(required, self.policy)
 

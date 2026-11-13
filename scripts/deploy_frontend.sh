@@ -10,6 +10,8 @@ RELEASE_ROOT='/var/www/aichat-releases'
 LIVE_PATH='/var/www/aichat.micutu.com'
 RETENTION_TOOL="$REPO_DIR/scripts/archive_release_retention.py"
 PROVENANCE_TOOL="$REPO_DIR/scripts/release_provenance.py"
+SBOM_TOOL="$REPO_DIR/scripts/generate_frontend_sbom.py"
+SYSTEM_PYTHON='/usr/bin/python3.14'
 LOCK_FILE='/run/aichat-release-operation.lock'
 MAX_RELEASE_FILES=5000
 MAX_RELEASE_BYTES=$((256 * 1024 * 1024))
@@ -73,6 +75,19 @@ validate_dist() {
     echo 'ERROR: frontend build provenance does not match committed HEAD' >&2
     return 1
   }
+  [[ -f "$DIST_DIR/.release-sbom.cdx.json" \
+    && ! -L "$DIST_DIR/.release-sbom.cdx.json" \
+    && "$(stat -c '%s' -- "$DIST_DIR/.release-sbom.cdx.json")" -ge 2 \
+    && "$(stat -c '%s' -- "$DIST_DIR/.release-sbom.cdx.json")" -le $((4 * 1024 * 1024)) ]] || {
+    echo 'ERROR: frontend release SBOM is missing or malformed' >&2
+    return 1
+  }
+  "$SYSTEM_PYTHON" "$SBOM_TOOL" "$REPO_DIR/frontend/package-lock.json" \
+    --commit "$commit" --frontend-tree "$frontend_tree" \
+    --check "$DIST_DIR/.release-sbom.cdx.json" || {
+    echo 'ERROR: frontend release SBOM does not match committed inputs' >&2
+    return 1
+  }
   if [[ -n "$(git_read status --porcelain=v1 --untracked-files=all -- frontend)" ]] \
     || ! git_read diff --quiet HEAD -- frontend; then
     echo 'ERROR: refusing to deploy uncommitted frontend changes' >&2
@@ -131,6 +146,19 @@ validate_release_tree() {
     echo "ERROR: frontend release manifest is missing: $release" >&2
     return 1
   }
+  if [[ -e "$release/.release-sbom.cdx.json" \
+    || -L "$release/.release-sbom.cdx.json" ]]; then
+    [[ -f "$release/.release-sbom.cdx.json" \
+      && ! -L "$release/.release-sbom.cdx.json" ]] || {
+      echo "ERROR: frontend release SBOM is unsafe: $release" >&2
+      return 1
+    }
+  elif (( require_provenance )); then
+    echo "ERROR: frontend release SBOM is missing: $release" >&2
+    return 1
+  else
+    echo "NOTICE: transitional frontend release predates an embedded SBOM: $release" >&2
+  fi
   (cd "$release" && sha256sum --quiet -c .release-manifest.sha256) || {
     echo "ERROR: frontend release manifest validation failed: $release" >&2
     return 1
@@ -215,12 +243,16 @@ for command in awk chmod chown curl date find flock git grep install ln mountpoi
     exit 1
   }
 done
-for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL"; do
+for tool in "$RETENTION_TOOL" "$PROVENANCE_TOOL" "$SBOM_TOOL"; do
   [[ -x "$tool" && ! -L "$tool" ]] || {
     echo "ERROR: required release tool is missing or unsafe: $tool" >&2
     exit 1
   }
 done
+[[ -x "$SYSTEM_PYTHON" && ! -L "$SYSTEM_PYTHON" ]] || {
+  echo 'ERROR: fixed frontend SBOM interpreter is missing or unsafe' >&2
+  exit 1
+}
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || { echo 'ERROR: another release operation is running' >&2; exit 1; }

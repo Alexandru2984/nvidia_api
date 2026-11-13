@@ -7,17 +7,22 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 FRONTEND_DIR="$REPO_DIR/frontend"
 DIST_DIR="$FRONTEND_DIR/dist"
+SBOM_TOOL="$REPO_DIR/scripts/generate_frontend_sbom.py"
 
 if (( EUID == 0 )); then
   echo 'ERROR: build the frontend as the unprivileged deployment user' >&2
   exit 1
 fi
-for command in env git grep npm; do
+for command in env git grep npm python3; do
   command -v "$command" >/dev/null || {
     echo "ERROR: required command is missing: $command" >&2
     exit 1
   }
 done
+[[ -f "$SBOM_TOOL" && ! -L "$SBOM_TOOL" ]] || {
+  echo 'ERROR: frontend SBOM generator is missing or unsafe' >&2
+  exit 1
+}
 while IFS= read -r variable_name; do
   if [[ "$variable_name" == VITE_* ]]; then
     echo 'ERROR: refusing ambient VITE_* values in a release build' >&2
@@ -54,6 +59,13 @@ env -u NODE_OPTIONS -u NODE_PATH npm --prefix "$FRONTEND_DIR" run build
 }
 printf '%s\n' "$commit" > "$DIST_DIR/.release-commit"
 printf '%s\n' "$frontend_tree" > "$DIST_DIR/.release-frontend-tree"
-chmod 0644 "$DIST_DIR/.release-commit" "$DIST_DIR/.release-frontend-tree"
+python3 "$SBOM_TOOL" "$FRONTEND_DIR/package-lock.json" \
+  --commit "$commit" --frontend-tree "$frontend_tree" \
+  --output "$DIST_DIR/.release-sbom.cdx.json"
+python3 "$SBOM_TOOL" "$FRONTEND_DIR/package-lock.json" \
+  --commit "$commit" --frontend-tree "$frontend_tree" \
+  --check "$DIST_DIR/.release-sbom.cdx.json"
+chmod 0644 "$DIST_DIR/.release-commit" "$DIST_DIR/.release-frontend-tree" \
+  "$DIST_DIR/.release-sbom.cdx.json"
 
 printf 'Frontend release build ready: commit=%s tree=%s\n' "$commit" "$frontend_tree"

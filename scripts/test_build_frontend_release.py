@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import shutil
 import subprocess
@@ -12,6 +14,7 @@ from pathlib import Path
 
 
 SOURCE_SCRIPT = Path(__file__).with_name("build_frontend_release.sh")
+SOURCE_SBOM = Path(__file__).with_name("generate_frontend_sbom.py")
 
 
 class FrontendReleaseBuildTests(unittest.TestCase):
@@ -22,10 +25,29 @@ class FrontendReleaseBuildTests(unittest.TestCase):
         (self.root / "frontend").mkdir()
         (self.root / "fake-bin").mkdir()
         shutil.copy2(SOURCE_SCRIPT, self.root / "scripts/build_frontend_release.sh")
+        shutil.copy2(SOURCE_SBOM, self.root / "scripts/generate_frontend_sbom.py")
         (self.root / "frontend/.gitignore").write_text(
             "dist/\nnode_modules/\n*.local\n", encoding="utf-8"
         )
         (self.root / "frontend/package.json").write_text("{}\n", encoding="utf-8")
+        integrity = "sha512-" + base64.b64encode(b"a" * 64).decode("ascii")
+        (self.root / "frontend/package-lock.json").write_text(
+            json.dumps({
+                "name": "frontend",
+                "version": "0.0.0",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"name": "frontend", "version": "0.0.0"},
+                    "node_modules/example": {
+                        "version": "1.0.0",
+                        "resolved": "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
+                        "integrity": integrity,
+                        "license": "MIT",
+                    },
+                },
+            }) + "\n",
+            encoding="utf-8",
+        )
         (self.root / "frontend/source.jsx").write_text(
             "export const value = 1\n", encoding="utf-8"
         )
@@ -93,6 +115,8 @@ printf '<!doctype html>\n' > "$frontend_dir/dist/index.html"
             tree,
         )
         self.assertIn(f"commit={commit} tree={tree}", result.stdout)
+        self.assertTrue((self.root / "frontend/dist/.release-sbom.cdx.json").is_file())
+        self.assertIn("validated 1 frontend CycloneDX components", result.stdout)
 
     def test_build_rejects_dirty_tracked_frontend_input(self) -> None:
         (self.root / "frontend/source.jsx").write_text(

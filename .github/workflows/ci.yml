@@ -109,6 +109,7 @@ jobs:
           python ../scripts/test_python_provenance.py
           python ../scripts/test_ci_requirements_lock.py
           python ../scripts/test_ci_trust_boundary.py
+          python ../scripts/test_generate_frontend_sbom.py
           python ../scripts/generate_python_sbom.py requirements.lock \
             --commit "$GITHUB_SHA" --output /tmp/aichat-python.cdx.json
           python ../scripts/generate_python_sbom.py requirements.lock \
@@ -146,6 +147,9 @@ jobs:
           ../scripts/build_frontend_release.sh
           test "$(cat dist/.release-commit)" = "$GITHUB_SHA"
           test "$(cat dist/.release-frontend-tree)" = "$(git rev-parse HEAD:frontend)"
+          python ../scripts/generate_frontend_sbom.py package-lock.json \
+            --commit "$GITHUB_SHA" --frontend-tree "$(git rev-parse HEAD:frontend)" \
+            --check dist/.release-sbom.cdx.json
       - name: Install test browser
         run: node_modules/.bin/playwright install --with-deps chromium
       - name: Responsive browser tests

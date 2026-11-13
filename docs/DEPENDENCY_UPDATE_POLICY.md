@@ -74,6 +74,11 @@ Before merging any dependency update:
    note. In CI, locked dependency advisory/provenance/signature gates run before
    importing or executing application, lint, build or test code; never move them
    later merely to shorten the successful path.
+   Frontend changes must regenerate and exactly verify the CycloneDX SBOM from
+   `package-lock.json`; every component retains its selected SHA-512 integrity,
+   reviewed SPDX license and lock path, and the signed release manifest must
+   cover it. A new license identifier fails closed until its obligations and
+   compatibility are reviewed explicitly.
 6. Merge only after a human has reviewed the upstream evidence and green CI.
    Build a commit-bound release from the resulting merge commit; never deploy
    Dependabot's branch, an uncommitted lock repair or an unreviewed CI artifact.
