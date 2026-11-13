@@ -3321,6 +3321,34 @@ is required before describing those controls as complete.
   success/status zero and empty active state without sending a recovery message;
   both origin and edge health probes remained green.
 
+### Strict NVIDIA response JSON boundary — 2026-11-13
+
+- Commit `176b5f0` removes permissive JSON behavior at every NVIDIA response
+  parser. The reproduced image response used `Content-Type: text/plain`, two
+  `image` keys and `NaN`; Python silently retained the second key and a non-finite
+  float. Chat SSE also ignored malformed JSON events, accepted falsey non-object
+  deltas and allowed ambiguous or non-standard values to reach later logic.
+- Chat, image and isolated model-probe paths now share one bounded parser that
+  rejects duplicate keys at any depth, `NaN`/`Infinity`, exponent overflow to a
+  non-finite float, unpaired Unicode surrogates, excessive nesting/parser errors
+  and more than 100,000 decoded nodes. Chat requires every non-terminal data event
+  to be an object and no longer converts `delta: []` into an empty object. A 200
+  image response must declare exact `application/json` before its bounded body is
+  read. Failures remain content-free `provider_protocol_rejected` signals and do
+  not persist provider output.
+- All 679 backend tests passed, including duplicate/non-finite/Unicode/node-limit,
+  content-type, chat, image and scheduled-probe regressions. All 176 operational
+  tests, Python compilation, Bash syntax, ShellCheck and clean-diff validation
+  passed without adding a dependency.
+- Signed release
+  `/opt/aichat-backend-releases/release-20261113T185215_175622138` is active at
+  exact commit `176b5f0d2d5aa740730bd767737053369479a4c4`. Rollback to the
+  retained `a0d5f1c` release and exact restoration completed in 3/3 seconds with
+  distinct healthy PIDs and `NRestarts=0`. The active runtime reproduced all four
+  strict rejections, origin and edge health passed, the monitor returned
+  success/status zero with empty state, and the corrected deployer emitted no
+  protected-configuration event or Telegram notification.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

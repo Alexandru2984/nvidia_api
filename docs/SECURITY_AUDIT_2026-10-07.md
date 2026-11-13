@@ -460,6 +460,19 @@ secret values are reproduced here.
   issue-key cooldown remains 24 hours. After the original six-minute window, the
   monitor returned success with empty active state and no recovery message while
   origin and edge health remained green.
+- 2026-11-13: commit `176b5f0` makes every NVIDIA JSON response fail closed on
+  ambiguity. The prior parser accepted a reproduced `text/plain` image response
+  with duplicate keys and `NaN`. Chat, image and isolated model-probe paths now
+  share bounded parsing that rejects duplicates at any depth, named or exponent-
+  produced non-finite floats, invalid Unicode, excessive nesting, over 100,000
+  decoded nodes and malformed non-terminal SSE events. Image success additionally
+  requires exact `application/json`; falsey non-object chat deltas no longer pass
+  as empty objects. All 679 backend and 176 operational tests plus shell checks
+  passed. Signed release `release-20261113T185215_175622138` is active at the full
+  commit; rollback/restoration completed in 3/3 seconds with zero automatic
+  restarts. The active runtime rejected all reproduced samples, origin/edge health
+  and the independent monitor passed with empty state, and deployment emitted no
+  configuration event or Telegram notification.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
