@@ -3349,6 +3349,35 @@ is required before describing those controls as complete.
   success/status zero with empty state, and the corrected deployer emitted no
   protected-configuration event or Telegram notification.
 
+### Canonical inbound API JSON boundary — 2026-11-13
+
+- Commit `cd00309` extends the same canonical decoder to every API endpoint that
+  consumes `application/json`, while leaving the bounded multipart attachment
+  route separate. DRF previously accepted duplicate object keys with last-key
+  wins semantics. A reproduced login body containing a wrong first username and
+  the valid username second reached authentication as the valid account, creating
+  ambiguity between any first-key proxy/security interpretation and application
+  behavior.
+- Request JSON must now be UTF-8, contain unique keys at every depth, finite
+  numbers, valid Unicode scalar strings and no more than 100,000 decoded nodes.
+  Malformed, excessively nested, invalid-encoding, duplicate, `NaN`/`Infinity`,
+  exponent-overflow and unpaired-surrogate documents return one content-free 400
+  parse error before endpoint logic. Existing field-specific exact-type checks
+  still run afterward. The generic decoder is shared with the NVIDIA boundary so
+  the two trust edges cannot silently diverge.
+- All 687 backend and 176 operational tests passed, including an endpoint-level
+  duplicate-login regression and direct nested-key, non-finite, Unicode, UTF-8
+  and node-exhaustion cases. Python compilation, Bash syntax, ShellCheck and
+  clean-diff checks also passed without adding a dependency.
+- Signed release
+  `/opt/aichat-backend-releases/release-20261113T185849_055904166` is active at
+  exact commit `cd00309152eb58345ddc436a4b09112a949a68c5`. Rollback to
+  `176b5f0` and exact restoration completed in 2/3 seconds with distinct healthy
+  PIDs and `NRestarts=0`. The active runtime accepted canonical JSON and rejected
+  duplicate, infinite and invalid-Unicode samples; origin/edge health and the
+  independent monitor passed with empty state. Deployment emitted no protected-
+  configuration event or Telegram notification.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

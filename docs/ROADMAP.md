@@ -82,6 +82,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   Provider protocol enforcement now also rejects ambiguous/non-standard JSON,
   invalid Unicode, excessive decoded-node count and non-JSON image media types
   consistently across live chat, image generation and the isolated model probe.
+  Every client JSON endpoint now uses the same canonical UTF-8, unique-key,
+  finite-number, valid-Unicode and decoded-node boundary before endpoint logic;
+  multipart attachment parsing remains isolated under its own byte/file limits.
   The monitor runs under a dedicated non-login identity, receives its Telegram
   configuration through a systemd credential, can read restore status but not
   database dumps, and validates those exact ACL boundaries on every run. A

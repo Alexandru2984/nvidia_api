@@ -473,6 +473,18 @@ secret values are reproduced here.
   restarts. The active runtime rejected all reproduced samples, origin/edge health
   and the independent monitor passed with empty state, and deployment emitted no
   configuration event or Telegram notification.
+- 2026-11-13: commit `cd00309` applies the canonical JSON decoder to every JSON
+  API request while preserving multipart upload handling. The reproduced parser
+  used last-key-wins behavior for a duplicate username and could authenticate the
+  second value even if an upstream control interpreted the first. Requests now
+  require UTF-8, unique keys at every depth, finite numbers, valid Unicode and at
+  most 100,000 decoded nodes; failures return 400 before endpoint logic. Existing
+  field-type checks still follow decoding. All 687 backend and 176 operational
+  tests passed. Signed release `release-20261113T185849_055904166` is active at
+  the full commit after a 2/3-second rollback/restoration with zero automatic
+  restarts. Active-runtime samples, origin/edge health and the independent monitor
+  passed with empty state; deployment emitted no configuration event or Telegram
+  notification.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
