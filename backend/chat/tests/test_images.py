@@ -20,6 +20,7 @@ def _resp(status_code=200, json_data=None, headers=None, text=''):
     r.status_code = status_code
     content = json.dumps(json_data).encode() if json_data is not None else b''
     r.headers = dict(headers or {})
+    r.headers.setdefault('Content-Type', 'application/json')
     if content:
         r.headers.setdefault('Content-Length', str(len(content)))
     r.text = text
@@ -133,6 +134,51 @@ class TestGenerateImage:
         assert not Attachment.objects.exists()
         assert (
             'event=provider_protocol_rejected kind=image reason=image_dimensions'
+            in caplog.text
+        )
+
+    @pytest.mark.parametrize('body', [
+        lambda encoded: f'{{"image":"{encoded}","image":"{encoded}"}}'.encode(),
+        lambda encoded: f'{{"image":"{encoded}","score":NaN}}'.encode(),
+        lambda encoded: f'{{"image":"{encoded}","score":1e9999}}'.encode(),
+        lambda encoded: f'{{"image":"{encoded}","label":"\\ud800"}}'.encode(),
+    ])
+    @mock.patch('chat.views.requests.post')
+    def test_noncanonical_provider_json_is_rejected(
+        self, m_post, auth_client, caplog, body,
+    ):
+        caplog.set_level('WARNING', logger='security')
+        content = body(base64.b64encode(PNG_1PX).decode())
+        response = _resp(200)
+        response.headers['Content-Length'] = str(len(content))
+        response.iter_content.return_value = [content]
+        m_post.return_value = response
+
+        result = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert result.status_code == 502
+        assert not Attachment.objects.exists()
+        assert (
+            'event=provider_protocol_rejected kind=image reason=bounds_or_shape'
+            in caplog.text
+        )
+
+    @mock.patch('chat.views.requests.post')
+    def test_provider_json_requires_exact_content_type(
+        self, m_post, auth_client, caplog,
+    ):
+        caplog.set_level('WARNING', logger='security')
+        encoded = base64.b64encode(PNG_1PX).decode()
+        response = _resp(200, {'image': encoded}, headers={'Content-Type': 'text/plain'})
+        m_post.return_value = response
+
+        result = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert result.status_code == 502
+        assert not Attachment.objects.exists()
+        response.iter_content.assert_not_called()
+        assert (
+            'event=provider_protocol_rejected kind=image reason=content_type'
             in caplog.text
         )
 

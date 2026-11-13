@@ -461,6 +461,14 @@ class TestProbeCommand:
         ('text/event-stream', [b'data: {"choices":[]}', b'data: [DONE]']),
         ('text/event-stream', [b'data: {"error":{"message":"unavailable"}}', b'data: [DONE]']),
         ('text/event-stream', [b'data: not-json', b'data: [DONE]']),
+        (
+            'text/event-stream',
+            [b'data: {"choices":[],"usage":{},"choices":[]}', b'data: [DONE]'],
+        ),
+        (
+            'text/event-stream',
+            [b'data: {"choices":[],"usage":{"total_tokens":NaN}}', b'data: [DONE]'],
+        ),
     ])
     @mock.patch('chat.management.commands.probe_models.requests.post')
     def test_http_200_requires_a_complete_valid_sse_stream(

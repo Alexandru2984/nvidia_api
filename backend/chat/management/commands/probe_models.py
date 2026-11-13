@@ -8,7 +8,6 @@ check is a real streamed chat/completions call with max_tokens=1 per model.
 Scheduled in production by `aichat-model-probe.timer`.
 """
 import concurrent.futures
-import json
 import logging
 import time
 
@@ -25,10 +24,12 @@ from chat.model_status import (
 )
 from chat.models_catalog import MODEL_IDS
 from chat.nvidia_client import (
+    ProviderJSONError,
     ProviderStreamError,
     chat_completion_headers,
     chat_completion_payload,
     iter_sse_data,
+    strict_provider_json_loads,
 )
 
 
@@ -154,9 +155,9 @@ class Command(BaseCommand):
                     saw_done = True
                     break
                 try:
-                    event = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
+                    event = strict_provider_json_loads(data)
+                except ProviderJSONError:
+                    return 'protocol_error'
                 if not isinstance(event, dict) or 'error' in event:
                     return 'protocol_error'
                 if 'choices' in event:

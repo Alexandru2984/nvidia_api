@@ -57,10 +57,12 @@ from .attachments import (
 from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
 from .model_status import get_status, unavailable_model_ids
 from .nvidia_client import (
+    ProviderJSONError,
     ProviderStreamError,
     chat_completion_headers,
     chat_completion_payload,
     iter_sse_data,
+    strict_provider_json_loads,
 )
 from .models import (
     AccountDeletionRequest,
@@ -2198,11 +2200,11 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                     saw_done = True
                     break
                 try:
-                    obj = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
+                    obj = strict_provider_json_loads(data)
+                except ProviderJSONError as exc:
+                    raise ProviderStreamError('provider event was invalid JSON') from exc
                 if not isinstance(obj, dict):
-                    continue
+                    raise ProviderStreamError('provider event was not an object')
                 if 'error' in obj:
                     log.warning('NVIDIA chat API returned a streaming error event')
                     yield ('error', 'NVIDIA API stream failed. Try again later.')
@@ -2213,7 +2215,9 @@ def _stream_nvidia(model_id, messages, max_tokens=1024, temperature=0.7):
                 if choices:
                     if not isinstance(choices[0], dict):
                         raise ProviderStreamError('provider choice was not an object')
-                    delta = choices[0].get('delta') or {}
+                    delta = choices[0].get('delta')
+                    if delta is None:
+                        delta = {}
                     if not isinstance(delta, dict):
                         raise ProviderStreamError('provider delta was not an object')
                     chunk = delta.get('content')
@@ -4389,7 +4393,7 @@ def _bounded_provider_json(response):
         content.extend(chunk)
         if len(content) > IMAGE_PROVIDER_MAX_RESPONSE_BYTES:
             raise ValueError('provider response exceeds byte limit')
-    return json.loads(content)
+    return strict_provider_json_loads(content)
 
 
 def _nvcf_generate(url, payload):
@@ -4467,12 +4471,21 @@ def _nvcf_generate(url, payload):
         resp.close()
         return None, Response({'error': f'NVIDIA image API error ({resp.status_code}). Try again later.'},
                               status=status.HTTP_502_BAD_GATEWAY)
+    content_type = resp.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+    if content_type != 'application/json':
+        log.warning('NVIDIA genai returned an invalid content type')
+        security_log.warning(
+            'event=provider_protocol_rejected kind=image reason=content_type',
+        )
+        resp.close()
+        return None, Response({'error': 'NVIDIA image API returned an invalid response'},
+                              status=status.HTTP_502_BAD_GATEWAY)
     try:
         data = _bounded_provider_json(resp)
         if not isinstance(data, dict):
             raise ValueError('provider response was not an object')
         return data, None
-    except (UnicodeError, ValueError, json.JSONDecodeError):
+    except (UnicodeError, ValueError):
         security_log.warning(
             'event=provider_protocol_rejected kind=image reason=bounds_or_shape',
         )

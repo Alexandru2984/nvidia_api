@@ -501,6 +501,48 @@ class TestNvidiaStreamParser:
         assert events == [('error', 'NVIDIA API returned an invalid stream. Try again later.')]
         assert 'event=provider_protocol_rejected kind=chat reason=bounds_or_shape' in caplog.text
 
+    @pytest.mark.parametrize('payload', [
+        b'{"choices":[],"choices":[]}',
+        b'{"choices":[],"usage":{"total_tokens":NaN}}',
+        b'{"choices":[],"metadata":1e9999}',
+        b'{"choices":[{"delta":{"content":"\\ud800"}}]}',
+        b'not-json',
+    ])
+    @patch('chat.views.requests.post')
+    def test_rejects_noncanonical_json_events(
+        self, mock_post, caplog, payload,
+    ):
+        caplog.set_level('WARNING', logger='security')
+        response = MagicMock(status_code=200)
+        response.headers = {'Content-Type': 'text/event-stream'}
+        response.iter_content.return_value = _sse_chunks([
+            b'data: ' + payload,
+            b'data: [DONE]',
+        ])
+        mock_post.return_value.__enter__.return_value = response
+
+        events = list(_stream_nvidia('test/model', []))
+
+        assert events == [('error', 'NVIDIA API returned an invalid stream. Try again later.')]
+        assert 'event=provider_protocol_rejected kind=chat reason=bounds_or_shape' in caplog.text
+
+    @patch('chat.views.requests.post')
+    def test_rejects_provider_json_node_exhaustion(self, mock_post, caplog):
+        caplog.set_level('WARNING', logger='security')
+        payload = b'{"choices":[],"metadata":[' + (b'0,' * 100_000) + b'0]}'
+        response = MagicMock(status_code=200)
+        response.headers = {'Content-Type': 'text/event-stream'}
+        response.iter_content.return_value = _sse_chunks([
+            b'data: ' + payload,
+            b'data: [DONE]',
+        ])
+        mock_post.return_value.__enter__.return_value = response
+
+        events = list(_stream_nvidia('test/model', []))
+
+        assert events == [('error', 'NVIDIA API returned an invalid stream. Try again later.')]
+        assert 'event=provider_protocol_rejected kind=chat reason=bounds_or_shape' in caplog.text
+
     @patch('chat.views.requests.post')
     def test_provider_redirect_is_not_followed_and_is_security_logged(
         self, mock_post, caplog,
@@ -519,6 +561,7 @@ class TestNvidiaStreamParser:
         {'choices': {'delta': {'content': 'wrong container'}}},
         {'choices': ['wrong choice']},
         {'choices': [{'delta': 'wrong delta'}]},
+        {'choices': [{'delta': []}]},
         {'choices': [{'delta': {'content': {'not': 'text'}}}]},
         {'choices': [], 'usage': 'not an object'},
     ])

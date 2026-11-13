@@ -4,14 +4,72 @@ The scheduled availability probe and the user-facing stream must use the same
 payload shape. Keeping it here prevents a model from passing a reduced probe
 and then rejecting the first real conversation request.
 """
+import json
+import math
 
 
 SSE_MAX_LINE_BYTES = 1024 * 1024
 SSE_MAX_STREAM_BYTES = 4 * 1024 * 1024
+PROVIDER_JSON_MAX_NODES = 100_000
 
 
 class ProviderStreamError(RuntimeError):
     """The provider stream exceeded bounds or violated its byte contract."""
+
+
+class ProviderJSONError(ValueError):
+    """A provider JSON document was malformed or semantically ambiguous."""
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ProviderJSONError('provider JSON contained a duplicate key')
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value):
+    raise ProviderJSONError('provider JSON contained a non-finite number')
+
+
+def _validate_json_values(value):
+    pending = [value]
+    nodes = 0
+    while pending:
+        current = pending.pop()
+        nodes += 1
+        if nodes > PROVIDER_JSON_MAX_NODES:
+            raise ProviderJSONError('provider JSON exceeded its node limit')
+        if isinstance(current, str):
+            try:
+                current.encode('utf-8')
+            except UnicodeEncodeError as exc:
+                raise ProviderJSONError('provider JSON contained invalid Unicode') from exc
+        elif isinstance(current, float) and not math.isfinite(current):
+            raise ProviderJSONError('provider JSON contained a non-finite number')
+        elif isinstance(current, dict):
+            pending.extend(current.keys())
+            pending.extend(current.values())
+        elif isinstance(current, list):
+            pending.extend(current)
+
+
+def strict_provider_json_loads(data):
+    """Parse standards-compliant provider JSON without key ambiguity."""
+    try:
+        value = json.loads(
+            data,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+        _validate_json_values(value)
+        return value
+    except ProviderJSONError:
+        raise
+    except (TypeError, UnicodeError, RecursionError, ValueError) as exc:
+        raise ProviderJSONError('provider JSON was invalid') from exc
 
 
 def _content_length_within(response, limit):
