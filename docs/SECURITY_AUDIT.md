@@ -3098,6 +3098,29 @@ is required before describing those controls as complete.
   registry integrity does not prove source/build provenance for the 193 packages
   without attestations, and branch-protection evidence is still account-side.
 
+### PyPI PEP 740 provenance gate — 2026-11-13
+
+- Commit `aed3836` aligns backend CI with production on CPython 3.14 and adds a
+  reviewed policy that exactly covers all 24 production wheel hashes. Twelve
+  selected wheels currently publish PyPI provenance; each passed exact artifact
+  hash, Sigstore signature/identity, transparency-log and expected GitHub
+  repository/workflow verification. PyPI's associated publisher-environment
+  metadata must also match policy. The other 12 exact wheels return no provenance
+  and are reported as unavailable rather than treated as verified.
+- The verifier runs outside the application environment. Its complete 32-wheel
+  dependency graph is separately pinned to exact versions and one SHA-256 per
+  selected CPython 3.14/Linux x86-64 wheel, installed with `--require-hashes` and
+  audited independently. Redirects, unbounded responses, non-wheel/yanked or
+  wrong-host artifacts, duplicate policy keys, lock/policy drift, publisher
+  changes, missing reviewed provenance and unreviewed newly appearing provenance
+  all fail closed.
+- Seven focused regressions, all 143 operational tests and all 647 backend tests
+  passed. Both production and verifier dependency audits report zero known
+  vulnerabilities; local online verification passed 12/12 attestable wheels.
+  The gate becomes remote enforcement only after an owner-authorized push. It
+  does not establish code safety and cannot provide provenance for the 12
+  publishers that do not attest their selected artifacts.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
@@ -3189,6 +3212,9 @@ remain open.
 - [ESLint version support policy](https://eslint.org/version-support/)
 - [minimatch 11 change log](https://github.com/isaacs/minimatch/blob/main/changelog.md)
 - [npm registry-signature and attestation verification](https://docs.npmjs.com/cli/v11/commands/npm-audit/)
+- [PyPI provenance guidance](https://docs.pypi.org/using-pypi/package-security/provenance/)
+- [PyPI Integrity API](https://docs.pypi.org/api/integrity/)
+- [PyPI attestations verifier API](https://pypi.github.io/pypi-attestations/pypi_attestations.html)
 - [NVIDIA DiffusionGemma endpoint](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it)
 - [NVIDIA Ising Calibration 1.5 endpoint](https://build.nvidia.com/nvidia/ising-calibration-1.5-31b)
 - [NVIDIA Riva Translate v2 API contract](https://docs.api.nvidia.com/nim/re/reference/nvidia-riva-translate-4b-instruct-v2-infer)

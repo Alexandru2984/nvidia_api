@@ -292,9 +292,11 @@ timed evidence.
   production rollback. Frontend CI now additionally verifies registry signatures
   for the complete installed npm tree and available Sigstore publisher
   attestations; local proof covered 251/251 signatures and 58 attestations. Local
-  release provenance is shipped; expanding independent upstream artifact
-  provenance beyond the attested npm subset remains the next supply-chain
-  control.
+  release provenance is shipped. Backend CI now uses a separately hash-locked
+  PEP 740 verifier: 12/24 exact production wheels pass publisher identity,
+  signature, transparency-log and digest validation, while the 12 that publish no
+  provenance stay explicitly unverified. Remaining supply-chain work is the
+  unattested npm/Python subset plus account-side required-review/CI evidence.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page

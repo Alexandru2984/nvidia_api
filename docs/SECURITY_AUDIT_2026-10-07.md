@@ -344,6 +344,18 @@ secret values are reproduced here.
   exposes build/source provenance. The GitHub gate becomes remote enforcement
   only after an owner-authorized push; no push or production runtime change was
   made in this stage.
+- 2026-11-13: commit `aed3836` adds a fail-closed PEP 740/Sigstore gate for the
+  exact 24-wheel production lock. A separate CPython 3.14/Linux verifier
+  environment is isolated from application dependencies and itself binds all 32
+  transitive wheels to one SHA-256 each. The reviewed policy exactly covers the
+  runtime lock: 12 selected wheels publish PyPI provenance and passed artifact
+  digest, Sigstore identity/signature, transparency-log and repository/workflow
+  verification; the other 12 return no provenance and are reported explicitly,
+  never described as verified. Changed/lost/new publisher metadata fails until
+  human review updates policy. Both dependency audits report zero advisories, all
+  143 operational and 647 backend tests passed, and CI now matches production's
+  Python 3.14 line. This is CI-only until an owner-authorized push and does not
+  remove S-14's risk for unattested wheels or unverified GitHub branch settings.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
@@ -744,7 +756,10 @@ a manual commit-bound rollout. The workflow token remains restricted to
 commit has not been pushed, GitHub has not yet ingested the updater configuration;
 repository-side branch protection and required-review settings also remain
 account-side evidence to verify. Independent upstream publisher provenance is
-still incomplete.
+still incomplete. Commit `aed3836` additionally verifies PEP 740/Sigstore
+provenance for the 12 exact locked wheels that currently publish it, using an
+isolated 32-wheel hash-locked verifier; the remaining 12 locked wheels publish no
+provenance and remain explicitly unverified.
 
 Impact: a silently moved Action tag can no longer alter CI execution, a changed
 wheel cannot satisfy the committed lock, and a post-build release/manifest
@@ -760,7 +775,9 @@ requires human review plus the `CI` workflow before considering the updater
 control operational. Retain local signing public keys for the full executable
 and archive lifecycles, protect/backup the active private key separately, and
 record/verify upstream publisher attestations where the selected ecosystem and
-artifact provide them.
+artifact provide them. Keep the reviewed Python policy synchronized only through
+human review; investigate any new, changed, lost or inconsistent provenance
+rather than automatically accepting registry metadata.
 
 ### S-15 — Partially remediated — legal/vendor governance evidence is incomplete
 
