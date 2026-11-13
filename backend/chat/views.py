@@ -4372,6 +4372,7 @@ def list_image_models(request):
 # polling. nginx cuts /api/ at 180s, so stay well under that.
 IMAGE_GEN_BUDGET_SECONDS = 120
 NVCF_POLL_SECONDS = '30'
+IMAGE_PROVIDER_MAX_POLLS = 8
 IMAGE_PROVIDER_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
@@ -4418,6 +4419,7 @@ def _nvcf_generate(url, payload):
         status=status.HTTP_502_BAD_GATEWAY,
     )
     deadline = time.monotonic() + IMAGE_GEN_BUDGET_SECONDS
+    poll_count = 0
     try:
         resp = requests.post(
             url,
@@ -4436,6 +4438,13 @@ def _nvcf_generate(url, payload):
                 )
                 resp.close()
                 return None, unavailable
+            if poll_count >= IMAGE_PROVIDER_MAX_POLLS:
+                log.warning('NVIDIA genai polling exceeded its request limit')
+                security_log.warning(
+                    'event=provider_protocol_rejected kind=image reason=poll_limit',
+                )
+                resp.close()
+                return None, unavailable
             if time.monotonic() > deadline:
                 log.warning('NVIDIA genai polling exceeded its deadline')
                 resp.close()
@@ -4448,6 +4457,7 @@ def _nvcf_generate(url, payload):
                 stream=True,
                 allow_redirects=False,
             )
+            poll_count += 1
     except requests.RequestException:
         log.warning('NVIDIA genai request failed', exc_info=True)
         return None, Response({'error': 'NVIDIA image API request failed. Try again later.'},

@@ -102,6 +102,30 @@ class TestGenerateImage:
         assert m_get.call_args.kwargs['allow_redirects'] is False
         assert m_post.return_value.close.called
 
+    @mock.patch('chat.views.IMAGE_PROVIDER_MAX_POLLS', 3)
+    @mock.patch('chat.views.requests.get')
+    @mock.patch('chat.views.requests.post')
+    def test_202_polling_is_bounded(
+        self, m_post, m_get, auth_client, caplog,
+    ):
+        caplog.set_level('WARNING', logger='security')
+        m_post.return_value = _resp(202, headers={'NVCF-REQID': 'req-123'})
+        poll_responses = [
+            _resp(202, headers={'NVCF-REQID': 'req-123'}) for _ in range(3)
+        ]
+        m_get.side_effect = poll_responses
+
+        response = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert response.status_code == 502
+        assert 'unavailable' in response.json()['error']
+        assert m_get.call_count == 3
+        assert all(item.close.called for item in poll_responses)
+        assert (
+            'event=provider_protocol_rejected kind=image reason=poll_limit'
+            in caplog.text
+        )
+
     @mock.patch('chat.views.requests.post')
     def test_nvcf_errored_maps_to_clean_502(self, m_post, auth_client):
         m_post.return_value = _resp(504, headers={'Nvcf-Status': 'errored'}, text='gateway timeout')
