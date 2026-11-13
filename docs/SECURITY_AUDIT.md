@@ -3256,6 +3256,33 @@ is required before describing those controls as complete.
   data, processes and release pointers were not changed, and remote enforcement
   begins only after an owner-authorized push.
 
+### Persistent service-identity detection — 2026-11-13
+
+- Commit `6269eed` adds a five-minute fail-closed identity check for the three
+  persistent application services. Through an absolute-path, bounded
+  `systemctl show` query, the dedicated monitor now requires backend, isolated
+  document parser and ClamAV to be loaded, active/running, non-dynamic, backed by
+  a nonzero main PID, and mapped to their exact reviewed user, group, UID and
+  GID. Missing accounts/fields, duplicate or malformed manager output, a stopped
+  service and any identity/PID drift produce one privacy-safe issue key.
+- The protected-configuration watcher now covers the parser and scanner units
+  plus `clamd.conf`, increasing the exact watched set from 30 to 33. Planned
+  monitor installation still stops/restores the watcher, and the existing alert
+  state retains the once-per-issue/24-hour cooldown with recovery messages off;
+  this rollout sent no Telegram test or incident notification.
+- All 175 operational tests, including 48 monitor regressions, passed with Bash,
+  ShellCheck and systemd-unit validation. Production installation completed its
+  credential-boundary checks, isolated restore drill and automatic rollback
+  gates. The installed monitor is byte-identical at SHA-256
+  `3df7a3f67059bd62b2f02ec17706dc01ba3f6d8a4d429350cd1a65e51aec5c17`.
+- Live systemd evidence shows backend as `aichat:aichat-origin` with unchanged PID
+  `1801129`, parser as `aichat-parser:aichat-parser`, and scanner as
+  `clamav:clamav`; all are running at `NRestarts=0`. Monitor and restore units
+  returned success/status zero, all three timers/paths remain enabled and active,
+  and monitor state is empty with no `service_identity` notification recorded.
+  This closes the local persistent-process identity signal, not sudo-use audit,
+  off-host evidence or provider/mail cost anomaly detection.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

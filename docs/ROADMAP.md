@@ -86,7 +86,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   credential directory, vhost, application
   units, restore units/executable, monitor units/identity, the runtime directory
   or installed monitor/checker code into a fixed
-  privacy-safe event within the same alert window. Routine request logging is now
+  privacy-safe event within the same alert window. The monitor also verifies the
+  active/running main PID and exact user/group plus numeric UID/GID for backend,
+  isolated document parser and ClamAV; their unit files and scanner configuration
+  are among the 33 exact watched targets. Routine request logging is now
   minimized too: nginx does not duplicate this vhost into the host-wide combined
   log, and Gunicorn excludes IP, User-Agent, Referer, cookies and query strings
   while retaining bounded request shape/status/latency. Add contract-spend

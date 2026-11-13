@@ -429,6 +429,20 @@ secret values are reproduced here.
   25 Ubuntu-absent cross-platform/optional entries and are explicitly not called
   attested. This CI-only stage changed no production state and requires an
   authorized push for GitHub enforcement.
+- 2026-11-13: commit `6269eed` closes S-13's local persistent-service identity
+  signal. Every five minutes the dedicated monitor uses bounded absolute-path
+  systemd queries to require exact active/running PID, user/group and UID/GID
+  state for backend, isolated parser and ClamAV; missing, stopped, malformed,
+  duplicate-field or identity-drift state fails to one privacy-safe issue. The
+  protected watcher now covers both service units and `clamd.conf`, for 33 exact
+  targets. All 175 operational tests, including 48 monitor regressions, Bash,
+  ShellCheck and unit validation passed. The rollback-capable installation also
+  passed credential checks and the real restore drill. Installed/source SHA-256
+  is `3df7a3f67059bd62b2f02ec17706dc01ba3f6d8a4d429350cd1a65e51aec5c17`;
+  all three services are active at zero restarts, backend PID `1801129` did not
+  change, monitor/restore returned success and monitor state stayed empty. No
+  Telegram test or incident notification was sent. Sudo-use, off-host evidence
+  and provider/mail anomaly signals remain open.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
@@ -792,11 +806,13 @@ verified state, and a crashed probe alerts immediately rather than waiting for
 the eight-day freshness deadline. A credential-free checker now re-verifies the
 signed state independently every five minutes from manifest-checked code and
 dependencies; deploys reject a missing or unsafe identity/key/state boundary
-before switching releases. The remaining high-value
-signals are off-host retention, sudo/process identity and provider/mail cost
-anomalies. Scheduled restore failure is now ingested from its own unit and alerts
-immediately; stale, missing or malformed success evidence remains latched through
-the existing recovery checks.
+before switching releases. Commit `6269eed` additionally checks the exact
+active/running PID, user/group and UID/GID of backend, isolated parser and ClamAV
+every five minutes and watches both unit files plus scanner configuration. The
+remaining high-value signals are off-host retention, sudo use and provider/mail
+cost anomalies. Scheduled restore failure is now ingested from its own unit and
+alerts immediately; stale, missing or malformed success evidence remains latched
+through the existing recovery checks.
 
 ### S-14 — Low — dependency provenance remains incomplete
 
