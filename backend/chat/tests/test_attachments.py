@@ -101,14 +101,15 @@ class TestUploadHappyPath:
         # original_name should not have slashes
         assert '/' not in r.json()['original_name']
 
-    def test_database_rollback_discards_new_storage_file(self, auth_client):
+    def test_database_rollback_discards_new_storage_file(self, auth_client, caplog):
+        caplog.set_level('ERROR')
         saved_names = []
         original_save = Attachment.save
 
         def save_then_fail(instance, *args, **kwargs):
             original_save(instance, *args, **kwargs)
             saved_names.append(instance.file.name)
-            raise RuntimeError('forced database rollback')
+            raise RuntimeError('private-upload-exception-marker')
 
         with mock.patch.object(Attachment, 'save', save_then_fail):
             response = auth_client.post(
@@ -122,6 +123,7 @@ class TestUploadHappyPath:
         assert not Attachment.objects.exists()
         assert all(not default_storage.exists(name) for name in saved_names)
         assert not PendingFileDeletion.objects.exists()
+        assert 'private-upload-exception-marker' not in caplog.text
 
 
 @pytest.mark.django_db

@@ -105,8 +105,9 @@ class TestGenerateImage:
 
     @mock.patch('chat.views.requests.post')
     def test_database_rollback_discards_generated_storage_file(
-        self, m_post, auth_client,
+        self, m_post, auth_client, caplog,
     ):
+        caplog.set_level('ERROR')
         encoded = base64.b64encode(PNG_1PX).decode()
         m_post.return_value = _resp(200, {'image': encoded})
         saved_names = []
@@ -115,7 +116,7 @@ class TestGenerateImage:
         def save_then_fail(instance, *args, **kwargs):
             original_save(instance, *args, **kwargs)
             saved_names.append(instance.file.name)
-            raise RuntimeError('forced database rollback')
+            raise RuntimeError('private-generated-prompt-marker')
 
         with mock.patch.object(Attachment, 'save', save_then_fail):
             response = auth_client.post(
@@ -126,6 +127,7 @@ class TestGenerateImage:
         assert saved_names
         assert not Attachment.objects.exists()
         assert all(not default_storage.exists(name) for name in saved_names)
+        assert 'private-generated-prompt-marker' not in caplog.text
 
     @mock.patch('chat.views.IMAGE_PROVIDER_MAX_POLLS', 3)
     @mock.patch('chat.views.requests.get')

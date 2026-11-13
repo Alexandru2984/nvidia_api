@@ -2069,7 +2069,9 @@ def upload_attachment(request):
             _complete_upload_attempt(attempt, att, owns_attachment=True)
     except Exception:
         discard_uncommitted_file(att.file if att is not None else None)
-        log.exception('Upload failed for user_id=%s', request.user.pk)
+        # Storage exceptions may contain private filesystem names. Keep the
+        # operational signal without exporting exception text or traceback.
+        log.error('Upload failed for user_id=%s', request.user.pk)
         return Response({'error': 'Upload failed.'}, status=500)
     return _attachment_upload_response(att, deduplicated=False, response_status=201)
 
@@ -4618,7 +4620,9 @@ def generate_image(request):
             att.file.save(filename, image_file, save=True)
     except Exception:
         discard_uncommitted_file(att.file if att is not None else None)
-        log.exception('Generated image save failed for user=%s', request.user.pk)
+        # The generated filename is prompt-derived, so storage exception text
+        # and tracebacks must never enter the journal.
+        log.error('Generated image save failed for user=%s', request.user.pk)
         return Response({'error': 'Failed to save generated image.'}, status=500)
 
     return Response({
