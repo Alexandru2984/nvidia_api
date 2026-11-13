@@ -138,6 +138,8 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   credential boundary, rolls back the exact configuration on failure and offers
   a no-active-request self-restoring exercise. Production containment/restoration
   passed in 5/4 seconds with a byte-identical dotenv and 14 origin/edge probes.
+  A private-mount-namespace drill also injected a post-switch restart failure and
+  proved byte-identical automatic rollback without touching production.
   Close the dated external/provider/admin/tunnel/backup action items before
   changing the audit verdict to green.
 

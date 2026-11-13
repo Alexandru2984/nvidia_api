@@ -85,6 +85,15 @@ timers remained active, and the independent monitor reported no active issue. No
 provider request, account/data mutation, release switch or Telegram test
 notification occurred.
 
+The post-rollout failure-path drill ran separately in a private mount namespace.
+It bind-mounted a non-secret runtime fixture and root-owned checker stubs, replaced
+`systemctl`, `curl`, `runuser` and `logger` only through the namespace test path,
+and injected failure into the first backend restart after the configuration
+switch. The error trap restored the fixture byte-for-byte, performed the second
+successful restart and bounded probes, restarted the watcher, returned failure to
+the operator and left no `/run` snapshot. The real backend PID, `NRestarts=0`,
+watcher/timer state and production dotenv hash were unchanged.
+
 ## Verdict
 
 The runbook is executable for local detection, atomic provider/registration

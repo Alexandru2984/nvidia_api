@@ -365,6 +365,13 @@ secret values are reproduced here.
   origin/edge probes and an independent monitor with no active issue. The
   protected-config watcher now covers 30 paths. Provider-side revocation and the
   other external/owner gates remain open.
+- 2026-11-13: the incident-control failure branch was exercised in a private
+  mount namespace without changing production. A non-secret fixture reached the
+  atomic switch, the first mocked restart failed, and the trap restored the exact
+  prior bytes before the second restart/probes succeeded. The watcher was
+  restored, the command returned failure and no `/run` snapshot remained. The
+  real dotenv hash, backend PID, `NRestarts=0` and active watcher/monitor timer
+  were unchanged.
 - The overall verdict remains RED until all P0 gates are satisfied or carry a
   documented owner acceptance and compensating controls.
 

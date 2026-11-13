@@ -3143,6 +3143,14 @@ is required before describing those controls as complete.
 - This closes the local command action, not NVIDIA credential revocation, contract
   spend enforcement, staff 2FA/edge access, host maintenance, tunnel isolation,
   off-host retention/backup or Cloudflare Browser Insights removal.
+- A follow-up failure-path drill ran inside a private mount namespace with a
+  non-secret runtime fixture and mocked service/probe commands. An injected first
+  restart failure occurred only after the staged switch; the error trap restored
+  the fixture byte-identically, completed the second restart and all rollback
+  probes, restored the watcher, returned nonzero and removed its `/run` snapshot.
+  The production dotenv hash, backend PID, zero-restart counter and active
+  watcher/monitor timer were unchanged, proving failure rollback without inducing
+  a production outage or notification.
 
 The verdict remains yellow: deployment closed A-01/A-03 configuration rollout and
 A-04 local-mode actions. The isolated restore drill, durable request budgets,
