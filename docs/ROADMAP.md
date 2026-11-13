@@ -376,7 +376,10 @@ timed evidence.
   enter the privacy-minimized alert path. Physical attachment deletion now uses a
   durable transaction-coupled outbox: commit-time failures retain bounded retry
   state, alert without a filename/path, and rotate behind untried work so a full
-  batch of permanent failures cannot starve the queue.
+  batch of permanent failures cannot starve the queue. Creation rollback is now
+  covered too: direct uploads and generated images discard storage written before
+  a failed database commit, and failed discard attempts enter the same durable,
+  privacy-safe retry path.
 - Image job history/gallery with cancel/retry/delete and preserved generation
   parameters.
 - **Versioned provider disclosure is shipped:** before the first chat,

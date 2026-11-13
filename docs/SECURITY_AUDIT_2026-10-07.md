@@ -510,7 +510,20 @@ secret values are reproduced here.
   origin probe omitted nginx's mandatory client-IP header, failed closed as
   designed and entered the real alert path; the corrected proxy-equivalent probe
   passed, same-key notifications are suppressed for 24 hours, and recovery
-  notifications remain disabled.
+  notifications remain disabled. The monitor returned to empty state after the
+  six-minute window without a recovery message.
+- 2026-11-14: commit `959931d` closes an orphaned-private-file path caused by
+  storage writes occurring outside PostgreSQL transaction rollback. Upload and
+  generated-image creation now delete only a Django-committed storage object
+  after a failed database transaction; deletion failure persists a fresh bounded
+  cleanup outbox entry and emits the existing filename/path-free alert. Forced
+  post-write failures proved both rows and files disappear, while forced storage
+  failure proved durable redacted retry. All 693 backend and 177 operational
+  tests plus compile/shell checks passed. Signed release
+  `release-20261113T234046_559583581` is active at the exact commit after a
+  3/3-second rollback/restoration with zero automatic restarts. Origin/edge
+  health passed, deployment emitted no config event and the monitor ended with
+  empty active state.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

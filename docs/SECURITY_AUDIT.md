@@ -3433,7 +3433,34 @@ is required before describing those controls as complete.
   omitted nginx's required `X-Real-IP`, correctly failed closed and produced the
   real `proxy_client_ip_invalid` signal; the corrected proxy-equivalent origin
   probe passed. The same-key Telegram cooldown is 24 hours and recovery messages
-  remain disabled.
+  remain disabled. After the six-minute journal window expired, the monitor
+  returned to an empty active state without a recovery message.
+
+### Rollback-safe attachment storage — 2026-11-14
+
+- Commit `959931d` closes an attachment-storage consistency gap on both direct
+  uploads and NVIDIA-generated images. Django's file storage write is external
+  to the surrounding PostgreSQL transaction: a database or follow-up attempt
+  failure after that write rolled the Attachment row back but could leave a
+  private file with no owning row, quota accounting or normal deletion signal.
+- Both creation paths now retain the unsaved Attachment object, detect only a
+  storage write marked committed by Django, and delete that exact object after
+  the database transaction has rolled back. If storage deletion itself fails, a
+  fresh `PendingFileDeletion` outbox row survives for bounded daily retry and the
+  existing privacy-safe `attachment_file_delete_failed` alert contains neither
+  filename, path nor exception text.
+- Regressions force a failure after real storage write on each path and prove the
+  database row and file both disappear. A third regression forces cleanup
+  failure and proves the durable outbox plus redacted event. All 693 backend and
+  177 operational tests, Python compilation, Bash syntax, ShellCheck and clean-
+  diff checks passed.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261113T234046_559583581` is active at
+  exact commit `959931d46fe941bdfeaaecf0db8d4ddaa3ac0637`. Rollback to
+  `4673a81` and exact restoration completed in 3/3 seconds with distinct healthy
+  PIDs and `NRestarts=0`. Proxy-equivalent origin and Cloudflare-edge health
+  passed, deployment emitted no protected-configuration event, and the
+  independent monitor completed successfully with empty active state.
 
 ### Timed incident tabletop — 2026-11-12
 
