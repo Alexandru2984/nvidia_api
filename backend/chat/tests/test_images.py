@@ -1,6 +1,7 @@
 """Tests for /api/images/generate/ — dimension validation and the NVCF flow."""
 import base64
 import json
+import struct
 from unittest import mock
 
 import pytest
@@ -113,6 +114,27 @@ class TestGenerateImage:
         r = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
         assert r.status_code == 502
         assert not Attachment.objects.exists()
+
+    @mock.patch('chat.views.requests.post')
+    def test_generated_image_pixel_bomb_is_not_stored(
+        self, m_post, auth_client, caplog,
+    ):
+        caplog.set_level('WARNING', logger='security')
+        bomb = bytearray(PNG_1PX)
+        bomb[16:24] = struct.pack('>II', 100_000, 100_000)
+        m_post.return_value = _resp(200, {
+            'image': base64.b64encode(bomb).decode(),
+        })
+
+        response = auth_client.post(self.URL, {'prompt': 'a red dot'}, format='json')
+
+        assert response.status_code == 502
+        assert response.json()['error'] == 'Generated image failed validation'
+        assert not Attachment.objects.exists()
+        assert (
+            'event=provider_protocol_rejected kind=image reason=image_dimensions'
+            in caplog.text
+        )
 
     @mock.patch('chat.views._reserve_provider_call')
     @mock.patch('chat.views.ping_scanner', side_effect=MalwareScanError)

@@ -26,6 +26,118 @@ _EXT_TO_MIME = {
     '.txt': 'text/plain', '.md': 'text/markdown', '.markdown': 'text/markdown',
     '.docx': DOCX_MIME,
 }
+_JPEG_START_OF_FRAME_MARKERS = frozenset({
+    0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+    0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+})
+
+
+def _jpeg_dimensions(data):
+    if len(data) < 4 or not data.startswith(b'\xff\xd8'):
+        return None
+    offset = 2
+    while offset < len(data):
+        if data[offset] != 0xFF:
+            return None
+        while offset < len(data) and data[offset] == 0xFF:
+            offset += 1
+        if offset >= len(data):
+            return None
+        marker = data[offset]
+        offset += 1
+        if marker in {0x01, *range(0xD0, 0xD9)}:
+            continue
+        if marker in {0xD9, 0xDA} or offset + 2 > len(data):
+            return None
+        segment_length = int.from_bytes(data[offset:offset + 2], 'big')
+        if segment_length < 2 or offset + segment_length > len(data):
+            return None
+        if marker in _JPEG_START_OF_FRAME_MARKERS:
+            if segment_length < 11:
+                return None
+            height = int.from_bytes(data[offset + 3:offset + 5], 'big')
+            width = int.from_bytes(data[offset + 5:offset + 7], 'big')
+            components = data[offset + 7]
+            if not 1 <= components <= 4 or segment_length != 8 + 3 * components:
+                return None
+            return width, height
+        offset += segment_length
+    return None
+
+
+def _webp_dimensions(data):
+    if (
+        len(data) < 20
+        or data[:4] != b'RIFF'
+        or data[8:12] != b'WEBP'
+        or int.from_bytes(data[4:8], 'little') + 8 > len(data)
+    ):
+        return None
+    limit = int.from_bytes(data[4:8], 'little') + 8
+    offset = 12
+    while offset + 8 <= limit:
+        kind = data[offset:offset + 4]
+        length = int.from_bytes(data[offset + 4:offset + 8], 'little')
+        payload = offset + 8
+        end = payload + length
+        if end > limit or end > len(data):
+            return None
+        if kind == b'VP8X':
+            if length < 10:
+                return None
+            width = 1 + int.from_bytes(data[payload + 4:payload + 7], 'little')
+            height = 1 + int.from_bytes(data[payload + 7:payload + 10], 'little')
+            return width, height
+        if kind == b'VP8 ':
+            if length < 10 or data[payload + 3:payload + 6] != b'\x9d\x01\x2a':
+                return None
+            width = int.from_bytes(data[payload + 6:payload + 8], 'little') & 0x3FFF
+            height = int.from_bytes(data[payload + 8:payload + 10], 'little') & 0x3FFF
+            return width, height
+        if kind == b'VP8L':
+            if length < 5 or data[payload] != 0x2F:
+                return None
+            bits = int.from_bytes(data[payload + 1:payload + 5], 'little')
+            width = 1 + (bits & 0x3FFF)
+            height = 1 + ((bits >> 14) & 0x3FFF)
+            return width, height
+        offset = end + (length & 1)
+    return None
+
+
+def image_dimensions(data, mime):
+    """Read bounded raster dimensions without invoking an image decoder."""
+    if not isinstance(data, (bytes, bytearray)):
+        return None
+    if mime == 'image/png':
+        if (
+            len(data) < 33
+            or not data.startswith(b'\x89PNG\r\n\x1a\n')
+            or data[8:16] != b'\x00\x00\x00\rIHDR'
+        ):
+            return None
+        return struct.unpack('>II', data[16:24])
+    if mime == 'image/jpeg':
+        return _jpeg_dimensions(data)
+    if mime == 'image/gif':
+        if len(data) < 13 or data[:6] not in (b'GIF87a', b'GIF89a'):
+            return None
+        return struct.unpack('<HH', data[6:10])
+    if mime == 'image/webp':
+        return _webp_dimensions(data)
+    return None
+
+
+def image_within_limits(data, mime):
+    dimensions = image_dimensions(data, mime)
+    if dimensions is None:
+        return False
+    width, height = dimensions
+    return (
+        1 <= width <= settings.MAX_IMAGE_DIMENSION
+        and 1 <= height <= settings.MAX_IMAGE_DIMENSION
+        and width * height <= settings.MAX_IMAGE_PIXELS
+    )
 
 
 def content_fingerprint(uploaded_file, owner_id) -> str:
@@ -55,14 +167,8 @@ def detect_mime(uploaded_file) -> str:
     data = uploaded_file.read(settings.MAX_ATTACHMENT_SIZE + 1)
     uploaded_file.seek(0)
     valid = False
-    if mime == 'image/png':
-        valid = len(data) >= 33 and data.startswith(b'\x89PNG\r\n\x1a\n') and data[12:16] == b'IHDR'
-    elif mime == 'image/jpeg':
-        valid = len(data) >= 4 and data.startswith(b'\xff\xd8\xff')
-    elif mime == 'image/gif':
-        valid = len(data) >= 13 and data[:6] in (b'GIF87a', b'GIF89a')
-    elif mime == 'image/webp':
-        valid = len(data) >= 16 and data[:4] == b'RIFF' and data[8:12] == b'WEBP'
+    if mime in settings.ALLOWED_IMAGE_MIMES:
+        valid = image_within_limits(data, mime)
     elif mime == 'application/pdf':
         valid = data.startswith(b'%PDF-')
     elif mime in {'text/plain', 'text/markdown'}:

@@ -1,6 +1,7 @@
 """Tests for attachment upload, MIME sniffing, quota, text extraction."""
 import hashlib
 import hmac
+import struct
 import uuid
 from pathlib import Path
 from unittest import mock
@@ -14,6 +15,8 @@ from chat.attachments import (
     content_fingerprint,
     detect_mime,
     extract_text,
+    image_dimensions,
+    image_within_limits,
     kind_for_mime,
 )
 from chat.malware import CLEAN, INFECTED, MalwareScanError
@@ -26,6 +29,34 @@ def _png_bytes():
         '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4'
         '890000000d49444154789c63f8ffff3f0005fe02fef9352eaa0000000049454e44ae426082'
     )
+
+
+def _png_with_dimensions(width, height):
+    data = bytearray(_png_bytes())
+    data[16:24] = struct.pack('>II', width, height)
+    return bytes(data)
+
+
+def _gif_bytes(width=1, height=1):
+    return b'GIF89a' + struct.pack('<HH', width, height) + b'\x00\x00\x00'
+
+
+def _jpeg_bytes(width=1, height=1):
+    return (
+        b'\xff\xd8\xff\xc0\x00\x0b\x08'
+        + struct.pack('>HH', height, width)
+        + b'\x01\x01\x11\x00\xff\xd9'
+    )
+
+
+def _webp_bytes(width=1, height=1):
+    payload = (
+        b'\x00\x00\x00\x00'
+        + (width - 1).to_bytes(3, 'little')
+        + (height - 1).to_bytes(3, 'little')
+    )
+    body = b'WEBP' + b'VP8X' + struct.pack('<I', len(payload)) + payload
+    return b'RIFF' + struct.pack('<I', len(body)) + body
 
 
 def _txt_upload(name='hello.txt', text='hello world'):
@@ -86,6 +117,22 @@ class TestUploadValidation:
         bad = SimpleUploadedFile('a.exe', b'MZ', content_type='application/x-msdownload')
         r = auth_client.post('/api/attachments/upload/', {'file': bad}, format='multipart')
         assert r.status_code == 415
+
+    def test_image_decompression_bomb_dimensions_return_415(self, auth_client, settings):
+        settings.MAX_IMAGE_DIMENSION = 8192
+        settings.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
+        bomb = SimpleUploadedFile(
+            'bomb.png',
+            _png_with_dimensions(100_000, 100_000),
+            content_type='image/png',
+        )
+
+        response = auth_client.post(
+            '/api/attachments/upload/', {'file': bomb}, format='multipart',
+        )
+
+        assert response.status_code == 415
+        assert not Attachment.objects.exists()
 
     def test_unauthenticated_blocked(self, client):
         r = client.post('/api/attachments/upload/', {'file': _img_upload()}, format='multipart')
@@ -514,6 +561,60 @@ class TestMimeSniffing:
         # Some clients send octet-stream — we recover from the extension.
         f = SimpleUploadedFile('doc.pdf', b'%PDF-1.7\n', content_type='application/octet-stream')
         assert detect_mime(f) == 'application/pdf'
+
+    @pytest.mark.parametrize(('mime', 'data'), [
+        ('image/png', _png_bytes()),
+        ('image/jpeg', _jpeg_bytes()),
+        ('image/gif', _gif_bytes()),
+        ('image/webp', _webp_bytes()),
+    ])
+    def test_raster_dimensions_are_parsed_without_decoding(self, mime, data):
+        assert image_dimensions(data, mime) == (1, 1)
+        assert image_within_limits(data, mime) is True
+
+    @pytest.mark.parametrize(('width', 'height'), [
+        (0, 1),
+        (1, 0),
+        (8193, 1),
+        (4097, 4097),
+        (100_000, 100_000),
+    ])
+    def test_png_dimension_and_pixel_bombs_fail_closed(
+        self, width, height, settings,
+    ):
+        settings.MAX_IMAGE_DIMENSION = 8192
+        settings.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
+        data = _png_with_dimensions(width, height)
+        upload = SimpleUploadedFile('bomb.png', data, content_type='image/png')
+
+        assert image_within_limits(data, 'image/png') is False
+        assert detect_mime(upload) == 'application/octet-stream'
+
+    @pytest.mark.parametrize(('mime', 'extension', 'factory'), [
+        ('image/png', 'png', _png_with_dimensions),
+        ('image/jpeg', 'jpg', _jpeg_bytes),
+        ('image/gif', 'gif', _gif_bytes),
+        ('image/webp', 'webp', _webp_bytes),
+    ])
+    def test_each_raster_format_enforces_dimension_limit(
+        self, mime, extension, factory, settings,
+    ):
+        settings.MAX_IMAGE_DIMENSION = 8192
+        settings.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
+        data = factory(8193, 1)
+        upload = SimpleUploadedFile(f'bomb.{extension}', data, content_type=mime)
+
+        assert image_within_limits(data, mime) is False
+        assert detect_mime(upload) == 'application/octet-stream'
+
+    @pytest.mark.parametrize(('mime', 'data'), [
+        ('image/jpeg', b'\xff\xd8\xff\xc0\x00\x01'),
+        ('image/gif', b'GIF89a\x01'),
+        ('image/webp', b'RIFF\xff\xff\xff\xffWEBPVP8X'),
+    ])
+    def test_truncated_or_oversized_raster_headers_fail_closed(self, mime, data):
+        assert image_dimensions(data, mime) is None
+        assert image_within_limits(data, mime) is False
 
     def test_kind_for_mime(self):
         assert kind_for_mime('image/png') == 'image'

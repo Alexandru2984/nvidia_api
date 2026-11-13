@@ -110,8 +110,10 @@ def test_upload_rejects_image_for_text_only_model(auth_client):
 
 
 def test_upload_rejects_model_incompatible_image_format(auth_client):
+    payload = b'\x00' * 10
+    body = b'WEBP' + b'VP8X' + len(payload).to_bytes(4, 'little') + payload
     webp = SimpleUploadedFile(
-        'image.webp', b'RIFF' + b'\x08\x00\x00\x00' + b'WEBP' + b'VP8 ',
+        'image.webp', b'RIFF' + len(body).to_bytes(4, 'little') + body,
         content_type='image/webp',
     )
 

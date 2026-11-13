@@ -51,6 +51,7 @@ from .attachments import (
     content_fingerprint,
     detect_mime,
     extract_text,
+    image_within_limits,
     kind_for_mime,
 )
 from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
@@ -4556,7 +4557,10 @@ def generate_image(request):
 
     if len(raw) > settings.MAX_ATTACHMENT_SIZE:
         return Response({'error': 'Generated image exceeds storage limit'}, status=502)
-    if not (len(raw) >= 33 and raw.startswith(b'\x89PNG\r\n\x1a\n') and raw[12:16] == b'IHDR'):
+    if not image_within_limits(raw, 'image/png'):
+        security_log.warning(
+            'event=provider_protocol_rejected kind=image reason=image_dimensions',
+        )
         return Response({'error': 'Generated image failed validation'}, status=502)
 
     image_file = ContentFile(raw)
