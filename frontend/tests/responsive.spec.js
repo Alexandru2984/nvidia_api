@@ -318,6 +318,76 @@ test('message attachments never load cross-origin URLs from API data', async ({ 
   expect(crossOriginRequests).toEqual([])
 })
 
+test('chat stream accepts CRLF SSE framing', async ({ page }) => {
+  await mockAPI(page)
+  await page.route('**/api/conversations/1/messages/', (route) => {
+    const final = {
+      done: true,
+      user_message: {
+        id: 3, role: 'user', content: 'test CRLF', attachments: [],
+        created_at: '2026-11-14T00:00:00Z',
+      },
+      assistant_message: {
+        id: 4, role: 'assistant', content: 'CRLF stream completed', attachments: [],
+        created_at: '2026-11-14T00:00:01Z',
+      },
+      conversation: {
+        id: 1, title: 'A useful conversation', model_id: 'test/model', message_count: 4,
+        is_pinned: false, archived_at: null,
+        created_at: '2026-10-05T12:00:00Z', updated_at: '2026-11-14T00:00:01Z',
+      },
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `data: {"chunk":"CRLF partial"}\r\n\r\ndata: ${JSON.stringify(final)}\r\n\r\n`,
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('test CRLF')
+  await page.getByTitle('Send').click()
+
+  await expect(page.getByText('CRLF stream completed')).toBeVisible()
+  await expect(page.getByText('CRLF partial')).toHaveCount(0)
+})
+
+test('incomplete chat stream fails closed and clears optimistic messages', async ({ page }) => {
+  await mockAPI(page)
+  await page.route('**/api/conversations/1/messages/', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream',
+    body: 'data: {"chunk":"uncommitted partial reply"}\n\n',
+  }))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('test incomplete')
+  await page.getByTitle('Send').click()
+
+  await expect(page.getByText('The response stream ended unexpectedly. Try again.')).toBeVisible()
+  await expect(page.getByText('uncommitted partial reply')).toHaveCount(0)
+})
+
+test('oversized chat stream fails closed without rendering payload', async ({ page }) => {
+  await mockAPI(page)
+  const oversized = 'x'.repeat(3 * 1024 * 1024)
+  await page.route('**/api/conversations/1/messages/', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream',
+    body: `data: {"chunk":"${oversized}"}\n\n`,
+  }))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /A useful conversation/ }).click()
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('test oversized')
+  await page.getByTitle('Send').click()
+
+  await expect(page.getByText('The response stream was invalid. Try again later.')).toBeVisible()
+  await expect(page.locator('.assistant-bubble', { hasText: 'xxxxx' })).toHaveCount(0)
+})
+
 test('provider disclosure gates the first request and remains usable on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 })
   await mockAPI(page, true, 'test/model', 'open', undefined, false)

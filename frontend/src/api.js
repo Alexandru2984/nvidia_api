@@ -47,6 +47,147 @@ async function request(path, opts = {}) {
   return res.json()
 }
 
+const MAX_STREAM_BYTES = 3 * 1024 * 1024
+const MAX_STREAM_EVENT_CHARS = 1024 * 1024
+const STREAM_PROTOCOL_ERROR = 'The response stream was invalid. Try again later.'
+const STREAM_CONNECTION_ERROR = 'The response stream ended unexpectedly. Try again.'
+
+async function consumeEventStream(res, handlers) {
+  const contentType = (res.headers.get('Content-Type') || '').split(';', 1)[0].trim().toLowerCase()
+  if (contentType !== 'text/event-stream' || !res.body) {
+    handlers.onError?.(STREAM_PROTOCOL_ERROR)
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  let buffer = ''
+  let scanOffset = 0
+  let dataLines = []
+  let eventCharacters = 0
+  let streamBytes = 0
+  let stopped = false
+
+  const fail = (message = STREAM_PROTOCOL_ERROR) => {
+    if (!stopped) handlers.onError?.(message)
+    stopped = true
+    return true
+  }
+
+  const dispatch = () => {
+    if (!dataLines.length) return false
+    const raw = dataLines.join('\n')
+    dataLines = []
+    eventCharacters = 0
+    let obj
+    try {
+      obj = JSON.parse(raw)
+    } catch {
+      return fail()
+    }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return fail()
+    if (obj.error) {
+      handlers.onError?.(typeof obj.error === 'string' ? obj.error : STREAM_PROTOCOL_ERROR)
+      stopped = true
+      return true
+    }
+    if (obj.done === true) {
+      handlers.onDone?.(obj)
+      stopped = true
+      return true
+    }
+    if (obj.chunk !== undefined) {
+      if (typeof obj.chunk !== 'string') return fail()
+      if (obj.chunk) handlers.onChunk?.(obj.chunk)
+    }
+    if (obj.user_message !== undefined) {
+      if (!obj.user_message || typeof obj.user_message !== 'object'
+          || Array.isArray(obj.user_message)) return fail()
+      handlers.onUserMessage?.(obj.user_message)
+    }
+    return false
+  }
+
+  const acceptLine = (line) => {
+    if (line === '') return dispatch()
+    if (line.startsWith(':')) return false
+    const separator = line.indexOf(':')
+    const field = separator === -1 ? line : line.slice(0, separator)
+    if (field !== 'data') return false
+    let value = separator === -1 ? '' : line.slice(separator + 1)
+    if (value.startsWith(' ')) value = value.slice(1)
+    eventCharacters += value.length + 1
+    if (eventCharacters > MAX_STREAM_EVENT_CHARS) return fail()
+    dataLines.push(value)
+    return false
+  }
+
+  const drainLines = (final = false) => {
+    while (buffer) {
+      let delimiter = -1
+      for (let index = scanOffset; index < buffer.length; index += 1) {
+        if (buffer[index] === '\n' || buffer[index] === '\r') {
+          delimiter = index
+          break
+        }
+      }
+      if (delimiter === -1) {
+        scanOffset = buffer.length
+        break
+      }
+      if (!final && buffer[delimiter] === '\r' && delimiter === buffer.length - 1) {
+        scanOffset = delimiter
+        break
+      }
+      const line = buffer.slice(0, delimiter)
+      const delimiterLength = (
+        buffer[delimiter] === '\r' && buffer[delimiter + 1] === '\n'
+      ) ? 2 : 1
+      buffer = buffer.slice(delimiter + delimiterLength)
+      scanOffset = 0
+      if (acceptLine(line)) return true
+    }
+    if (final && buffer) {
+      const line = buffer
+      buffer = ''
+      scanOffset = 0
+      if (acceptLine(line)) return true
+    }
+    return false
+  }
+
+  try {
+    while (!stopped) {
+      const { value, done } = await reader.read()
+      if (done) break
+      streamBytes += value.byteLength
+      if (streamBytes > MAX_STREAM_BYTES) {
+        fail()
+        break
+      }
+      try {
+        buffer += decoder.decode(value, { stream: true })
+      } catch {
+        fail()
+        break
+      }
+      if (drainLines()) break
+    }
+    if (!stopped) {
+      try {
+        buffer += decoder.decode()
+      } catch {
+        fail()
+      }
+      if (!stopped) drainLines(true)
+    }
+    if (!stopped && dataLines.length) dispatch()
+    if (!stopped) fail(STREAM_CONNECTION_ERROR)
+  } finally {
+    try { await reader.cancel() } catch { /* response already closed */ }
+  }
+}
+
 export const MEDIA_BASE = ''
 
 const PRIVATE_ATTACHMENT_PATH = /^\/api\/attachments\/[1-9]\d*\/download\/$/
@@ -139,30 +280,10 @@ export const api = {
         handlers.onError?.(detail, res.status, body)
         return
       }
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        let idx
-        while ((idx = buffer.indexOf('\n\n')) !== -1) {
-          const event = buffer.slice(0, idx).trim()
-          buffer = buffer.slice(idx + 2)
-          if (!event.startsWith('data:')) continue
-          try {
-            const obj = JSON.parse(event.slice(5).trim())
-            if (obj.error) { handlers.onError?.(obj.error); return }
-            if (obj.done) { handlers.onDone?.(obj); return }
-            if (obj.chunk) handlers.onChunk?.(obj.chunk)
-            if (obj.user_message) handlers.onUserMessage?.(obj.user_message)
-          } catch { /* skip malformed event */ }
-        }
-      }
+      await consumeEventStream(res, handlers)
     } catch (e) {
       if (e.name === 'AbortError') { handlers.onAbort?.(); return }
-      throw e
+      handlers.onError?.(STREAM_CONNECTION_ERROR)
     }
   },
   listAttachments: (kind, cursor = null) => {
@@ -245,29 +366,10 @@ export const api = {
         try { body = await res.json(); detail = body.error || body.detail || detail } catch {}
         handlers.onError?.(detail, res.status, body); return
       }
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        let idx
-        while ((idx = buffer.indexOf('\n\n')) !== -1) {
-          const event = buffer.slice(0, idx).trim()
-          buffer = buffer.slice(idx + 2)
-          if (!event.startsWith('data:')) continue
-          try {
-            const obj = JSON.parse(event.slice(5).trim())
-            if (obj.error) { handlers.onError?.(obj.error); return }
-            if (obj.done) { handlers.onDone?.(obj); return }
-            if (obj.chunk) handlers.onChunk?.(obj.chunk)
-          } catch { /* skip malformed */ }
-        }
-      }
+      await consumeEventStream(res, handlers)
     } catch (e) {
       if (e.name === 'AbortError') { handlers.onAbort?.(); return }
-      throw e
+      handlers.onError?.(STREAM_CONNECTION_ERROR)
     }
   },
 
