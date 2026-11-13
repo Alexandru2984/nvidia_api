@@ -81,6 +81,39 @@ def test_structured_json_fields_accept_exact_types():
     assert ObjectJSONParser().parse(BytesIO(json.dumps(data).encode())) == data
 
 
+@pytest.mark.parametrize('raw', [
+    b'{"username":"first","username":"second"}',
+    b'{"outer":{"value":1,"value":2}}',
+    b'{"unknown":NaN}',
+    b'{"unknown":1e9999}',
+    b'{"unknown":"\\ud800"}',
+    b'\xff',
+])
+def test_json_parser_rejects_ambiguous_or_noncanonical_documents(raw):
+    with pytest.raises(ParseError, match='JSON parse error'):
+        ObjectJSONParser().parse(BytesIO(raw))
+
+
+def test_json_parser_rejects_excessive_decoded_nodes():
+    raw = b'{"unknown":[' + (b'0,' * 100_000) + b'0]}'
+
+    with pytest.raises(ParseError, match='JSON parse error'):
+        ObjectJSONParser().parse(BytesIO(raw))
+
+
+def test_duplicate_login_field_is_rejected_before_authentication(client, user):
+    raw = (
+        '{"username":"wrong","username":"'
+        + user.username
+        + '","password":"Hunter2pass"}'
+    ).encode()
+
+    response = client.post('/api/auth/login/', raw, content_type='application/json')
+
+    assert response.status_code == 400
+    assert response.json() == {'detail': 'JSON parse error.'}
+
+
 @pytest.mark.parametrize('path', [
     '/api/conversations/9223372036854775808/',
     '/api/conversations/9999999999999999999/export/',

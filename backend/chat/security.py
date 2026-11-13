@@ -6,6 +6,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.parsers import JSONParser
 
 from .converters import PositiveBigIntConverter
+from .json_boundary import StrictJSONError, strict_json_loads
 
 
 class CSRFSafeSessionAuthentication(SessionAuthentication):
@@ -30,7 +31,10 @@ class ObjectJSONParser(JSONParser):
     integer_list_fields = frozenset({'attachment_ids'})
 
     def parse(self, stream, media_type=None, parser_context=None):
-        data = super().parse(stream, media_type, parser_context)
+        try:
+            data = strict_json_loads(stream.read())
+        except (OSError, StrictJSONError):
+            raise ParseError('JSON parse error.') from None
         if not isinstance(data, dict):
             raise ParseError('Expected a JSON object.')
         for field in self.text_fields & data.keys():
