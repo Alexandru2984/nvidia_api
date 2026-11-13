@@ -3168,6 +3168,31 @@ is required before describing those controls as complete.
   CI/builds only; no production release, process, data or service was changed,
   and GitHub enforcement still requires an owner-authorized push.
 
+### Pre-execution dependency gates — 2026-11-13
+
+- Commit `b0fa512` moves all three Python lock audits ahead of application/test
+  installation and moves the npm advisory/signature gates immediately after the
+  script-free install, before ESLint, build, browser installation or tests.
+  Backend job policy independently requires hashes, wheels only, no prompts and
+  no ambient pip configuration; frontend job policy independently disables npm
+  lifecycle scripts, funding calls, install-time audit calls and update notices.
+- Enabling global hash enforcement exposed that pip-audit's default resolver
+  bootstrapped unpinned `pip`, wheel and setuptools in a temporary environment.
+  CI now invokes `pip-audit --disable-pip --strict` against the three complete
+  exact closures. This removes that hidden package execution instead of relaxing
+  hashes. The separately reviewed 28-wheel auditor lock remains the bootstrap
+  trust boundary.
+- Fresh enforcement installed the auditor only from hashes and all three Python
+  audits reported zero known vulnerabilities. npm again reported zero advisories,
+  251 valid registry signatures and 58 publisher attestations before all 57
+  responsive browser tests passed with job-level lifecycle hooks disabled. All
+  152 operational regressions, five immutable-Action regressions, Bash syntax,
+  ShellCheck, ESLint and the deterministic production build also passed.
+- Advisory/signature services remain external availability dependencies and a
+  clean report does not prove code safety; failures stop CI. This stage changes
+  only future CI behavior and no production code, release, process, data or
+  service. Remote enforcement still requires an owner-authorized push.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

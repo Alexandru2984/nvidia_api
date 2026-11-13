@@ -303,6 +303,10 @@ timed evidence.
   bounds, npm lifecycle hooks are disabled, and frontend commands cannot fall
   back to fetching missing `npx` packages. The release builder's ambient
   `VITE_*` rejection is deterministic even with a large exported environment.
+  Advisory, registry-signature and publisher-provenance gates now precede project
+  code execution. pip-audit consumes the three complete locks without invoking a
+  resolver or bootstrapping unreviewed packaging tools; job policy independently
+  enforces hashes/binary wheels and script-free npm installation.
   Remaining supply-chain work is the unattested npm/Python subset plus
   account-side required-review/CI evidence.
 - **Private-history pagination and indexed search are shipped:** conversation

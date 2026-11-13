@@ -383,6 +383,20 @@ secret values are reproduced here.
   but no later step inherits checkout credentials or permits implicit install
   hooks or `npx` fallback. This is CI/build-only until an authorized push and
   changed no production state.
+- 2026-11-13: commit `b0fa512` makes dependency evidence a pre-execution gate.
+  All three exact Python closures are audited before application/test install;
+  npm advisories and registry signatures are checked after script-free install
+  but before lint, build, browser download or tests. Job-level pip policy requires
+  hashes, binary wheels, no prompts and no ambient configuration, while npm
+  lifecycle hooks remain disabled for every step. This exposed and removed
+  pip-audit's implicit unpinned `pip`/wheel/setuptools bootstrap: the auditor now
+  parses the complete locks with `--disable-pip --strict`. All three Python audits
+  and npm audit are clean; npm verified 251 signatures and 58 attestations before
+  all 57 browser tests passed. All 152 operational and five immutable-Action
+  regressions, Bash syntax, ShellCheck, ESLint and the production build passed.
+  External advisory/signature availability now fails CI closed. The reviewed
+  auditor lock remains a bootstrap trust boundary; this CI-only stage made no
+  production change and requires an authorized push for remote enforcement.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
