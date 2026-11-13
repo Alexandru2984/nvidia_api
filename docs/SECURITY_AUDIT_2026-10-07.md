@@ -485,6 +485,19 @@ secret values are reproduced here.
   restarts. Active-runtime samples, origin/edge health and the independent monitor
   passed with empty state; deployment emitted no configuration event or Telegram
   notification.
+- 2026-11-13: commit `0e92174` prevents the global 12 MiB upload allowance from
+  becoming a JSON worker-amplification path. A reproduced 1,048,590-byte ignored
+  JSON string was previously materialized in full. The backend now reads at most
+  65,537 bytes and returns 413 above 65,536; nginx independently enforces `64k`
+  on general and streaming API locations while the exact multipart upload route
+  alone retains `12m`. All 689 backend and 177 operational tests passed. Signed
+  backend rollout plus 3/2-second rollback/restoration passed. The root-owned
+  vhost passed syntax/reload, old-config rollback and new-config restoration;
+  live probes proved 65,536 bytes reached backend CSRF, 65,537 returned 413, and
+  70,000-byte multipart still reached backend. Origin/edge health and the monitor
+  passed with PID `1722024`, zero automatic restarts and empty alert state. The
+  config watcher was paused only during the planned mutation and emitted no
+  Telegram notification.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

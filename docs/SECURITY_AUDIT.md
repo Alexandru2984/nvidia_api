@@ -3378,6 +3378,36 @@ is required before describing those controls as complete.
   independent monitor passed with empty state. Deployment emitted no protected-
   configuration event or Telegram notification.
 
+### Route-specific request-body ceilings — 2026-11-13
+
+- Commit `0e92174` closes a JSON memory/CPU amplification path created by the
+  server-wide 12 MiB upload allowance. A reproduced 1,048,590-byte JSON body
+  containing only an ignored field was fully read, decoded and retained before
+  the view discarded it. Repeating that work across login or authenticated API
+  requests could occupy application workers without approaching any legitimate
+  field limit.
+- The canonical JSON parser now reads at most 65,537 bytes, accepts at most
+  65,536 and returns 413 before decoding overflow. That ceiling safely contains
+  the worst-case escaped 8,000-character chat message and every smaller API
+  contract. nginx independently applies `64k` to both general and streaming API
+  locations; only the exact multipart `/api/attachments/upload/` route retains
+  `12m`, while backend upload/file/quota limits remain unchanged.
+- All 689 backend and 177 operational tests passed. Regressions prove acceptance
+  at the exact parser byte boundary, bounded reading at the first overflow byte,
+  endpoint-level 413 and the nginx route split. Python compilation, Bash,
+  ShellCheck, clean diffs and the pre-change installed-vhost identity also passed.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261113T192824_239976512` is active at
+  exact commit `0e92174d09fbbd79bfacbccd939a2c838afd94bb`; backend rollback and
+  restoration completed in 3/2 seconds. The root-owned vhost passed three syntax
+  tests and reloads while exercising old-config rollback and new-config restore.
+  Live origin requests proved 65,536 bytes reached backend CSRF, 65,537 returned
+  413, and a 70,000-byte multipart body still reached the backend. Origin/edge
+  health passed, backend PID `1722024` has `NRestarts=0`, and the independent
+  monitor ended successful with empty state. The config watcher was paused only
+  for the planned rollback-capable vhost mutation, restored waiting afterward,
+  and emitted no Telegram notification.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
