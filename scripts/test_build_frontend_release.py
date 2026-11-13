@@ -119,9 +119,13 @@ printf '<!doctype html>\n' > "$frontend_dir/dist/index.html"
         self.assertFalse((self.root / "frontend/dist").exists())
 
     def test_build_rejects_ambient_vite_values(self) -> None:
+        environment = {"VITE_PRIVATE_VALUE": "must-not-enter-build"}
+        environment.update(
+            {f"CI_TEST_PADDING_{number}": "x" * 2048 for number in range(64)}
+        )
         result = self._build(
             check=False,
-            extra_environment={"VITE_PRIVATE_VALUE": "must-not-enter-build"},
+            extra_environment=environment,
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ambient VITE_*", result.stderr)

@@ -57,6 +57,9 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             "requirements-ci.lock",
             "requirements-audit.lock",
             "reviewed publisher identity",
+            "must not persist",
+            "lifecycle scripts disabled",
+            "`npx` fetch a missing package",
         ):
             self.assertIn(required, self.policy)
 

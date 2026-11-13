@@ -33,7 +33,10 @@ Before merging any dependency update:
 3. Inspect the complete manifest and lock diff. No dependency PR may add registry
    credentials, relax hashes, introduce a moving GitHub Action ref, broaden CI
    permissions, add `pull_request_target`, enable auto-merge or gain deployment
-   credentials.
+   credentials. Checkout must not persist the read-only workflow token for later
+   commands. Frontend installation must keep package lifecycle scripts disabled,
+   and CI commands must resolve repository-locked executables locally rather than
+   letting `npx` fetch a missing package.
 4. For Python runtime changes, regenerate `requirements.lock` from the selected
    binary wheels, retain exactly one SHA-256 hash per exact runtime pin, run
    `scripts/check_requirements_lock.py`, regenerate/check the CycloneDX evidence,

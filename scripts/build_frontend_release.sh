@@ -18,10 +18,12 @@ for command in env git grep npm; do
     exit 1
   }
 done
-if env | grep -q '^VITE_'; then
-  echo 'ERROR: refusing ambient VITE_* values in a release build' >&2
-  exit 1
-fi
+while IFS= read -r variable_name; do
+  if [[ "$variable_name" == VITE_* ]]; then
+    echo 'ERROR: refusing ambient VITE_* values in a release build' >&2
+    exit 1
+  fi
+done < <(compgen -e)
 
 git_read() {
   git -C "$REPO_DIR" "$@"
