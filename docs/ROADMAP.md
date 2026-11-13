@@ -97,7 +97,11 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   never logs prompts, cookies, OTPs, filenames, raw IPs, queries or secrets.
   Telegram alerting is now flap-resistant: an issue key can notify at most once
   per 24 hours across resolve/reappear cycles, recovery notifications are off by
-  default, and five-minute local detection remains enabled.
+  default, and five-minute local detection remains enabled. Backend deployment
+  no longer rewrites protected systemd units when both content and exact secure
+  metadata already match, preventing authorized no-op deploys from creating
+  configuration-change alerts while retaining fail-closed installation and
+  rollback for real drift.
 - **Runtime dotenv-copy containment is shipped:** backend deploy and monitor
   installation fail closed unless the sole active dotenv has exact ownership,
   mode, type and size and no dotenv-like copy exists beside it. The root-owned
@@ -172,6 +176,10 @@ timed evidence.
   flex basis that previously left a large empty block above its recovery actions.
   Excluded files no longer consume the selected model's request image or byte
   budget, and the picker shows remaining model-image and composer-file slots.
+  Every accepted PNG, JPEG, GIF and WebP now also has a decoder-free structural
+  dimension check: neither axis may exceed 8192 pixels and the full canvas may
+  not exceed 16,777,216 pixels. The same fail-closed boundary applies to NVIDIA-
+  generated PNGs before scanning or persistence.
 - **Model discovery is shipped:** search spans name/vendor/ID/description,
   browser-local favorites and recent models are bounded to public IDs, comparison
   supports three models, and the live availability-check timestamp is visible.

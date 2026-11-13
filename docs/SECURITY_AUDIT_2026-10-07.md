@@ -443,6 +443,23 @@ secret values are reproduced here.
   change, monitor/restore returned success and monitor state stayed empty. No
   Telegram test or incident notification was sent. Sudo-use, off-host evidence
   and provider/mail anomaly signals remain open.
+- 2026-11-13: commit `cacccaf` closes a compressed-raster resource boundary.
+  Upload and NVIDIA-generated image paths now parse bounded PNG/JPEG/GIF/WebP
+  dimensions without a decoder, reject malformed/zero headers, either axis above
+  8192 or a canvas above 16,777,216 pixels, and never persist rejected provider
+  output. The reproduced 33-byte 100000-by-100000 PNG now returns 415. All 665
+  backend and 175 operational tests passed. Signed production rollout and origin/
+  edge probes passed; rollback/restoration completed in 3/2 seconds with zero
+  automatic restarts. The deploy also exposed one false configuration-change
+  notification because byte-identical protected units were rewritten. Follow-up
+  commit `a0d5f1c` preserves only byte-identical `0644 root:root` unit targets and
+  restores only actually changed units. All 176 operational tests passed, and a
+  second signed deployment emitted no watcher entry. Release
+  `release-20261113T184135_412047213` is active at exact commit `a0d5f1c` with PID
+  `1564671` and `NRestarts=0`; recovery notifications remain disabled and the
+  issue-key cooldown remains 24 hours. After the original six-minute window, the
+  monitor returned success with empty active state and no recovery message while
+  origin and edge health remained green.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

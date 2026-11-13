@@ -3283,6 +3283,44 @@ is required before describing those controls as complete.
   This closes the local persistent-process identity signal, not sudo-use audit,
   off-host evidence or provider/mail cost anomaly detection.
 
+### Raster-dimension boundary and deployment-alert correction — 2026-11-13
+
+- Commit `cacccaf` closes an attachment resource-exhaustion boundary. A
+  33-byte PNG that declared a 100000-by-100000 canvas previously passed the
+  extension/signature gate while remaining below the 10 MiB byte limit. The
+  upload path now parses bounded PNG, JPEG, GIF and WebP headers without invoking
+  a decoder, requires nonzero dimensions, limits either axis to 8192 pixels and
+  the complete canvas to 16,777,216 pixels, and fails closed on malformed or
+  truncated structures. NVIDIA-generated PNGs pass the same boundary before
+  malware scanning and storage; rejected provider output emits only a fixed
+  privacy-safe protocol event.
+- All 665 backend tests passed, including safe fixtures, malformed structures,
+  per-format dimension overruns, a pixel-count overrun, an upload-level 415 and
+  provider output rejection without persistence. All 175 operational tests,
+  Python compilation, Bash syntax, ShellCheck and clean-diff validation also
+  passed. No image-decoding or other third-party dependency was added.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261113T183815_855688478` activated the
+  exact technical commit. Origin and Cloudflare health probes passed; a live
+  rollback to `release-20261112T130158_450156885` and exact restoration completed
+  in 3/2 seconds with distinct healthy PIDs and `NRestarts=0`. The active-release
+  runtime check accepted a safe 1-by-1 PNG header and rejected the reproduced
+  100000-by-100000 declaration.
+- That deployment exposed an operational false positive: the deployer rewrote
+  five protected systemd unit files even when their bytes were unchanged, so the
+  configuration watcher emitted one `protected_config_changed` event and the
+  monitor sent one incident notification. Commit `a0d5f1c` now preserves an
+  unchanged target only when its bytes and exact `0644 root:root` metadata match;
+  changed or unsafe targets are still installed, and rollback restores only the
+  indexes actually changed. All 176 operational tests and shell checks passed.
+  The follow-up signed deploy produced no watcher journal entry, left release
+  `release-20261113T184135_412047213` active at exact commit `a0d5f1c` with PID
+  `1564671` and zero automatic restarts, and retained the existing per-issue
+  24-hour cooldown with recovery notifications disabled. After the original
+  six-minute signal window expired, an independent monitor run returned
+  success/status zero and empty active state without sending a recovery message;
+  both origin and edge health probes remained green.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
