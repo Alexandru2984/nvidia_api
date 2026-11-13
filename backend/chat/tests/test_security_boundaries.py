@@ -12,7 +12,7 @@ from rest_framework.exceptions import ParseError
 
 from chat.converters import PositiveBigIntConverter, SessionHandleConverter
 from chat.models import PasswordReset
-from chat.security import ObjectJSONParser
+from chat.security import JSONBodyTooLarge, ObjectJSONParser
 from chat.views import _hash_code
 from chat.middleware import RealClientIPMiddleware
 
@@ -94,11 +94,30 @@ def test_json_parser_rejects_ambiguous_or_noncanonical_documents(raw):
         ObjectJSONParser().parse(BytesIO(raw))
 
 
-def test_json_parser_rejects_excessive_decoded_nodes():
-    raw = b'{"unknown":[' + (b'0,' * 100_000) + b'0]}'
+def test_json_parser_accepts_exact_byte_limit(settings):
+    prefix = b'{"value":1}'
+    raw = prefix + (b' ' * (settings.MAX_API_JSON_BYTES - len(prefix)))
 
-    with pytest.raises(ParseError, match='JSON parse error'):
-        ObjectJSONParser().parse(BytesIO(raw))
+    assert ObjectJSONParser().parse(BytesIO(raw)) == {'value': 1}
+
+
+def test_json_parser_stops_at_byte_limit(settings):
+    raw = b'{"ignored":"' + (b'x' * settings.MAX_API_JSON_BYTES) + b'"}'
+    stream = BytesIO(raw)
+
+    with pytest.raises(JSONBodyTooLarge):
+        ObjectJSONParser().parse(stream)
+
+    assert stream.tell() == settings.MAX_API_JSON_BYTES + 1
+
+
+def test_oversized_json_endpoint_returns_413(client, settings):
+    raw = b'{"ignored":"' + (b'x' * settings.MAX_API_JSON_BYTES) + b'"}'
+
+    response = client.post('/api/auth/login/', raw, content_type='application/json')
+
+    assert response.status_code == 413
+    assert response.json() == {'detail': 'JSON body exceeds the application limit.'}
 
 
 def test_duplicate_login_field_is_rejected_before_authentication(client, user):

@@ -1,8 +1,9 @@
 """Shared request boundaries for the session-only API."""
 import math
 
+from django.conf import settings
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import APIException, ParseError
 from rest_framework.parsers import JSONParser
 
 from .converters import PositiveBigIntConverter
@@ -15,6 +16,12 @@ class CSRFSafeSessionAuthentication(SessionAuthentication):
     def authenticate(self, request):
         self.enforce_csrf(request)
         return super().authenticate(request)
+
+
+class JSONBodyTooLarge(APIException):
+    status_code = 413
+    default_detail = 'JSON body exceeds the application limit.'
+    default_code = 'json_body_too_large'
 
 
 class ObjectJSONParser(JSONParser):
@@ -32,7 +39,14 @@ class ObjectJSONParser(JSONParser):
 
     def parse(self, stream, media_type=None, parser_context=None):
         try:
-            data = strict_json_loads(stream.read())
+            raw = stream.read(settings.MAX_API_JSON_BYTES + 1)
+            if len(raw) > settings.MAX_API_JSON_BYTES:
+                raise JSONBodyTooLarge()
+            if stream.read(1):
+                raise JSONBodyTooLarge()
+            data = strict_json_loads(raw)
+        except JSONBodyTooLarge:
+            raise
         except (OSError, StrictJSONError):
             raise ParseError('JSON parse error.') from None
         if not isinstance(data, dict):

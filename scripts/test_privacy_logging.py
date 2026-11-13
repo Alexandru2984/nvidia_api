@@ -38,6 +38,22 @@ class PrivacyLoggingTests(unittest.TestCase):
         self.assertEqual(vhost.count('\n    access_log off;\n'), 2)
         self.assertNotIn('access_log /', vhost)
 
+    def test_nginx_reserves_large_bodies_only_for_multipart_upload(self):
+        vhost = VHOST.read_text(encoding='utf-8')
+        upload = vhost.split('location = /api/attachments/upload/ {', 1)[1].split(
+            '\n    }', 1,
+        )[0]
+        streaming = vhost.split(
+            'location ~ ^/api/(conversations/[0-9]+/messages|messages/[0-9]+'
+            '/regenerate)/?$ {',
+            1,
+        )[1].split('\n    }', 1)[0]
+        general = vhost.split('location /api/ {', 1)[1].split('\n    }', 1)[0]
+
+        self.assertIn('client_max_body_size 12m;', upload)
+        self.assertIn('client_max_body_size 64k;', streaming)
+        self.assertIn('client_max_body_size 64k;', general)
+
 
 if __name__ == '__main__':
     unittest.main()
