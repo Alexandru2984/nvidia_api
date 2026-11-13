@@ -397,6 +397,18 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertIn('Environment=ALERT_COOLDOWN_SECONDS=86400\n', unit)
         self.assertIn('Environment=RECOVERY_NOTIFICATIONS_ENABLED=false\n', unit)
 
+    def test_backend_deploy_does_not_rewrite_unchanged_protected_units(self):
+        deployer = (ROOT / 'scripts/deploy_backend.sh').read_text(encoding='utf-8')
+        install_body = deployer.split('install_committed_units() {', 1)[1].split(
+            '\n}', 1,
+        )[0]
+        restore_body = deployer.split('restore_units() {', 1)[1].split('\n}', 1)[0]
+
+        self.assertIn("== '644:root:root'", install_body)
+        self.assertIn('cmp --silent -- "$staged" "$target"', install_body)
+        self.assertIn('changed_unit_indexes+=("$index")', install_body)
+        self.assertIn('for index in "${changed_unit_indexes[@]}"', restore_body)
+
     def test_state_rejects_unsafe_mode_or_different_owner(self):
         state_path = self.root / 'state' / 'state.json'
         monitor.save_state(state_path, {'active': [], 'last_sent': {}})

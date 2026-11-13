@@ -58,6 +58,7 @@ next_link=''
 temporary=''
 activation_started=0
 units_backed_up=0
+changed_unit_indexes=()
 
 usage() {
   echo 'Usage: sudo scripts/deploy_backend.sh [--bootstrap|--check-model-probe-boundary]' >&2
@@ -227,6 +228,12 @@ install_committed_units() {
     target="${UNIT_TARGETS[$index]}"
     staged="$temporary/new-units/$index"
     git_read show "$commit:$source" > "$staged"
+    if [[ -f "$target" && ! -L "$target" \
+      && "$(stat -c '%a:%U:%G' -- "$target")" == '644:root:root' ]] \
+      && cmp --silent -- "$staged" "$target"; then
+      continue
+    fi
+    changed_unit_indexes+=("$index")
     install -o root -g root -m 0644 -- "$staged" "$target"
   done
 }
@@ -235,7 +242,7 @@ restore_units() {
   local index target backup
 
   (( units_backed_up )) || return 0
-  for index in "${!UNIT_TARGETS[@]}"; do
+  for index in "${changed_unit_indexes[@]}"; do
     target="${UNIT_TARGETS[$index]}"
     backup="$temporary/units/$index"
     if [[ -f "$backup" ]]; then
