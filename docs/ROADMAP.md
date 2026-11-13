@@ -82,6 +82,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   Provider protocol enforcement now also rejects ambiguous/non-standard JSON,
   invalid Unicode, excessive decoded-node count and non-JSON image media types
   consistently across live chat, image generation and the isolated model probe.
+  Asynchronous NVIDIA image generation additionally permits at most eight status
+  polls inside its wall-clock deadline, so immediate repeated `202` responses
+  cannot amplify an upstream failure into an unbounded request loop.
   Every client JSON endpoint now uses the same canonical UTF-8, unique-key,
   finite-number, valid-Unicode and decoded-node boundary before endpoint logic;
   multipart attachment parsing remains isolated under its own byte/file limits.

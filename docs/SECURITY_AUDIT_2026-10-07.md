@@ -498,6 +498,19 @@ secret values are reproduced here.
   passed with PID `1722024`, zero automatic restarts and empty alert state. The
   config watcher was paused only during the planned mutation and emitted no
   Telegram notification.
+- 2026-11-14: commit `4673a81` bounds NVIDIA asynchronous image polling to eight
+  status requests as well as the existing 120-second deadline. Repeated immediate
+  `202` responses can no longer amplify upstream-controlled traffic for the full
+  window; overflow closes the response, returns the generic unavailable 502 and
+  emits a privacy-safe `poll_limit` protocol signal. All 690 backend and 177
+  operational tests, frontend lint/build, Bash and ShellCheck passed. Signed
+  release `release-20261113T233408_455157623` is active at the exact commit after
+  a 3/2-second rollback/restoration with zero automatic restarts. Origin/edge
+  health passed and deployment created no protected-config event. One direct
+  origin probe omitted nginx's mandatory client-IP header, failed closed as
+  designed and entered the real alert path; the corrected proxy-equivalent probe
+  passed, same-key notifications are suppressed for 24 hours, and recovery
+  notifications remain disabled.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

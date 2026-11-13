@@ -3408,6 +3408,33 @@ is required before describing those controls as complete.
   for the planned rollback-capable vhost mutation, restored waiting afterward,
   and emitted no Telegram notification.
 
+### Bounded NVIDIA image polling — 2026-11-14
+
+- Commit `4673a81` closes an upstream-controlled request-amplification path in
+  asynchronous NVIDIA image generation. A broken or hostile endpoint could
+  return valid-looking `202` responses immediately and indefinitely, causing a
+  worker to issue status requests as fast as the round trip allowed until the
+  wall-clock deadline.
+- A generation now permits at most eight status requests in addition to the
+  existing 120-second deadline, strict request-ID grammar, redirect denial and
+  per-request timeout. A ninth `202` fails closed with the existing generic 502,
+  closes the response and records only
+  `event=provider_protocol_rejected kind=image reason=poll_limit`.
+- All 690 backend and 177 operational tests passed, including an exact three-poll
+  regression proving the request count, response cleanup, client error and
+  privacy-safe security signal. ESLint, the production frontend build, Bash
+  syntax, ShellCheck and clean-diff checks also passed.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261113T233408_455157623` is active at
+  exact commit `4673a81c55c21053fe988200914109e0eb049985`. Rollback to
+  `0e92174` and exact restoration completed in 3/2 seconds with distinct healthy
+  PIDs and `NRestarts=0`; origin and Cloudflare-edge health passed. Deployment
+  emitted no protected-configuration event. A manual origin probe initially
+  omitted nginx's required `X-Real-IP`, correctly failed closed and produced the
+  real `proxy_client_ip_invalid` signal; the corrected proxy-equivalent origin
+  probe passed. The same-key Telegram cooldown is 24 hours and recovery messages
+  remain disabled.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
