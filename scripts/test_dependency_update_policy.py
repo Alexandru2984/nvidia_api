@@ -54,6 +54,8 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             "invalid or missing registry signature fails",
             "PEP 740",
             "requirements-provenance.lock",
+            "requirements-ci.lock",
+            "requirements-audit.lock",
             "reviewed publisher identity",
         ):
             self.assertIn(required, self.policy)

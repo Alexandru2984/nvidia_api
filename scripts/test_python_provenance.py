@@ -170,7 +170,7 @@ class PythonProvenanceTests(unittest.TestCase):
             "--only-binary=:all: --require-hashes",
             "verify_python_provenance.py",
             "python-provenance-policy.json",
-            "pip-audit -r requirements-provenance.lock",
+            "-r requirements-provenance.lock --progress-spinner off",
             "python ../scripts/test_python_provenance.py",
         ):
             self.assertIn(required, ci)

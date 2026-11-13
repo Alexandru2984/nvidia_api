@@ -37,18 +37,24 @@ jobs:
           python-version: '3.14'
           cache: pip
           cache-dependency-path: |
-            backend/requirements.txt
+            backend/requirements-ci.lock
+            backend/requirements-audit.lock
             backend/requirements-provenance.lock
-      - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Django system checks
-        run: python manage.py check --settings=nvidia_chat.test_settings
       - name: Validate immutable GitHub Actions
         run: |
           python ../scripts/test_github_actions_pins.py
           python ../scripts/check_github_actions_pins.py ../.github/workflows
       - name: Validate production wheel lock
-        run: python ../scripts/check_requirements_lock.py requirements.txt requirements.lock
+        run: |
+          python ../scripts/check_requirements_lock.py requirements.txt requirements.lock
+          python ../scripts/check_ci_requirements_lock.py \
+            requirements.txt requirements-dev.txt requirements.lock requirements-ci.lock \
+            requirements-audit.lock
+      - name: Install dependencies
+        run: |
+          python -m pip install \
+            --disable-pip-version-check --only-binary=:all: --require-hashes \
+            -r requirements-ci.lock
       - name: Verify PyPI publisher provenance
         run: |
           python -m venv /tmp/aichat-pypi-provenance
@@ -58,6 +64,8 @@ jobs:
           /tmp/aichat-pypi-provenance/bin/python \
             ../scripts/verify_python_provenance.py \
             requirements.lock python-provenance-policy.json
+      - name: Django system checks
+        run: python manage.py check --settings=nvidia_chat.test_settings
       - name: Run tests
         run: python -m pytest -q
       - name: Security operations tests
@@ -79,15 +87,23 @@ jobs:
           python ../scripts/test_application_credentials.py
           python ../scripts/test_incident_controls.py
           python ../scripts/test_python_provenance.py
+          python ../scripts/test_ci_requirements_lock.py
           python ../scripts/generate_python_sbom.py requirements.lock \
             --commit "$GITHUB_SHA" --output /tmp/aichat-python.cdx.json
           python ../scripts/generate_python_sbom.py requirements.lock \
             --commit "$GITHUB_SHA" --check /tmp/aichat-python.cdx.json
       - name: Audit runtime dependencies
         run: |
-          pip install pip-audit==2.10.1
-          pip-audit -r requirements.txt --progress-spinner off
-          pip-audit -r requirements-provenance.lock --progress-spinner off
+          python -m venv "${RUNNER_TEMP}/aichat-pip-audit"
+          "${RUNNER_TEMP}/aichat-pip-audit/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: --require-hashes \
+            -r requirements-audit.lock
+          "${RUNNER_TEMP}/aichat-pip-audit/bin/pip-audit" \
+            -r requirements-audit.lock --progress-spinner off
+          "${RUNNER_TEMP}/aichat-pip-audit/bin/pip-audit" \
+            -r requirements-ci.lock --progress-spinner off
+          "${RUNNER_TEMP}/aichat-pip-audit/bin/pip-audit" \
+            -r requirements-provenance.lock --progress-spinner off
 
   frontend:
     runs-on: ubuntu-latest

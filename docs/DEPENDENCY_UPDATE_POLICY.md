@@ -51,6 +51,13 @@ Before merging any dependency update:
    run `pip-audit` on that lock and review its complete diff when changing it. A
    Dependabot PR that changes only a requirement pin is intentionally not
    merge-ready.
+   Backend CI installs only `requirements-ci.lock` with hashes and binary-only
+   resolution. That lock must contain the exact same 24 runtime artifact hashes,
+   the two direct test pins and only their three reviewed transitive packages;
+   regenerate and review it together with any runtime or test dependency change.
+   The auditor runs from a separate isolated `requirements-audit.lock`; its
+   `pip-audit` pin and complete transitive closure are hash-locked, package-set
+   checked before installation and audited alongside both backend tool locks.
 5. Run the full backend or frontend suite, the operational security tests,
    dependency audit and immutable-Action check. Frontend review must also run
    `npm audit signatures`: an invalid or missing registry signature fails the
