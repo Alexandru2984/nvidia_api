@@ -408,7 +408,10 @@ owner-scoped and auditable.
   idempotency keys, retry policy, dead-letter visibility, and reuse the shipped
   per-conversation lease as the execution fence.
 - Adopt ASGI-native streaming with reconnect/resume semantics and clear partial
-  response state.
+  response state. The current browser boundary is already centralized and
+  fail-closed: it validates SSE media type/framing/UTF-8/event shape, bounds
+  per-event and total bytes, rejects incomplete streams and restores optimistic
+  UI state on protocol or network failure.
 - Add OpenTelemetry metrics/traces with redaction, SLOs for request success and
   first-token latency, and capacity dashboards.
 - The separate-identity, no-network, aggregate-bounded document parser and local

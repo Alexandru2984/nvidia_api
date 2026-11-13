@@ -524,6 +524,17 @@ secret values are reproduced here.
   3/3-second rollback/restoration with zero automatic restarts. Origin/edge
   health passed, deployment emitted no config event and the monitor ended with
   empty active state.
+- 2026-11-14: commit `9e32800` replaces both browser chat-stream loops with one
+  content-type-checked, fatal-UTF-8, standards-compatible SSE parser. CRLF/CR/LF
+  and multiline data are accepted; malformed shape, missing terminal event,
+  network failure, events above 1 MiB and streams above 3 MiB fail through the
+  existing optimistic-state recovery rather than being skipped or buffered
+  silently. The unterminated-line scan remains linear. ESLint, build, all 60
+  browser scenarios and 177 operational tests passed. Signed frontend release
+  `release-20261113T234841_085377069` is active at the full commit after a
+  0/1-second rollback/restoration; backend PID/restart count did not change.
+  Origin/edge, security metadata and 320/1440 px Chromium checks passed, and the
+  monitor ended with empty active state.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

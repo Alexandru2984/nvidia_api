@@ -3462,6 +3462,34 @@ is required before describing those controls as complete.
   passed, deployment emitted no protected-configuration event, and the
   independent monitor completed successfully with empty active state.
 
+### Bounded browser event streams — 2026-11-14
+
+- Commit `9e32800` replaces two duplicated permissive browser SSE loops with one
+  fail-closed parser for chat and regeneration. The old client recognized only
+  `\n\n`, silently skipped malformed events, accepted any successful response
+  media type, retained an unterminated buffer without a byte ceiling and treated
+  EOF without a terminal event as success. A standard CRLF stream therefore lost
+  the response, while a same-origin failure could grow client memory or leave the
+  optimistic UI stuck.
+- The parser now requires `text/event-stream` and a response body, uses fatal
+  UTF-8 decoding, accepts CRLF/CR/LF and multiline `data`, requires JSON objects
+  with typed chunks, caps one event at 1 MiB and the complete stream at 3 MiB,
+  scans unterminated input linearly, cancels the reader on every exit and requires
+  an explicit `done` or `error`. Protocol, premature EOF and fetch failures all
+  reach the existing UI recovery path; user drafts/attachments are restored and
+  uncommitted optimistic messages are removed.
+- ESLint, the Vite production build, all 60 Playwright scenarios and 177
+  operational tests passed. Browser regressions prove CRLF completion, premature-
+  EOF cleanup and rejection of a 3 MiB payload without rendering it.
+- Signed frontend release
+  `/var/www/aichat-releases/release-20261113T234841_085377069` is active at exact
+  commit `9e328004d6eea68daaf9e18b819bfd4e32f69e17` with a 276-component
+  release-bound CycloneDX SBOM. Rollback to `8b01ec0` and exact restoration
+  completed in 0/1 seconds without changing backend PID `2553660` or
+  `NRestarts=0`. Local origin, Cloudflare edge, public security metadata and real
+  Chromium at 320/1440 px passed; deployment emitted no protected-config event
+  and the independent monitor ended with empty active state.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
