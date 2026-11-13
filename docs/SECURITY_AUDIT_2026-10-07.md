@@ -356,6 +356,19 @@ secret values are reproduced here.
   143 operational and 647 backend tests passed, and CI now matches production's
   Python 3.14 line. This is CI-only until an owner-authorized push and does not
   remove S-14's risk for unattested wheels or unverified GitHub branch settings.
+- 2026-11-13: commit `c65a411` removes the remaining unhashed backend CI
+  installations. The application/test lock contains the exact 24 production
+  artifacts plus two direct and three transitive test packages; the isolated
+  audit-tool lock contains the exact reviewed 28-wheel closure for
+  `pip-audit 2.10.1`. Both install only binary artifacts with
+  `--require-hashes`, and a pre-install structural gate rejects package-set,
+  ordering, syntax, reviewed tool-version or production-artifact drift. The
+  auditor checks its own lock plus the CI and provenance locks; all three report
+  zero known vulnerabilities. A fresh Python 3.14 environment passed `pip check`,
+  Django checks, all 647 backend tests, 146 operational regressions, five
+  immutable GitHub Action regressions, Bash syntax and ShellCheck. This changed
+  no production runtime or release pointer and becomes remote enforcement only
+  after an owner-authorized push.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

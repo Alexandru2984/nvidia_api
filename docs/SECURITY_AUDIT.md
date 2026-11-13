@@ -3121,6 +3121,26 @@ is required before describing those controls as complete.
   does not establish code safety and cannot provide provenance for the 12
   publishers that do not attest their selected artifacts.
 
+### Hash-locked backend CI environment — 2026-11-13
+
+- Commit `c65a411` removes the backend workflow's remaining unhashed Python
+  installs. Its application/test environment now contains exactly the 24
+  production wheel hashes, two direct test pins and three reviewed test
+  transitives in `requirements-ci.lock`; a structural gate rejects missing,
+  extra, reordered, malformed or production-divergent entries before install.
+- `pip-audit 2.10.1` and its complete 28-wheel closure now run from a separate
+  isolated `requirements-audit.lock`. CI fixes the expected package set and tool
+  version, installs only binary artifacts with `--require-hashes`, and audits the
+  auditor lock, application/test lock and provenance-verifier lock independently.
+  Regressions reject unexpected closure growth, tool-version drift and a return
+  to the prior direct `pip install pip-audit` path.
+- A fresh CPython 3.14 environment installed both new locks successfully;
+  `pip check` passed and all three audits reported zero known vulnerabilities.
+  Django checks, all 647 backend tests, 146 operational regressions, five
+  immutable-Action regressions, Bash syntax and ShellCheck passed. This stage is
+  CI-only: production code, data, services and release pointers were unchanged,
+  and GitHub enforcement starts only after an owner-authorized push.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

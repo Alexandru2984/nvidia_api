@@ -295,8 +295,12 @@ timed evidence.
   release provenance is shipped. Backend CI now uses a separately hash-locked
   PEP 740 verifier: 12/24 exact production wheels pass publisher identity,
   signature, transparency-log and digest validation, while the 12 that publish no
-  provenance stay explicitly unverified. Remaining supply-chain work is the
-  unattested npm/Python subset plus account-side required-review/CI evidence.
+  provenance stay explicitly unverified. The backend test environment is also
+  exact-wheel hash-locked and structurally constrained to the production
+  artifacts plus the reviewed pytest closure. `pip-audit` runs from its own
+  28-wheel hash-locked environment and audits itself plus both backend locks.
+  Remaining supply-chain work is the unattested npm/Python subset plus
+  account-side required-review/CI evidence.
 - **Private-history pagination and indexed search are shipped:** conversation
   cursors bind owner/folder/search, message cursors bind owner/conversation, and
   attachment cursors bind owner/type. All expire after 24 hours, have firm page
