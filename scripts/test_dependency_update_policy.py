@@ -52,6 +52,9 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             "commit-bound release",
             "npm audit signatures",
             "invalid or missing registry signature fails",
+            "PEP 740",
+            "requirements-provenance.lock",
+            "reviewed publisher identity",
         ):
             self.assertIn(required, self.policy)
 
@@ -62,6 +65,15 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             self.ci.index("npm audit --audit-level=low"),
             self.ci.index("npm audit signatures"),
         )
+
+    def test_backend_ci_uses_an_isolated_hash_locked_provenance_verifier(self) -> None:
+        for required in (
+            "requirements-provenance.lock",
+            "--only-binary=:all: --require-hashes",
+            "verify_python_provenance.py",
+            "python-provenance-policy.json",
+        ):
+            self.assertIn(required, self.ci)
 
 
 if __name__ == "__main__":

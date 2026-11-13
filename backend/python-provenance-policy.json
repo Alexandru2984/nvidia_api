@@ -1,0 +1,89 @@
+{
+  "packages": {
+    "asgiref": null,
+    "certifi": {
+      "environment": "release",
+      "kind": "GitHub",
+      "repository": "certifi/python-certifi",
+      "workflow": "release.yml"
+    },
+    "cffi": null,
+    "charset-normalizer": {
+      "environment": "pypi",
+      "kind": "GitHub",
+      "repository": "jawah/charset_normalizer",
+      "workflow": "cd.yml"
+    },
+    "cryptography": {
+      "environment": null,
+      "kind": "GitHub",
+      "repository": "pyca/cryptography",
+      "workflow": "pypi-publish.yml"
+    },
+    "django": null,
+    "django-cors-headers": {
+      "environment": "release",
+      "kind": "GitHub",
+      "repository": "adamchainz/django-cors-headers",
+      "workflow": "main.yml"
+    },
+    "django-ratelimit": null,
+    "djangorestframework": {
+      "environment": "pypi",
+      "kind": "GitHub",
+      "repository": "encode/django-rest-framework",
+      "workflow": "release.yml"
+    },
+    "gunicorn": null,
+    "idna": {
+      "environment": "pypi",
+      "kind": "GitHub",
+      "repository": "kjd/idna",
+      "workflow": "deploy.yml"
+    },
+    "lxml": null,
+    "packaging": {
+      "environment": "pypi",
+      "kind": "GitHub",
+      "repository": "pypa/packaging",
+      "workflow": "publish.yml"
+    },
+    "psycopg2-binary": null,
+    "pycparser": null,
+    "pyotp": null,
+    "pypdf": {
+      "environment": "pypi",
+      "kind": "GitHub",
+      "repository": "py-pdf/pypdf",
+      "workflow": "publish-to-pypi.yaml"
+    },
+    "python-docx": null,
+    "python-dotenv": {
+      "environment": "release",
+      "kind": "GitHub",
+      "repository": "theskumar/python-dotenv",
+      "workflow": "release.yml"
+    },
+    "qrcode": null,
+    "requests": {
+      "environment": "publish",
+      "kind": "GitHub",
+      "repository": "psf/requests",
+      "workflow": "publish.yml"
+    },
+    "sqlparse": null,
+    "typing-extensions": {
+      "environment": "publish",
+      "kind": "GitHub",
+      "repository": "python/typing_extensions",
+      "workflow": "publish.yml"
+    },
+    "urllib3": {
+      "environment": "publish",
+      "kind": "GitHub",
+      "repository": "urllib3/urllib3",
+      "workflow": "publish.yml"
+    }
+  },
+  "version": 1
+}

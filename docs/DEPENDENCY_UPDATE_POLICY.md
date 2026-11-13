@@ -37,15 +37,29 @@ Before merging any dependency update:
 4. For Python runtime changes, regenerate `requirements.lock` from the selected
    binary wheels, retain exactly one SHA-256 hash per exact runtime pin, run
    `scripts/check_requirements_lock.py`, regenerate/check the CycloneDX evidence,
-   and keep `requirements.txt` and the lock package sets identical. A Dependabot
-   PR that changes only a requirement pin is intentionally not merge-ready.
+   and keep `requirements.txt` and the lock package sets identical. Update the
+   PEP 740 policy only after reviewing the exact wheel's publisher repository,
+   workflow and associated PyPI environment metadata. A new, changed,
+   inconsistent or lost attestation is a supply-chain review event; it must not
+   be copied automatically from PyPI.
+   CI cryptographically verifies each reviewed repository/workflow identity,
+   transparency entry and exact artifact and separately rejects changed PyPI
+   publisher-environment metadata. It records packages that publish no provenance
+   without calling them verified. The
+   verifier itself runs in an isolated Python 3.14 environment installed only
+   from `requirements-provenance.lock`; regenerate every transitive wheel hash,
+   run `pip-audit` on that lock and review its complete diff when changing it. A
+   Dependabot PR that changes only a requirement pin is intentionally not
+   merge-ready.
 5. Run the full backend or frontend suite, the operational security tests,
    dependency audit and immutable-Action check. Frontend review must also run
    `npm audit signatures`: an invalid or missing registry signature fails the
    gate, and available publisher provenance attestations are retained as review
-   evidence without claiming that every package publishes one. Major framework/
-   runtime changes also require focused compatibility tests and an explicit
-   rollback note.
+   evidence without claiming that every package publishes one. Python review
+   must run `verify_python_provenance.py`; a digest, signature, transparency-log
+   or reviewed publisher identity mismatch fails the gate. Major framework/runtime
+   changes also require focused compatibility tests and an explicit rollback
+   note.
 6. Merge only after a human has reviewed the upstream evidence and green CI.
    Build a commit-bound release from the resulting merge commit; never deploy
    Dependabot's branch, an uncommitted lock repair or an unreviewed CI artifact.
