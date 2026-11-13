@@ -218,11 +218,14 @@ class ApplicationCredentialTests(unittest.TestCase):
         self.assertIn('read_database_config.py', restore)
         for target in (
             '/etc/aichat/application-credentials',
+            '/etc/clamav/clamd.conf',
+            '/etc/systemd/system/aichat-clamd.service',
+            '/etc/systemd/system/aichat-document-parser.service',
             '/usr/local/libexec/aichat-application-credential-check',
             '/usr/local/libexec/aichat-read-database-config',
         ):
             self.assertIn(f'PathChanged={target}\n', watcher)
-        self.assertEqual(watcher.count('PathChanged='), 30)
+        self.assertEqual(watcher.count('PathChanged='), 33)
 
 
 if __name__ == '__main__':

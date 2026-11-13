@@ -221,7 +221,7 @@ class IncidentControlDeploymentContractTests(unittest.TestCase):
             "PathChanged=/usr/local/sbin/aichat-incident-controls\n",
             watcher,
         )
-        self.assertEqual(watcher.count("PathChanged="), 30)
+        self.assertEqual(watcher.count("PathChanged="), 33)
 
 
 if __name__ == "__main__":

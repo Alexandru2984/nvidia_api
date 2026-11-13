@@ -492,6 +492,105 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][0], '/usr/bin/journalctl')
         self.assertIn('--unit=aichat-restore-drill.service', run.call_args.args[0])
 
+    def test_required_service_identities_are_checked_through_systemd(self):
+        completed = mock.Mock(
+            returncode=0,
+            stderr='',
+            stdout=(
+                'Id=aichat-backend.service\n'
+                'LoadState=loaded\n'
+                'ActiveState=active\n'
+                'SubState=running\n'
+                'MainPID=123\n'
+                'UID=992\n'
+                'GID=948\n'
+                'User=aichat\n'
+                'Group=aichat-origin\n'
+                'DynamicUser=no\n'
+            ),
+        )
+        with (
+            mock.patch.object(
+                monitor.pwd,
+                'getpwnam',
+                return_value=SimpleNamespace(pw_uid=992),
+            ),
+            mock.patch.object(
+                monitor.grp,
+                'getgrnam',
+                return_value=SimpleNamespace(gr_gid=948),
+            ),
+            mock.patch.object(monitor.subprocess, 'run', return_value=completed) as run,
+        ):
+            self.assertEqual(
+                monitor.evaluate_service_identities((
+                    ('aichat-backend.service', 'aichat', 'aichat-origin'),
+                )),
+                {},
+            )
+        self.assertEqual(run.call_args.args[0][0], '/usr/bin/systemctl')
+        self.assertIn('--property=UID', run.call_args.args[0])
+        self.assertEqual(
+            run.call_args.kwargs['env'],
+            {'LANG': 'C', 'PATH': '/usr/bin:/bin'},
+        )
+
+    def test_required_service_identity_drift_fails_closed(self):
+        baseline = (
+            'Id=aichat-backend.service\n'
+            'LoadState=loaded\n'
+            'ActiveState=active\n'
+            'SubState=running\n'
+            'MainPID=123\n'
+            'UID=992\n'
+            'GID=948\n'
+            'User=aichat\n'
+            'Group=aichat-origin\n'
+            'DynamicUser=no\n'
+        )
+        mutations = (
+            baseline.replace('MainPID=123', 'MainPID=0'),
+            baseline.replace('UID=992', 'UID=1000'),
+            baseline.replace('User=aichat', 'User=micu'),
+            baseline.replace('ActiveState=active', 'ActiveState=failed'),
+            baseline + 'UID=992\n',
+        )
+        with (
+            mock.patch.object(
+                monitor.pwd,
+                'getpwnam',
+                return_value=SimpleNamespace(pw_uid=992),
+            ),
+            mock.patch.object(
+                monitor.grp,
+                'getgrnam',
+                return_value=SimpleNamespace(gr_gid=948),
+            ),
+        ):
+            for output in mutations:
+                with self.subTest(output=output):
+                    completed = mock.Mock(returncode=0, stderr='', stdout=output)
+                    with mock.patch.object(
+                        monitor.subprocess,
+                        'run',
+                        return_value=completed,
+                    ):
+                        issues = monitor.evaluate_service_identities((
+                            ('aichat-backend.service', 'aichat', 'aichat-origin'),
+                        ))
+                    self.assertEqual(set(issues), {'service_identity'})
+
+            failed = mock.Mock(returncode=1, stderr='private diagnostic', stdout='')
+            with mock.patch.object(monitor.subprocess, 'run', return_value=failed):
+                issues = monitor.evaluate_service_identities((
+                    ('aichat-backend.service', 'aichat', 'aichat-origin'),
+                ))
+            self.assertEqual(set(issues), {'service_identity'})
+        self.assertEqual(
+            set(monitor.evaluate_service_identities((('malformed',),))),
+            {'service_identity'},
+        )
+
     def test_systemd_unit_uses_dedicated_identity_and_credential(self):
         unit = (
             Path(__file__).resolve().parents[1]
@@ -517,6 +616,12 @@ class SecurityMonitorTests(unittest.TestCase):
         self.assertIn('PathChanged=/home/micu/nvidia/backend\n', path_unit)
         self.assertIn('PathChanged=/home/micu/nvidia/backend/.env\n', path_unit)
         self.assertIn('PathChanged=/etc/nginx/sites-available/aichat.micutu.com\n', path_unit)
+        self.assertIn(
+            'PathChanged=/etc/systemd/system/aichat-document-parser.service\n',
+            path_unit,
+        )
+        self.assertIn('PathChanged=/etc/systemd/system/aichat-clamd.service\n', path_unit)
+        self.assertIn('PathChanged=/etc/clamav/clamd.conf\n', path_unit)
         self.assertIn('PathChanged=/etc/aichat/model-status-private.pem\n', path_unit)
         self.assertIn('PathChanged=/etc/aichat/model-status-public.pem\n', path_unit)
         self.assertIn(

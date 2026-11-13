@@ -54,6 +54,12 @@ PARSER_REQUEST = struct.Struct('!4sBII')
 PARSER_RESPONSE = struct.Struct('!4sBI')
 JOURNALCTL_PATH = '/usr/bin/journalctl'
 GETFACL_PATH = '/usr/bin/getfacl'
+SYSTEMCTL_PATH = '/usr/bin/systemctl'
+REQUIRED_SERVICE_IDENTITIES = (
+    ('aichat-backend.service', 'aichat', 'aichat-origin'),
+    ('aichat-document-parser.service', 'aichat-parser', 'aichat-parser'),
+    ('aichat-clamd.service', 'clamav', 'clamav'),
+)
 MODEL_STATUS_CHECK_RELATIVE = 'check_model_status.py'
 MODEL_STATUS_CHECK_TIMEOUT_SECONDS = 15
 RELEASE_PROVENANCE_CHECK_PATH = Path('/usr/local/libexec/aichat-release-provenance')
@@ -645,6 +651,90 @@ def read_journal():
     return result.stdout
 
 
+def evaluate_service_identities(
+    specifications,
+    *,
+    systemctl_path=SYSTEMCTL_PATH,
+):
+    """Require persistent application services to run under reviewed identities."""
+    issue = {
+        'service_identity': (
+            'A required AI Chat Hub service is absent, stopped or running under '
+            'an unexpected identity.'
+        ),
+    }
+    properties = (
+        'Id',
+        'LoadState',
+        'ActiveState',
+        'SubState',
+        'MainPID',
+        'User',
+        'Group',
+        'DynamicUser',
+        'UID',
+        'GID',
+    )
+    if not specifications:
+        return issue
+    for specification in specifications:
+        if not isinstance(specification, (list, tuple)) or len(specification) != 3:
+            return issue
+        unit, user, group = specification
+        if (
+            not all(isinstance(value, str) for value in specification)
+            or re.fullmatch(r'aichat-[a-z0-9-]+\.service', unit) is None
+            or re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', user) is None
+            or re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', group) is None
+        ):
+            return issue
+        try:
+            expected_uid = pwd.getpwnam(user).pw_uid
+            expected_gid = grp.getgrnam(group).gr_gid
+            result = subprocess.run(
+                [
+                    os.fspath(systemctl_path),
+                    'show',
+                    unit,
+                    *(f'--property={name}' for name in properties),
+                    '--no-pager',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                env={'LANG': 'C', 'PATH': '/usr/bin:/bin'},
+            )
+        except (KeyError, OSError, subprocess.SubprocessError):
+            return issue
+        if result.returncode or result.stderr.strip():
+            return issue
+        observed = {}
+        for line in result.stdout.splitlines():
+            key, separator, value = line.partition('=')
+            if separator != '=' or key not in properties or key in observed:
+                return issue
+            observed[key] = value
+        expected = {
+            'Id': unit,
+            'LoadState': 'loaded',
+            'ActiveState': 'active',
+            'SubState': 'running',
+            'User': user,
+            'Group': group,
+            'DynamicUser': 'no',
+            'UID': str(expected_uid),
+            'GID': str(expected_gid),
+        }
+        if (
+            set(observed) != set(properties)
+            or any(observed.get(key) != value for key, value in expected.items())
+            or re.fullmatch(r'[1-9][0-9]*', observed.get('MainPID', '')) is None
+        ):
+            return issue
+    return {}
+
+
 def evaluate(
     backup_dir,
     restore_log,
@@ -676,6 +766,7 @@ def evaluate(
     backup_expected_uid=None,
     backup_expected_gid=None,
     backup_monitor_uid=None,
+    service_identities=None,
     require_release_provenance=False,
     release_provenance_checker=RELEASE_PROVENANCE_CHECK_PATH,
 ):
@@ -683,6 +774,9 @@ def evaluate(
     issues = {}
     backup_dir = Path(backup_dir)
     restore_log = Path(restore_log)
+
+    if service_identities is not None:
+        issues.update(evaluate_service_identities(service_identities))
 
     if scanner_database_dir is not None:
         issues.update(evaluate_clamav_database(scanner_database_dir, now))
@@ -1306,6 +1400,7 @@ def main():
             backup_expected_uid=pwd.getpwnam('micu').pw_uid,
             backup_expected_gid=pwd.getpwnam('micu').pw_gid,
             backup_monitor_uid=pwd.getpwnam('aichat-monitor').pw_uid,
+            service_identities=REQUIRED_SERVICE_IDENTITIES,
             require_release_provenance=True,
         )
         if args.dry_run:
