@@ -65,9 +65,18 @@ Before merging any dependency update:
    resolver so it cannot bootstrap unreviewed `pip`, wheel or setuptools code.
 5. Run the full backend or frontend suite, the operational security tests,
    dependency audit and immutable-Action check. Frontend review must also run
-   `npm audit signatures`: an invalid or missing registry signature fails the
-   gate, and available publisher provenance attestations are retained as review
-   evidence without claiming that every package publishes one. Python review
+   `npm audit signatures --json --include-attestations` through
+   `verify_npm_provenance.py`: an invalid or missing registry signature fails
+   the gate. Every installed artifact for which npm reports provenance must
+   exactly match `npm-provenance-policy.tsv`, including its lock path, package
+   version and SHA-512, publisher repository/workflow/ref, its repository and owner IDs,
+   GitHub event and source commit. A new, lost or changed attestation triggers review.
+   It must not be copied automatically from npm; inspect the signed statement and the
+   upstream release before updating the reviewed baseline. The one retained
+   SLSA v0.2 statement is restricted to its exact reviewed nested lock path;
+   all other reviewed statements must use SLSA v1. Lock entries outside the
+   installed Ubuntu CI tree are reported separately and are not called
+   attested. Python review
    must run `verify_python_provenance.py`; a digest, signature, transparency-log
    or reviewed publisher identity mismatch fails the gate. Major framework/runtime
    changes also require focused compatibility tests and an explicit rollback

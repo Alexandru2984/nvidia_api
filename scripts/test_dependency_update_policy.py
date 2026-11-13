@@ -67,12 +67,20 @@ class DependencyUpdatePolicyTests(unittest.TestCase):
             "Frontend changes must regenerate",
             "selected SHA-512 integrity",
             "new license identifier fails closed",
+            "npm-provenance-policy.tsv",
+            "repository and owner IDs",
+            "source commit",
+            "must not be copied automatically from npm",
+            "SLSA v0.2",
         ):
             self.assertIn(required, self.policy)
 
     def test_frontend_ci_verifies_vulnerabilities_and_registry_signatures(self) -> None:
         self.assertEqual(self.ci.count("npm audit --audit-level=low"), 1)
         self.assertEqual(self.ci.count("npm audit signatures"), 1)
+        self.assertEqual(self.ci.count("verify_npm_provenance.py"), 1)
+        self.assertEqual(self.ci.count("npm-provenance-policy.tsv"), 1)
+        self.assertIn("--json --include-attestations", self.ci)
         self.assertLess(
             self.ci.index("npm audit --audit-level=low"),
             self.ci.index("npm audit signatures"),

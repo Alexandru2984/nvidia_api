@@ -110,6 +110,7 @@ jobs:
           python ../scripts/test_ci_requirements_lock.py
           python ../scripts/test_ci_trust_boundary.py
           python ../scripts/test_generate_frontend_sbom.py
+          python ../scripts/test_npm_provenance.py
           python ../scripts/generate_python_sbom.py requirements.lock \
             --commit "$GITHUB_SHA" --output /tmp/aichat-python.cdx.json
           python ../scripts/generate_python_sbom.py requirements.lock \
@@ -139,7 +140,10 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=low
       - name: Verify registry signatures and provenance
-        run: npm audit signatures
+        run: |
+          npm audit signatures --json --include-attestations |
+            python3 ../scripts/verify_npm_provenance.py \
+              package-lock.json npm-provenance-policy.tsv
       - name: Lint
         run: npm run lint
       - name: Build

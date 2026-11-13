@@ -73,6 +73,15 @@ class CiTrustBoundaryTests(unittest.TestCase):
         self.assertLess(vulnerability_audit, signature_audit)
         self.assertLess(signature_audit, lint)
 
+    def test_npm_provenance_is_pinned_not_merely_reported(self):
+        for required in (
+            "npm audit signatures --json --include-attestations",
+            "verify_npm_provenance.py",
+            "npm-provenance-policy.tsv",
+        ):
+            self.assertIn(required, self.workflow)
+        self.assertNotIn("run: npm audit signatures\n", self.workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
