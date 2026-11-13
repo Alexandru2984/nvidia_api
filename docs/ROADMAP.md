@@ -307,6 +307,11 @@ timed evidence.
   code execution. pip-audit consumes the three complete locks without invoking a
   resolver or bootstrapping unreviewed packaging tools; job policy independently
   enforces hashes/binary wheels and script-free npm installation.
+  Frontend builds now embed an exact CycloneDX 1.7 inventory of all 276 npm lock
+  inputs, including SHA-512 integrity, PackageURLs and reviewed SPDX identifiers;
+  deploy verifies its commit/tree/lock binding before the signed manifest covers
+  it. The active release passed production rollback, while its retained signed
+  rollback target remains the final explicitly transitional pre-SBOM artifact.
   Remaining supply-chain work is the unattested npm/Python subset plus
   account-side required-review/CI evidence.
 - **Private-history pagination and indexed search are shipped:** conversation

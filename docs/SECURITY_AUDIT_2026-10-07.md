@@ -397,6 +397,23 @@ secret values are reproduced here.
   External advisory/signature availability now fails CI closed. The reviewed
   auditor lock remains a bootstrap trust boundary; this CI-only stage made no
   production change and requires an authorized push for remote enforcement.
+- 2026-11-13: commit `8b01ec0` adds an exact deterministic CycloneDX 1.7 SBOM
+  for all 276 npm lock inputs. Every component binds its lock path, PackageURL,
+  SHA-512 artifact integrity, build classification and one of eight reviewed SPDX
+  identifiers; duplicate keys, off-registry URLs, malformed hashes, path/name or
+  license drift fail closed. Build, CI and deploy verify commit/tree/lock identity
+  before the root Ed25519 manifest covers the SBOM. The official schema and
+  packageurl-python accepted the active artifact. All 160 operational and five
+  Action-pin regressions, Bash, ShellCheck, lint, build and all 57 browser tests
+  passed; npm remained at zero advisories with 251 valid signatures and 58
+  attestations. Signed release `release-20261113T134403_297019707` is active;
+  the 329,840-byte root-owned SBOM is web-blocked with 403, 14 origin/edge probes
+  passed, and a live rollback/restoration completed in 0/0 seconds without a
+  backend PID/restart change. The monitor finished successfully. One older
+  release was moved to the private recoverable archive by normal retention. The
+  retained immediate rollback is an explicitly accepted signed pre-SBOM release;
+  the SBOM inventories all cross-platform/dev/optional lock inputs rather than
+  claiming all 276 execute in browsers.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

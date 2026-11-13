@@ -3193,6 +3193,41 @@ is required before describing those controls as complete.
   only future CI behavior and no production code, release, process, data or
   service. Remote enforcement still requires an owner-authorized push.
 
+### Signed frontend CycloneDX SBOM rollout — 2026-11-13
+
+- Commit `8b01ec0` adds a deterministic CycloneDX 1.7 generator and exact
+  verifier for the npm lock. The current inventory contains all 276 locked build
+  inputs, each with package path, PackageURL, exact SHA-512 artifact integrity,
+  development/optional/peer classification and one of eight explicitly reviewed
+  SPDX identifiers. Duplicate JSON keys, non-v3/oversized locks, malformed or
+  off-registry URLs, missing hashes, path/name drift and new licenses fail closed.
+- Every frontend build generates and immediately re-verifies
+  `.release-sbom.cdx.json` against its exact commit, frontend Git tree and
+  `package-lock.json` SHA-256. CI repeats the check. Deployment semantically
+  verifies the SBOM before staging; the root-authorized Ed25519 manifest then
+  hash-covers it with every served byte. The official CycloneDX 1.7 JSON schema
+  and packageurl-python accepted all 276 active-release components/references.
+- All 160 operational regressions, five immutable-Action regressions, Bash
+  syntax, ShellCheck, ESLint, the production build, zero-advisory/signature
+  checks and all 57 responsive browser tests passed. The production preflight
+  correctly accepted the signed prior release as transitional without weakening
+  the new-release requirement.
+- Signed release
+  `/var/www/aichat-releases/release-20261113T134403_297019707` is active at exact
+  commit `8b01ec0b966716675785f79ad9853c376b8939d5`. The 329,840-byte SBOM is
+  root-owned mode `0644`, present in the signed manifest and blocked from both
+  origin and Cloudflare access with 403. Seven origin and seven edge probes
+  passed. Live rollback to the retained pre-SBOM release and exact restoration
+  completed in 0/0 seconds without changing backend PID `1801129` or its zero
+  restart count; the monitor ended with success/status zero and its timer remains
+  active. Retention archived one older release under the private NVIDIA release
+  archive rather than deleting its evidence.
+- This is an inventory of the complete cross-platform lock, including build,
+  development and optional inputs; it does not claim that all 276 packages ship
+  as browser modules. The immediate rollback release predates embedded SBOMs but
+  remains signed and validated under the explicit transition path. A subsequent
+  signed rollout will make both active and immediate rollback targets SBOM-aware.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
@@ -3272,6 +3307,7 @@ remain open.
 - [NVIDIA Nemotron 3.5 Lightning model card](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard)
 - [NVIDIA GLM 5.3 Flash model card](https://build.nvidia.com/z-ai/glm-5.3-flash/modelcard)
 - [CycloneDX specification overview](https://cyclonedx.org/specification/overview/)
+- [CycloneDX 1.7 JSON schema](https://cyclonedx.org/schema/bom-1.7.schema.json)
 - [certifi compromised-intermediate advisory](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)
 - [launch-editor argument-escaping advisory](https://github.com/advisories/GHSA-698v-4r3x-3vcv)
 - [Vite 8.3.4 release](https://github.com/vitejs/vite/releases/tag/v8.3.4)
