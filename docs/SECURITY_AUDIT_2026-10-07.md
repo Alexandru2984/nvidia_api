@@ -545,6 +545,21 @@ secret values are reproduced here.
   the exact commit after a 4/6-second rollback/restoration with zero automatic
   restarts. Origin/edge health passed, no config event appeared and the monitor
   ended with empty active state.
+- 2026-11-14: commit `3474fc1` closes stale trust in the signed model-state cache.
+  Four regressions against the previous committed code reproduced timestamp-
+  preserving in-place/atomic tampering, an oversized cache replacement and
+  ambiguous signed JSON. Cache identity now includes inode, ctime and size;
+  descriptor-bound nonblocking/no-follow reads validate regular type, metadata
+  and bounded size, and status decoding uses canonical JSON. The shared decoder
+  now explicitly limits nesting to 64 rather than depending on interpreter
+  recursion settings. All 721 backend and 177 operational tests plus Django,
+  migration, compile and shell checks passed. Signed release
+  `release-20261114T190054_420171891` is active at the full commit after a
+  2/3-second rollback/restoration with zero automatic restarts. The independent
+  checker accepted the real signed `degraded` state; origin/edge health passed;
+  no protected-config event or Telegram notification occurred; the monitor ended
+  with empty state. This does not remove the signing-identity compromise risk.
+  The commit is local; no push was performed in this stage.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

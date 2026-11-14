@@ -3509,6 +3509,45 @@ is required before describing those controls as complete.
   PID `2594591` has `NRestarts=0`, deployment emitted no protected-config event
   and the independent monitor ended with empty active state.
 
+### Signed model-state snapshot boundary — 2026-11-14
+
+- Commit `3474fc1` closes a verified-cache invalidation defect: the status cache
+  previously identified content only by path and `mtime`. A same-length edit or
+  atomic replacement preserving the timestamp could keep the old verified
+  availability decision cached without checking the replacement's signature.
+  An oversized replacement with the same timestamp could also return the cached
+  pre-validation data. These are stale-trust defects, not a way to forge Ed25519.
+  Four regressions executed against the committed baseline reproduce both edit
+  forms, the oversized replacement and signed JSON with duplicate keys.
+- Cache identity now includes device, inode, `mtime`, `ctime` and size. Status
+  and signing/public-key reads open with `O_NOFOLLOW`, `O_NONBLOCK` and
+  `O_CLOEXEC`; validate the actual descriptor's regular-file type, permissions
+  and size; read at most limit-plus-one bytes; and reject metadata changes
+  during the read. A status replacement racing the initial `lstat`, including
+  symlink, FIFO, oversized or wrong-mode content, fails closed. Cache-key creation
+  no longer resolves untrusted symlinks, so a symlink cycle is rejected normally.
+- Model state now uses the canonical JSON decoder before signature/schema
+  validation. The shared decoder also enforces an explicit depth ceiling of 64
+  across status, inbound API and NVIDIA response JSON, independently of the
+  interpreter recursion limit. Duplicate keys, non-finite values, invalid Unicode,
+  excessive nodes and depth are rejected without exposing input in logs.
+- All 721 backend and 177 operational tests, Django checks, migration-drift
+  check, Python compilation, Bash, ShellCheck and whitespace checks passed. The
+  28 added regressions cover cache tampering, signed duplicate fields, canonical
+  JSON failures, raced status replacements, unsafe keys, symlink cycles and exact
+  JSON depth boundaries.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261114T190054_420171891` is active at
+  exact commit `3474fc164cbd65c1c3b157d695a1c91c8ddc6706`. Rollback to
+  `86c49ee` and restoration completed in 2/3 seconds; the restored PID `2128081`
+  has `NRestarts=0`. The credential-free checker accepted the actual signed state
+  as `degraded` before and after the drill, without starting a provider probe.
+  Origin/Cloudflare health passed, the protected-config watcher emitted no event,
+  and the monitor returned success with empty active state and no new Telegram
+  notification or recovery timestamp. The frontend release was unchanged.
+- Delivery is local only: the implementation commit advanced local `main` while
+  `origin/main` remained `d137c50`. No push is part of this stage.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

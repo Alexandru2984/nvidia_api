@@ -87,6 +87,10 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   cannot amplify an upstream failure into an unbounded request loop.
   Every client JSON endpoint now uses the same canonical UTF-8, unique-key,
   finite-number, valid-Unicode and decoded-node boundary before endpoint logic;
+  nesting is explicitly capped at 64 levels across API, provider and signed
+  model-state JSON. Model-state caching additionally binds device/inode/ctime/
+  mtime/size and validates bounded descriptor reads, so timestamp-preserving
+  replacements, symlink/FIFO races and ambiguous signed state fail closed;
   multipart attachment parsing remains isolated under its own byte/file limits.
   JSON is capped at 64 KiB in both nginx and the application parser, with bounded
   overflow reading; only the exact attachment-upload route retains the 12 MiB
