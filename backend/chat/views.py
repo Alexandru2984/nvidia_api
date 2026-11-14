@@ -1984,7 +1984,7 @@ def upload_attachment(request):
         User.objects.select_for_update().get(pk=request.user.pk)
         attempt = None
         if attempt_id is not None:
-            attempt = AttachmentUploadAttempt.objects.select_for_update().select_related(
+            attempt = AttachmentUploadAttempt.objects.select_for_update(of=('self',)).select_related(
                 'attachment',
             ).get(pk=attempt_id, user=request.user)
             attempt_response = _attempt_state_response(attempt)
@@ -2036,7 +2036,7 @@ def upload_attachment(request):
             User.objects.select_for_update().get(pk=request.user.pk)
             attempt = None
             if attempt_id is not None:
-                attempt = AttachmentUploadAttempt.objects.select_for_update().select_related(
+                attempt = AttachmentUploadAttempt.objects.select_for_update(of=('self',)).select_related(
                     'attachment',
                 ).get(pk=attempt_id, user=request.user)
                 attempt_response = _attempt_state_response(attempt)
@@ -2140,10 +2140,19 @@ def attachment_preview(request, pk):
 
 @api_view(['DELETE'])
 def delete_attachment(request, pk):
-    att = get_object_or_404(Attachment, pk=pk, user=request.user)
-    if att.message_id is not None:
-        return Response({'error': 'Cannot delete an attachment already linked to a message.'}, status=409)
-    att.delete()
+    with transaction.atomic():
+        # Match upload/claim/cancel ordering. Re-read the attachment only after
+        # the owner lock so a concurrent claim cannot invalidate this check.
+        get_object_or_404(
+            get_user_model().objects.select_for_update().only('pk'),
+            pk=request.user.pk,
+        )
+        att = get_object_or_404(
+            Attachment.objects.select_for_update(), pk=pk, user=request.user,
+        )
+        if att.message_id is not None:
+            return Response({'error': 'Cannot delete an attachment already linked to a message.'}, status=409)
+        att.delete()
     return Response(status=204)
 
 

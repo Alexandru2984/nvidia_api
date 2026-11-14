@@ -52,7 +52,7 @@ class Command(BaseCommand):
 
         att_qs = Attachment.objects.filter(message__isnull=True, created_at__lt=cutoff)
         att_count = att_qs.count()
-        att_bytes = sum(att_qs.values_list('size', flat=True))
+        att_bytes = att_qs.aggregate(total=models.Sum('size'))['total'] or 0
 
         # OTPs expire on their own `expires_at`; once past that they're useless
         # and just leak metadata (which emails recently registered, etc).
@@ -233,8 +233,29 @@ class Command(BaseCommand):
             else:
                 file_deletion_failures += 1
 
-        for att in att_qs:
-            att.delete()
+        deleted_attachments = 0
+        deleted_attachment_bytes = 0
+        User = get_user_model()
+        for candidate in att_qs.only('pk', 'user_id').iterator(chunk_size=100):
+            with transaction.atomic():
+                owner = User.objects.select_for_update().only('pk').filter(
+                    pk=candidate.user_id,
+                ).first()
+                if owner is None:
+                    continue
+                # The scan is only a candidate list. A message may have claimed
+                # the file while cleanup waited for this account's lock.
+                attachment = Attachment.objects.select_for_update().filter(
+                    pk=candidate.pk,
+                    user_id=owner.pk,
+                    message__isnull=True,
+                    created_at__lt=cutoff,
+                ).first()
+                if attachment is None:
+                    continue
+                deleted_attachment_bytes += attachment.size
+                attachment.delete()
+                deleted_attachments += 1
         ev_qs.delete()
         pr_qs.delete()
         invite_qs.delete()
@@ -402,7 +423,7 @@ class Command(BaseCommand):
                 )
 
         self.stdout.write(self.style.SUCCESS(
-            f'Deleted {att_count} orphan attachments ({att_bytes / 1024 / 1024:.1f} MB), '
+            f'Deleted {deleted_attachments} orphan attachments ({deleted_attachment_bytes / 1024 / 1024:.1f} MB), '
             f'{ev_count} expired email verifications, {pr_count} expired password resets, '
             f'{invite_count} expired invitation audit rows, {admin_audit_count} expired admin '
             f'audit events, {admin_log_count} expired admin log entries, '

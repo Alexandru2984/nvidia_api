@@ -38,6 +38,9 @@ def _wait_for_lock_or_completion(future):
         if future.done():
             return False
         with connection.cursor() as cursor:
+            # Some callers deliberately hold a transaction while polling.
+            # PostgreSQL caches statistics snapshots until transaction end.
+            cursor.execute('SELECT pg_stat_clear_snapshot()')
             cursor.execute(
                 "SELECT count(*) FROM pg_stat_activity "
                 "WHERE datname = current_database() AND pid <> pg_backend_pid() "

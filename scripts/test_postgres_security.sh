@@ -72,12 +72,16 @@ sys.modules[test_settings.__name__] = test_settings
 import pytest
 
 raise SystemExit(pytest.main([
-    '--ds=' + test_settings.__name__, '-q',
+    '--ds=' + test_settings.__name__, '-q', '--show-capture=no',
     'chat/tests/test_security_concurrency.py',
+    'chat/tests/test_attachment_concurrency.py',
     'chat/tests/test_security_transactions.py',
     'chat/tests/test_twofactor.py',
     'chat/tests/test_recent_auth.py',
     'chat/tests/test_password_hashing.py',
     'chat/tests/test_account_deletion.py',
+    'chat/tests/test_attachments.py',
+    'chat/tests/test_cleanup.py',
+    'chat/tests/test_file_deletions.py',
 ]))
 PY
