@@ -72,7 +72,9 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   reread after locking, stale/inactive credentials fail closed, and deletion
   keeps the established global-gate -> account lock order. A disposable
   PostgreSQL test runner verifies real concurrency rather than relying on
-  SQLite's no-op row-lock behavior; CI is configured to run that gate.
+  SQLite's no-op row-lock behavior; it now runs the entire backend collection,
+  with all 746 current tests passing on PostgreSQL in addition to the SQLite
+  suite. CI is configured to run that complete gate after dependency validation.
 - **Detection:** structured privacy-minimized events and five-minute alerts now
   cover auth bursts, throttles, successful admin access, 2FA disable, global AI
   budget exhaustion, missing/malformed provider usage, token reservation

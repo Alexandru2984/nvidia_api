@@ -68,6 +68,15 @@ Deliverables:
 Exit gate: plan committed; current production health and recovery evidence are
 known; no production mutation in this wave.
 
+Baseline follow-up — 2026-11-14: `61e363d` expands the disposable PostgreSQL gate
+to all backend tests, with 746 passing and no skips. The normal SQLite suite
+passes 742 with four explicit PostgreSQL-only concurrency skips; all 177
+operational checks pass. Test teardown now follows the Django client lifecycle
+and socket fixtures establish their exact modes independently of umask. The
+production PID/release, zero restart count, healthy origin/edge and empty monitor
+state were unchanged; no runtime mutation or push occurred. This strengthens
+the baseline without claiming completion of any remaining P0 operational gate.
+
 ## Wave 1 — browser integrity and immutable frontend (P0)
 
 Repository work:

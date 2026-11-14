@@ -3642,6 +3642,41 @@ is required before describing those controls as complete.
   `release-20261113T235132_034990020` into the private recoverable release archive.
   No push occurred in this stage.
 
+### Complete PostgreSQL backend verification — 2026-11-14
+
+- Commit `61e363d` expands the disposable PostgreSQL runner from selected groups
+  to the entire `chat/tests` collection. CI retains its dependency/advisory/
+  provenance gates and ordinary SQLite run, then executes the complete backend
+  suite on a private PostgreSQL cluster. No test is selected away, ignored or
+  newly marked to skip in order to pass the PostgreSQL gate.
+- The initial complete run reported 728 passes and 18 failures. Investigation
+  traced those failures to test-lifecycle portability rather than establishing
+  18 application vulnerabilities. Manual streaming-response closes fired
+  `request_finished` while pytest's outer transaction still needed its database
+  connection; SQLite's in-memory close behavior had concealed that problem.
+  A test-only helper now closes Django's iterator wrapper in the correct order,
+  temporarily disconnecting the same connection-cleanup receiver that Django's
+  own test client disconnects. Application resource closers and other request-
+  finished receivers still run, so partial-response persistence, idempotency,
+  quota reconciliation and lease release remain asserted against the real
+  database. Socket fixtures explicitly chmod their required directory instead
+  of depending on the caller's umask.
+- A first teardown correction left six partial-stream cases failing because
+  the nested client wrapper reconnected the receiver before a second completion
+  signal. Closing the wrapper first and avoiding duplicate response closure
+  resolved them. The final complete PostgreSQL 18 run passed all 746 tests in
+  56.47 seconds, with no skips. The ordinary SQLite suite passed 742 tests with
+  four explicit PostgreSQL-only concurrency skips. All 177 operational tests,
+  Django/schema checks, compilation, Bash, ShellCheck and whitespace checks passed.
+- This is test/CI-only work. No production code, credentials, files or schema
+  were changed and no deployment/rollback was needed. Production remains on
+  exact backend commit `952759347b7c4029ec4d2924c5495cafc73f3f2a`, PID `2229750`
+  with `NRestarts=0`; fresh origin/Cloudflare health passed, monitor state was
+  empty and no new notification timestamp appeared. Every disposable cluster
+  was stopped and removed. The new gate remains local until an owner-authorized
+  push; no push occurred. Passing both database suites strengthens regression
+  evidence but does not close the remaining operational/owner audit gates.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

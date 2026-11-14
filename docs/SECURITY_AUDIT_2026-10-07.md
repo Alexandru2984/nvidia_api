@@ -592,6 +592,19 @@ secret values are reproduced here.
   restarts. Origin/edge and monitor checks passed, no watcher event/notification
   occurred, and no live file mutation or purge was used for testing. The expanded
   PostgreSQL CI gate remains local until an authorized push; none was performed.
+- 2026-11-14: commit `61e363d` extends the private PostgreSQL gate to the complete
+  backend collection. Its first run exposed 18 test-lifecycle/umask failures,
+  not 18 proven production vulnerabilities. Manual streaming teardown now
+  follows Django's test-client wrapper order while retaining real application
+  resource closers and other completion receivers; socket fixtures explicitly
+  establish the directory mode they validate. No tests were filtered away or
+  newly skipped to pass. All 746 PostgreSQL 18 tests passed without skips, plus
+  742 SQLite tests with four existing PostgreSQL-only skips and all 177
+  operational checks. Django/schema/compile/shell checks passed. This is local
+  test/CI-only work: no runtime rollout or production data mutation occurred.
+  Backend commit `9527593`, PID `2229750` and zero restarts were unchanged;
+  origin/edge health and the empty monitor state passed with no notification.
+  Disposable clusters were stopped/removed, and no push was performed.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
