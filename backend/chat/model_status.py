@@ -30,6 +30,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from .json_boundary import StrictJSONError, strict_json_loads
+
 MAX_STATUS_FILE_BYTES = 512 * 1024
 MAX_PROBE_LATENCY_MS = 120_000
 MAX_INCONCLUSIVE_STREAK = 100
@@ -70,11 +72,32 @@ def _fail_closed_status(state='invalid', checked_at=None) -> dict:
 
 _cache = {
     'path': None,
-    'mtime_ns': None,
+    'file_marker': None,
     'key_marker': None,
     'data': {},
     'reported_problem': None,
 }
+
+
+class StatusFileError(ValueError):
+    """A runtime status file violated its local filesystem boundary."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _file_marker(info):
+    return (
+        info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size,
+    )
+
+
+def _open_readonly(path):
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
+    if hasattr(os, 'O_NOFOLLOW'):
+        flags |= os.O_NOFOLLOW
+    return os.open(path, flags)
 
 
 def _report_problem_once(path_key, marker, reason):
@@ -93,12 +116,18 @@ def _canonical_status(value):
 
 def _load_regular_key(path, *, private=False):
     path = Path(path)
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
-        raise ValueError('key is not a regular file')
-    if not 1 <= info.st_size <= 4096 or stat.S_IMODE(info.st_mode) & 0o022:
+    descriptor = _open_readonly(path)
+    with os.fdopen(descriptor, 'rb') as key_file:
+        info = os.fstat(key_file.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError('key is not a regular file')
+        if not 1 <= info.st_size <= 4096 or stat.S_IMODE(info.st_mode) & 0o022:
+            raise ValueError('key permissions or size are unsafe')
+        data = key_file.read(4097)
+        if _file_marker(os.fstat(key_file.fileno())) != _file_marker(info):
+            raise ValueError('key changed while reading')
+    if not 1 <= len(data) <= 4096:
         raise ValueError('key permissions or size are unsafe')
-    data = path.read_bytes()
     loader = (
         serialization.load_pem_private_key
         if private else serialization.load_pem_public_key
@@ -107,7 +136,7 @@ def _load_regular_key(path, *, private=False):
     expected = Ed25519PrivateKey if private else Ed25519PublicKey
     if not isinstance(key, expected):
         raise ValueError('key is not Ed25519')
-    return key, (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+    return key, _file_marker(info)
 
 
 def _public_key():
@@ -164,6 +193,24 @@ def _status_permissions_are_valid(info):
         and info.st_gid == group
         and stat.S_IMODE(info.st_mode) == expected_mode
     )
+
+
+def _read_status_file(path):
+    descriptor = _open_readonly(path)
+    with os.fdopen(descriptor, 'rb') as status_file:
+        info = os.fstat(status_file.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise StatusFileError('not_regular')
+        if not _status_permissions_are_valid(info):
+            raise StatusFileError('permissions')
+        if info.st_size > MAX_STATUS_FILE_BYTES:
+            raise StatusFileError('oversized')
+        raw = status_file.read(MAX_STATUS_FILE_BYTES + 1)
+        if _file_marker(os.fstat(status_file.fileno())) != _file_marker(info):
+            raise StatusFileError('changed')
+    if len(raw) > MAX_STATUS_FILE_BYTES:
+        raise StatusFileError('oversized')
+    return strict_json_loads(raw), _file_marker(info)
 
 
 def _runtime_status(value, *, path_key, marker, now=None):
@@ -275,7 +322,8 @@ def _validated_status(value) -> dict:
 
 def get_status() -> dict:
     path = _status_file()
-    path_key = str(path.resolve())
+    # Do not follow an untrusted status symlink even to construct a cache key.
+    path_key = str(path.absolute())
     try:
         file_info = path.lstat()
     except FileNotFoundError:
@@ -299,11 +347,12 @@ def get_status() -> dict:
     if not _status_permissions_are_valid(file_info):
         _report_problem_once(path_key, file_info.st_mtime_ns, 'permissions')
         return _fail_closed_status()
+    file_marker = _file_marker(file_info)
     if file_info.st_size > MAX_STATUS_FILE_BYTES:
-        if _cache['path'] != path_key or _cache['mtime_ns'] != file_info.st_mtime_ns:
+        if _cache['path'] != path_key or _cache['file_marker'] != file_marker:
             security_log.error('event=model_status_invalid reason=oversized')
             _cache['path'] = path_key
-            _cache['mtime_ns'] = file_info.st_mtime_ns
+            _cache['file_marker'] = file_marker
             _cache['data'] = _fail_closed_status()
         return _cache['data']
     try:
@@ -313,26 +362,33 @@ def get_status() -> dict:
         return _fail_closed_status()
     if (
         _cache['path'] != path_key
-        or _cache['mtime_ns'] != file_info.st_mtime_ns
+        or _cache['file_marker'] != file_marker
         or _cache['key_marker'] != key_marker
     ):
+        cached_marker = file_marker
         try:
-            data = json.loads(path.read_text(encoding='utf-8'))
+            data, cached_marker = _read_status_file(path)
             if not _verify_signature(data):
                 security_log.error('event=model_status_invalid reason=signature')
                 _cache['data'] = _fail_closed_status()
             else:
                 _cache['data'] = _validated_status(data)
+        except StatusFileError as exc:
+            security_log.error('event=model_status_invalid reason=%s', exc.reason)
+            _cache['data'] = _fail_closed_status()
+        except StrictJSONError:
+            security_log.error('event=model_status_invalid reason=json')
+            _cache['data'] = _fail_closed_status()
         except (ValueError, OSError):
             security_log.error('event=model_status_invalid reason=unreadable')
             _cache['data'] = _fail_closed_status()
         _cache['path'] = path_key
-        _cache['mtime_ns'] = file_info.st_mtime_ns
+        _cache['file_marker'] = cached_marker
         _cache['key_marker'] = key_marker
     return _runtime_status(
         _cache['data'] or _fail_closed_status(),
         path_key=path_key,
-        marker=file_info.st_mtime_ns,
+        marker=file_marker,
     )
 
 

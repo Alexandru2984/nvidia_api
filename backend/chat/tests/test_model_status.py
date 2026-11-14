@@ -5,6 +5,7 @@ import pwd
 import grp
 import stat
 from datetime import timedelta
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -15,6 +16,7 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from chat.management.commands.probe_models import Command
+from chat import model_status
 from chat.model_status import get_status, write_status
 from chat.models_catalog import DEFAULT_MODEL_ID, MODEL_IDS
 
@@ -299,6 +301,122 @@ class TestModelsEndpoint:
         )
         public_path.write_bytes(replacement)
         public_path.chmod(0o600)
+
+        assert get_status()['state'] == 'invalid'
+
+    @pytest.mark.parametrize('replacement', ['in_place', 'atomic_replace', 'oversized'])
+    def test_preserved_mtime_cannot_reuse_trusted_cache(
+        self, status_file, signing_keys, replacement,
+    ):
+        path = Path(status_file)
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        assert get_status()['state'] == 'verified'
+        before = path.stat()
+        original = path.read_bytes()
+        # Same-length tampering keeps the timestamp and size unchanged. Only
+        # inode/ctime can distinguish it from the cached, signature-checked file.
+        tampered = original.replace(b'"latency_ms": 100', b'"latency_ms": 101', 1)
+        assert tampered != original and len(tampered) == len(original)
+        if replacement == 'atomic_replace':
+            staged = path.with_suffix('.new')
+            staged.write_bytes(tampered)
+            staged.chmod(0o600)
+            os.utime(staged, ns=(before.st_atime_ns, before.st_mtime_ns))
+            staged.replace(path)
+        else:
+            path.write_bytes(
+                tampered if replacement == 'in_place'
+                else b'x' * (model_status.MAX_STATUS_FILE_BYTES + 1)
+            )
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+        assert path.stat().st_mtime_ns == before.st_mtime_ns
+        assert get_status()['state'] == 'invalid'
+        assert set(get_status()['unavailable']) == MODEL_IDS
+
+    def test_duplicate_keys_in_signed_status_fail_closed(
+        self, status_file, signing_keys,
+    ):
+        path = Path(status_file)
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        original = path.read_text()
+        # Identical duplicate values leave the signature's canonical payload
+        # unchanged; signature verification alone cannot reject ambiguous JSON.
+        path.write_text(original.replace('{', '{"unavailable":[],', 1))
+
+        assert get_status()['state'] == 'invalid'
+
+    @pytest.mark.parametrize('extra', [
+        b'"extra":NaN,',
+        b'"extra":Infinity,',
+        b'"extra":1e9999,',
+        b'"extra":"\\ud800",',
+        b'"extra":"\xff",',
+        b'"extra":' + b'[' * 1500 + b'0' + b']' * 1500 + b',',
+        b'"extra":[' + b'0,' * 100_000 + b'0],',
+    ], ids=['nan', 'infinity', 'overflow', 'surrogate', 'utf8', 'depth', 'nodes'])
+    def test_noncanonical_status_json_fails_closed(self, status_file, extra):
+        path = Path(status_file)
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        path.write_bytes(path.read_bytes().replace(b'{', b'{' + extra, 1))
+
+        assert get_status()['state'] == 'invalid'
+
+    @pytest.mark.parametrize('replacement', ['symlink', 'fifo', 'oversized', 'permissions'])
+    def test_status_changed_after_lstat_fails_closed(
+        self, settings, status_file, signing_keys, replacement,
+    ):
+        path = Path(status_file)
+        settings.MODEL_STATUS_SECURE_PERMISSIONS_REQUIRED = True
+        settings.MODEL_STATUS_EXPECTED_OWNER = pwd.getpwuid(os.getuid()).pw_name
+        settings.MODEL_STATUS_EXPECTED_GROUP = grp.getgrgid(os.getgid()).gr_name
+        settings.MODEL_STATUS_EXPECTED_MODE = 0o600
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        real_open = model_status._open_readonly
+
+        def swap_before_open(candidate):
+            if Path(candidate) == path:
+                original = path.with_suffix('.original')
+                path.replace(original)
+                if replacement == 'symlink':
+                    path.symlink_to(original)
+                elif replacement == 'fifo':
+                    os.mkfifo(path, 0o600)
+                elif replacement == 'oversized':
+                    path.write_bytes(b'x' * (model_status.MAX_STATUS_FILE_BYTES + 1))
+                    path.chmod(0o600)
+                else:
+                    path.write_bytes(original.read_bytes())
+                    path.chmod(0o640)
+            return real_open(candidate)
+
+        with mock.patch.object(model_status, '_open_readonly', side_effect=swap_before_open):
+            assert get_status()['state'] == 'invalid'
+
+    def test_status_symlink_cycle_fails_closed(self, settings, tmp_path):
+        path = tmp_path / 'cycle.json'
+        path.symlink_to(path)
+        settings.MODEL_STATUS_FILE = path
+
+        assert get_status()['state'] == 'invalid'
+
+    @pytest.mark.parametrize('replacement', ['symlink', 'fifo', 'oversized', 'writable'])
+    def test_unsafe_public_key_fails_closed(
+        self, status_file, signing_keys, replacement,
+    ):
+        _, public_path = signing_keys
+        write_status([], timezone.now().isoformat(), results=complete_results())
+        original = public_path.with_suffix('.original')
+        public_path.replace(original)
+        if replacement == 'symlink':
+            public_path.symlink_to(original)
+        elif replacement == 'fifo':
+            os.mkfifo(public_path, 0o600)
+        elif replacement == 'oversized':
+            public_path.write_bytes(b'x' * 4097)
+        else:
+            public_path.write_bytes(original.read_bytes())
+            public_path.chmod(0o666)
 
         assert get_status()['state'] == 'invalid'
 
