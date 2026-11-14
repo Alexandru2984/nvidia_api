@@ -15,6 +15,7 @@ from chat.models import (
     Message,
 )
 from chat.models_catalog import DEFAULT_MODEL_ID
+from chat.tests.streaming import close_streaming_response
 from chat.views import _renew_generation_lease
 
 
@@ -57,7 +58,7 @@ class TestConversationGenerationLease:
         assert second.json()['code'] == 'generation_in_progress'
         assert int(second['Retry-After']) >= 1
         mock_stream.assert_not_called()
-        first.close()
+        close_streaming_response(first)
         assert not ConversationGenerationLease.objects.filter(
             conversation=convo,
         ).exists()
@@ -79,7 +80,7 @@ class TestConversationGenerationLease:
         )
 
         assert convo.messages.count() == 1
-        response.close()
+        close_streaming_response(response)
 
         assert convo.messages.count() == 0
         assert not ConversationGenerationLease.objects.exists()
@@ -101,7 +102,7 @@ class TestConversationGenerationLease:
             {'content': 'abandoned'},
             format='json',
         )
-        first.close()
+        close_streaming_response(first)
 
         second = auth_client.post(
             f'/api/conversations/{convo.id}/messages/',
@@ -142,8 +143,8 @@ class TestConversationGenerationLease:
 
         assert first.status_code == second.status_code == 200
         assert ConversationGenerationLease.objects.count() == 2
-        first.close()
-        second.close()
+        close_streaming_response(first)
+        close_streaming_response(second)
         assert ConversationGenerationLease.objects.count() == 0
         mock_stream.assert_not_called()
 
@@ -165,7 +166,7 @@ class TestConversationGenerationLease:
         assert response.status_code == 200
         lease = ConversationGenerationLease.objects.get(conversation=convo)
         assert lease.token != old_token
-        response.close()
+        close_streaming_response(response)
 
     @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
     def test_expired_lease_cannot_renew_or_commit_send(
@@ -269,7 +270,7 @@ class TestConversationGenerationLease:
         assert response.status_code == 409
         assert response.json()['code'] == 'generation_in_progress'
         assert list(convo.messages.values_list('id', flat=True)) == ids_before
-        active_send.close()
+        close_streaming_response(active_send)
         assert Message.objects.filter(pk=old_reply.pk, content='old reply').exists()
 
     @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
@@ -293,7 +294,7 @@ class TestConversationGenerationLease:
 
         assert response.status_code == 409
         assert response.json()['code'] == 'generation_in_progress'
-        active_send.close()
+        close_streaming_response(active_send)
         convo.refresh_from_db()
         assert convo.title == 'Test convo'
 
@@ -334,7 +335,7 @@ class TestConversationGenerationLease:
         )
         response = auth_client.post(f'/api/messages/{old_reply.id}/regenerate/')
 
-        response.close()
+        close_streaming_response(response)
 
         assert Message.objects.filter(pk=old_reply.pk, content='still here').exists()
         assert not ConversationGenerationLease.objects.exists()

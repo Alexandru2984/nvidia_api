@@ -6,6 +6,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from chat.models import Attachment, Conversation, Message
 from chat.models_catalog import DEFAULT_MODEL_ID
+from chat.tests.streaming import close_streaming_response
 
 
 def _consume_sse(response):
@@ -99,7 +100,7 @@ class TestExportConversation:
         assert response.streaming is True
         assert 'private' in response['Cache-Control']
         assert 'no-store' in response['Cache-Control']
-        response.close()
+        close_streaming_response(response)
 
         settings.CHAT_MAX_EXPORT_BYTES = 1
         rejected = auth_client.get(

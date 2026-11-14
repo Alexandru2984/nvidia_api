@@ -88,7 +88,7 @@ jobs:
         run: python manage.py check --settings=nvidia_chat.test_settings
       - name: Run tests
         run: python -m pytest -q
-      - name: PostgreSQL security transaction tests
+      - name: Complete PostgreSQL backend suite
         env:
           AICHAT_TEST_PYTHON: python
         run: ../scripts/test_postgres_security.sh

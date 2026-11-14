@@ -5,6 +5,7 @@ import pytest
 
 from chat.models import Conversation, Message
 from chat.models_catalog import DEFAULT_MODEL_ID
+from chat.tests.streaming import close_streaming_response
 
 
 def _stream_many(model_id, messages, **kw):
@@ -25,7 +26,7 @@ class TestStopGeneration:
             it = iter(r.streaming_content)
             next(it)  # user_message event
             next(it)  # first chunk streamed to the client
-            r.close()  # client disconnects → GeneratorExit inside event_stream
+            close_streaming_response(r)  # disconnect → GeneratorExit in event_stream
 
         msgs = list(convo.messages.order_by('created_at'))
         assert [m.role for m in msgs] == ['user', 'assistant']
@@ -43,7 +44,7 @@ class TestStopGeneration:
             it = iter(r.streaming_content)
             next(it)
             next(it)
-            r.close()
+            close_streaming_response(r)
         convo.refresh_from_db()
         assert convo.title.startswith('tell me a story')
 
@@ -55,7 +56,7 @@ class TestStopGeneration:
             )
             it = iter(r.streaming_content)
             next(it)  # only the user_message event; no chunks yet
-            r.close()
+            close_streaming_response(r)
 
         assert convo.messages.count() == 0
 
@@ -66,7 +67,7 @@ class TestStopGeneration:
             r = auth_client.post(f'/api/messages/{old.id}/regenerate/')
             it = iter(r.streaming_content)
             next(it)  # first chunk
-            r.close()
+            close_streaming_response(r)
 
         msgs = list(convo.messages.order_by('created_at'))
         assert [m.role for m in msgs] == ['user', 'assistant']

@@ -16,6 +16,7 @@ from chat.models import (
     Message,
 )
 from chat.models_catalog import DEFAULT_MODEL_ID
+from chat.tests.streaming import close_streaming_response
 
 
 def _stream_ok(*args, **kwargs):
@@ -173,7 +174,7 @@ class TestGenerationIdempotency:
         assert int(duplicate['Retry-After']) >= 1
         assert GenerationRequest.objects.count() == 1
         assert mock_stream.call_count == 0
-        first.close()
+        close_streaming_response(first)
 
     @patch('chat.views._stream_nvidia', side_effect=_stream_error)
     def test_failed_request_is_not_automatically_executed_again(
@@ -237,7 +238,7 @@ class TestGenerationIdempotency:
         assert not convo.messages.exists()
         assert GenerationRequest.objects.get().outcome_code == 'lease_missing_or_expired'
         assert mock_stream.call_count == 0
-        first.close()
+        close_streaming_response(first)
 
     @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
     def test_partial_disconnect_is_replayable_without_provider_retry(
@@ -256,7 +257,7 @@ class TestGenerationIdempotency:
         iterator = iter(first.streaming_content)
         next(iterator)
         next(iterator)
-        first.close()
+        close_streaming_response(first)
 
         generation_request = GenerationRequest.objects.get()
         assert generation_request.state == GenerationRequest.STATE_CANCELED

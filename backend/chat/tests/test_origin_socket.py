@@ -10,6 +10,7 @@ from chat.prepare_origin_socket import prepare_origin_socket
 def _directory(tmp_path):
     root = tmp_path / 'origin'
     root.mkdir(mode=0o750)
+    root.chmod(0o750)
     return root
 
 

@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from chat.models import ChatStorageGate, Conversation, ConversationGenerationLease, Message
 from chat.models_catalog import DEFAULT_MODEL_ID
+from chat.tests.streaming import close_streaming_response
 
 
 def _stream_ok(*args, **kwargs):
@@ -94,7 +95,7 @@ class TestChatObjectQuotas:
         assert rejected.json()['used'] == 2
         assert user.daily_ai_usage.get().chat_requests == 1
         mock_stream.assert_not_called()
-        first.close()
+        close_streaming_response(first)
 
         retry = auth_client.post(
             f'/api/conversations/{other.id}/messages/',
@@ -102,7 +103,7 @@ class TestChatObjectQuotas:
             format='json',
         )
         assert retry.status_code == 200
-        retry.close()
+        close_streaming_response(retry)
 
     @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
     def test_per_conversation_limit_blocks_before_budget_or_provider(
@@ -154,7 +155,7 @@ class TestChatObjectQuotas:
         assert lease.reserved_messages == 0
         assert '"done": true' in done
         assert convo.messages.count() == 2
-        response.close()
+        close_streaming_response(response)
         assert not ConversationGenerationLease.objects.exists()
 
     @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
@@ -253,7 +254,7 @@ class TestChatObjectQuotas:
         assert blocked.json()['used'] == 69
         assert user.daily_ai_usage.get().chat_requests == 1
         mock_stream.assert_not_called()
-        first.close()
+        close_streaming_response(first)
 
     @patch('chat.views._stream_nvidia', side_effect=_stream_ok)
     def test_global_byte_limit_is_cross_user_and_does_not_disclose_usage(
@@ -292,7 +293,7 @@ class TestChatObjectQuotas:
             'code': 'global_message_bytes_limit',
         }
         mock_stream.assert_not_called()
-        first.close()
+        close_streaming_response(first)
 
     def test_message_edit_enforces_growth_but_allows_shrink(
         self,
