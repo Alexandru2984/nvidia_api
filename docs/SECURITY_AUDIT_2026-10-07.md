@@ -577,6 +577,21 @@ secret values are reproduced here.
   3/4-second rollback/restoration with zero automatic restarts. Origin/edge health
   passed, the watcher emitted no config event, and the monitor ended empty with
   no notification. No live credential/factor was changed and no push was made.
+- 2026-11-14: commit `9527593` fixes PostgreSQL upload-attempt locking and
+  attachment claim/deletion races. Four upload/replay/cancel/ownership cases
+  previously failed on `FOR UPDATE` over a nullable outer join; both upload
+  queries now lock only the attempt row under the owner lock. Direct deletion
+  and TTL expiry now lock account -> attachment and recheck current binding/
+  expiry, preserving a concurrently claimed file and its bytes. Cleanup streams
+  candidate IDs/owners, aggregates size in SQL and reports actual deletions.
+  Six failures were reproduced before the fix; afterward all 152 selected
+  PostgreSQL tests passed. The complete SQLite suite passed 742 tests with four
+  explicit PostgreSQL skips; all 177 operational and Django/schema/compile/shell
+  checks passed. Signed release `release-20261114T192634_207395191` is active at
+  the full commit after a 3/2-second rollback/restoration with zero automatic
+  restarts. Origin/edge and monitor checks passed, no watcher event/notification
+  occurred, and no live file mutation or purge was used for testing. The expanded
+  PostgreSQL CI gate remains local until an authorized push; none was performed.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

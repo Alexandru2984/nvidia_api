@@ -3599,6 +3599,49 @@ is required before describing those controls as complete.
   one-time recovery codes. Staff enrollment on a trusted device and the separate
   admin perimeter remain owner/external gates rather than being claimed complete.
 
+### PostgreSQL attachment claims and deletion — 2026-11-14
+
+- Commit `9527593` closes three attachment defects reproduced against a private
+  PostgreSQL 18 server. Four existing upload-attempt tests failed because the
+  attempt query joined its nullable attachment and requested unrestricted
+  `FOR UPDATE`, which PostgreSQL rejects on an outer join's nullable side.
+  Browser uploads using an attempt UUID could therefore return 500 before
+  storage, despite passing the SQLite suite. Both upload queries now explicitly
+  lock only the attempt row, under their existing account lock.
+- Two concurrent tests also reproduced direct deletion and TTL expiry bypassing
+  an in-flight attachment claim. Direct deletion now acquires account then
+  attachment locks and rechecks message binding in one transaction; a file
+  already claimed by a message returns the existing 409. TTL scanning now
+  streams only candidate IDs/owners, then locks each account/attachment and
+  rechecks owner, orphan state and expiry before deletion. A newly linked file
+  stays in both database and storage, without creating a deletion-outbox entry.
+- Cleanup uses a database size aggregate instead of materializing every size
+  and reports actual deleted count/bytes rather than initial candidate counts.
+  The PostgreSQL test observer clears its statistics snapshot before each poll,
+  so lock waits remain visible when the observing test holds a transaction.
+  Without that refresh, the first post-fix observation timed out even though the
+  requests were waiting; the corrected observer proved both lock interleavings.
+- Before the fix, the expanded PostgreSQL runner reported 6 failures and 146
+  passes. Afterward all 152 selected PostgreSQL tests passed, including upload,
+  replay, cancellation, owner isolation, cleanup/outbox and real attachment/auth
+  concurrency. The complete SQLite suite passed 742 tests with four explicit
+  PostgreSQL-only skips; all 177 operational tests, Django/schema checks,
+  compilation, Bash, ShellCheck and whitespace checks passed. CI's existing
+  PostgreSQL gate now includes these attachment suites; remote enforcement
+  remains pending an authorized push.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261114T192634_207395191` is active at
+  exact commit `952759347b7c4029ec4d2924c5495cafc73f3f2a`. Rollback to
+  `2596fd2` and restoration completed in 3/2 seconds, ending at PID `2229750`
+  with `NRestarts=0`. Origin/Cloudflare health passed, the protected-config
+  watcher emitted no event, and the independent monitor returned success with
+  empty active state and no new notification/recovery timestamp. No live files
+  were uploaded, linked, deleted or purged for these tests; no schema/frontend
+  change was required. Disposable test clusters were stopped and removed.
+- Normal retention moved retired backend release
+  `release-20261113T235132_034990020` into the private recoverable release archive.
+  No push occurred in this stage.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

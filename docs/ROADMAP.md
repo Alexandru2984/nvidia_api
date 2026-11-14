@@ -393,6 +393,12 @@ timed evidence.
   covered too: direct uploads and generated images discard storage written before
   a failed database commit, and failed discard attempts enter the same durable,
   privacy-safe retry path.
+  Direct deletion and TTL expiry now serialize account/attachment locks with
+  message claims and recheck binding/expiry before deleting. PostgreSQL upload
+  attempt queries restrict locking to the attempt row instead of its nullable
+  attachment join. The isolated PostgreSQL CI suite covers upload/replay/cancel,
+  owner checks, cleanup/outbox and actual claim-versus-deletion interleavings;
+  cleanup reports actual deletions and streams candidate IDs with bounded memory.
 - Image job history/gallery with cancel/retry/delete and preserved generation
   parameters.
 - **Versioned provider disclosure is shipped:** before the first chat,
