@@ -34,7 +34,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import TwoFactor
-from .recent_auth import confirm_recent_auth, recent_auth_seconds_remaining
+from .recent_auth import (
+    confirm_recent_auth,
+    recent_auth_seconds_remaining,
+    serialized_security_mutation,
+)
 
 log = logging.getLogger(__name__)
 security_log = logging.getLogger('security')
@@ -418,6 +422,7 @@ def status(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='10/h', block=False)
+@serialized_security_mutation
 def enroll(request):
     if getattr(request, 'limited', False):
         return Response({'error': 'Too many requests.'}, status=429)
@@ -449,6 +454,7 @@ def enroll(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='20/h', block=False)
+@serialized_security_mutation
 def verify_enroll(request):
     if getattr(request, 'limited', False):
         return Response({'error': 'Too many requests.'}, status=429)
@@ -513,6 +519,7 @@ def verify_enroll(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='10/h', block=False)
+@serialized_security_mutation
 def disable(request):
     """Require password + a valid TOTP/recovery code to turn 2FA off.
     Also revokes all *other* sessions — if a stolen session disabled 2FA, the
@@ -540,6 +547,7 @@ def disable(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='5/h', block=False)
+@serialized_security_mutation
 def regenerate_recovery_codes(request):
     if getattr(request, 'limited', False):
         return Response({'error': 'Too many requests.'}, status=429)

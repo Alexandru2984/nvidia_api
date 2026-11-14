@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import logging
 import time
+from functools import wraps
 
 from django.conf import settings
 from django.contrib.auth import get_user_model, update_session_auth_hash
@@ -36,6 +37,46 @@ def mark_recent_auth(request):
 
 def clear_recent_auth(request):
     request.session.pop(RECENT_AUTH_SESSION_KEY, None)
+
+
+def lock_security_user(request):
+    """Inside an atomic block, lock and refresh the authenticated account."""
+    locked_user = get_user_model().objects.select_for_update().filter(
+        pk=request.user.pk,
+        is_active=True,
+    ).first()
+    if locked_user is None or not hmac.compare_digest(
+        request.user.password, locked_user.password,
+    ):
+        clear_recent_auth(request)
+        security_log.warning(
+            'event=recent_auth_failed user_id=%s factor=account_state',
+            request.user.pk,
+        )
+        return Response({'error': 'Authentication failed.'}, status=401)
+    request.user = locked_user
+    return None
+
+
+def serialized_security_mutation(view):
+    """Keep proof, credential/factor mutation and session rotation indivisible.
+
+    Lock order is account -> factor -> sessions, matching login and password
+    reset. Account deletion takes its global storage gate first and therefore
+    uses its own outer transaction instead of this decorator.
+    """
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if getattr(request, 'limited', False):
+            # Let the endpoint emit its existing throttle response before
+            # acquiring an account lock or performing any password work.
+            return view(request, *args, **kwargs)
+        with transaction.atomic():
+            response = lock_security_user(request)
+            if response is not None:
+                return response
+            return view(request, *args, **kwargs)
+    return wrapped
 
 
 def recent_auth_seconds_remaining(request):
@@ -91,9 +132,13 @@ def confirm_recent_auth(request, password, code=''):
         }, status=401)
     code = code.strip() if isinstance(code, str) else ''
     with transaction.atomic():
-        locked_user = get_user_model().objects.select_for_update().get(
-            pk=request.user.pk,
-        )
+        response = lock_security_user(request)
+        if response is not None:
+            return response
+        locked_user = request.user
+        # Enrollment/disable may have completed while this request waited for
+        # the account lock. Decide which factors are required only after it.
+        two_factor_required = login_requires_2fa(locked_user)
         password_valid, password_needs_upgrade = verify_password_without_upgrade(
             password,
             locked_user.password,

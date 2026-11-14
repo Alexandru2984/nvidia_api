@@ -105,7 +105,12 @@ from .provider_disclosure import (
     provider_disclosure_state,
 )
 from .registration import hash_invite_code
-from .recent_auth import confirm_recent_auth, mark_recent_auth, require_recent_auth
+from .recent_auth import (
+    confirm_recent_auth,
+    mark_recent_auth,
+    require_recent_auth,
+    serialized_security_mutation,
+)
 from .security_events import actor_for_request, security_log
 from .serializers import (
     AttachmentSerializer,
@@ -318,6 +323,7 @@ def auth_logout(request):
 
 @api_view(['POST'])
 @ratelimit(key='user', rate='10/h', block=False)
+@serialized_security_mutation
 def auth_reauthenticate(request):
     """Refresh the short-lived authorization window for sensitive actions."""
     if (r := _rate_limited(request)): return r
@@ -336,6 +342,7 @@ def auth_reauthenticate(request):
 
 @api_view(['POST'])
 @ratelimit(key='user', rate='10/h', block=False)
+@serialized_security_mutation
 def auth_admin_reauthenticate(request):
     """Refresh the short-lived staff elevation window without exposing admin login."""
     if not staff_2fa_verified(request):
@@ -819,6 +826,7 @@ def auth_reset(request):
 
 @api_view(['POST'])
 @ratelimit(key='user', rate='10/h', block=False)
+@serialized_security_mutation
 def auth_change_password(request):
     """Change password after fresh strong auth; keep only this session."""
     if (r := _rate_limited(request)): return r
@@ -855,17 +863,16 @@ def auth_delete_account(request):
     messages and attachments (files removed via the pre_delete signal)."""
     if (r := _rate_limited(request)): return r
     password = request.data.get('password') or ''
-    response = confirm_recent_auth(request, password, request.data.get('code') or '')
-    if response is not None:
-        return response
-
     user = request.user
     user_id = user.pk
     with transaction.atomic():
         # Match generation's global gate -> owner order. This prevents a new
         # lease between the active-work check and the irreversible cascade.
         ChatStorageGate.objects.select_for_update().get(pk=1)
-        locked_user = get_user_model().objects.select_for_update().get(pk=user_id)
+        response = confirm_recent_auth(request, password, request.data.get('code') or '')
+        if response is not None:
+            return response
+        locked_user = request.user
         if ConversationGenerationLease.objects.filter(
             conversation__user_id=user_id,
         ).exists():
@@ -1716,18 +1723,16 @@ def account_deletion(request):
     if request.method == 'GET':
         return Response(_account_deletion_payload(deletion))
 
-    response = confirm_recent_auth(
-        request,
-        request.data.get('password') or '',
-        request.data.get('code') or '',
-    )
-    if response is not None:
-        return response
-
     user_id = request.user.pk
-    User = get_user_model()
     with transaction.atomic():
-        locked_user = User.objects.select_for_update().get(pk=user_id)
+        response = confirm_recent_auth(
+            request,
+            request.data.get('password') or '',
+            request.data.get('code') or '',
+        )
+        if response is not None:
+            return response
+        locked_user = request.user
         deletion = AccountDeletionRequest.objects.select_for_update().filter(
             user_id=user_id,
         ).first()
