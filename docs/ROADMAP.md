@@ -67,6 +67,12 @@ responsive behavior, tests, observable failure modes, and rollback notes.
   object, model, action, and changed field names for 365 days with HMAC integrity
   validation. Also place `/admin/` behind Cloudflare Access or a VPN, minimize
   superusers, and retain the security journal externally.
+  Account-security mutations now serialize proof, factor/password state and
+  explicit session updates under the same account lock. Required factors are
+  reread after locking, stale/inactive credentials fail closed, and deletion
+  keeps the established global-gate -> account lock order. A disposable
+  PostgreSQL test runner verifies real concurrency rather than relying on
+  SQLite's no-op row-lock behavior; CI is configured to run that gate.
 - **Detection:** structured privacy-minimized events and five-minute alerts now
   cover auth bursts, throttles, successful admin access, 2FA disable, global AI
   budget exhaustion, missing/malformed provider usage, token reservation

@@ -560,6 +560,23 @@ secret values are reproduced here.
   no protected-config event or Telegram notification occurred; the monitor ended
   with empty state. This does not remove the signing-identity compromise risk.
   The commit is local; no push was performed in this stage.
+- 2026-11-14: commit `2596fd2` serializes account-security proof, credential/factor
+  changes and explicit session rotation under one account-row transaction.
+  Inactive or changed-password request snapshots fail 401, and required factors
+  are reread after acquiring the lock. Immediate/scheduled deletion verifies its
+  credentials inside its own mutation transaction, preserving global-gate ->
+  account ordering. Four regressions against committed baseline code reproduced
+  partial factor/password changes after session failure. All 742 SQLite-suite
+  tests passed, with two PostgreSQL-only cases explicitly skipped there; the
+  disposable PostgreSQL 18 runner passed all 67 selected tests, including real
+  enrollment/password lock-wait interleavings. Its private socket/server/data
+  are removed on exit, without connecting to production. All 177 operational
+  tests and Django/schema/compile/shell checks passed. CI now includes this
+  PostgreSQL gate, pending an owner-authorized push. Signed backend release
+  `release-20261114T191629_635409783` is active at the full commit after a
+  3/4-second rollback/restoration with zero automatic restarts. Origin/edge health
+  passed, the watcher emitted no config event, and the monitor ended empty with
+  no notification. No live credential/factor was changed and no push was made.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

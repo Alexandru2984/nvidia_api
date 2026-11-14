@@ -177,6 +177,17 @@ Status: **code complete and deployed 2026-10-07; operational gate open**.
   an independent Cloudflare Access or VPN policy for `/admin/`; the application
   continues to fail closed with `403` until enrollment.
 
+- 2026-11-14 follow-up `2596fd2` closes concurrent proof/mutation windows and
+  partial credential/factor changes on session-update failure. Account locking
+  now spans 2FA lifecycle, password changes and reauthentication; deletion proof
+  stays inside its correctly ordered mutation transaction. The default 742-test
+  suite and 177 operational tests passed; the isolated PostgreSQL runner passed
+  67 cases, including two real concurrent lock interleavings. Signed rollout and
+  a 3/4-second rollback/restoration passed with empty monitor state and no live
+  factor/password changes. The staff-device/admin-perimeter gates remain open;
+  CI's new PostgreSQL step is local until an authorized push. Full evidence is in
+  [SECURITY_AUDIT.md](SECURITY_AUDIT.md#serialized-account-security-mutations--2026-11-14).
+
 ## Wave 3 — shared-host identity isolation (P0)
 
 Repository/host work:

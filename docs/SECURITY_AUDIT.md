@@ -3548,6 +3548,57 @@ is required before describing those controls as complete.
 - Delivery is local only: the implementation commit advanced local `main` while
   `origin/main` remained `d137c50`. No push is part of this stage.
 
+### Serialized account-security mutations — 2026-11-14
+
+- Commit `2596fd2` closes separate proof/mutation/session transaction boundaries
+  in the account-security lifecycle. Previously, enrollment could check that a
+  factor was disabled, pause while a second request activated it, then overwrite
+  its now-enabled secret. Password changes could similarly be overtaken between
+  credential proof and mutation. Four regressions against the prior committed
+  code also reproduced partial security changes after an injected session-update
+  exception: activated 2FA, deleted 2FA, replaced recovery codes and a changed
+  password all survived the failing request.
+- A shared account-row lock now encloses credential proof, factor/password
+  changes and explicit session rotation/revocation for enrollment, completion,
+  disable, recovery regeneration, password changes and user/admin reauthentication.
+  The locked account must still be active and match the authenticated password
+  hash; stale request snapshots return 401 and clear their recent-auth marker.
+  Factor requirements are recalculated after the lock, so concurrent enrollment
+  cannot turn a password-only decision into a valid strong-auth proof.
+- Immediate and scheduled/canceled account deletion now verify credentials
+  inside their mutation transactions. Immediate deletion retains the existing
+  global-storage-gate -> account -> factor/session lock order, avoiding inversion
+  with chat generation. Throttled requests keep the existing response path before
+  acquiring the account lock. Stale-account failures use the existing redacted
+  `recent_auth_failed` event and authentication-burst detection rule.
+- The default suite passed 742 tests; its two real row-lock tests explicitly
+  skip SQLite. `scripts/test_postgres_security.sh` passed all 67 selected tests
+  against a disposable PostgreSQL 18 cluster, including both concurrent cases.
+  It starts an unprivileged, owner-private Unix-socket-only server, connects no
+  production database, stops the server and removes the synthetic cluster on
+  exit. Actual PostgreSQL lock-wait observations prove that factor activation
+  cannot overtake enrollment and a reset cannot overtake password mutation after
+  proof. The obsolete enrollment completion returns 403 instead of enabling an
+  overwritten secret. The script also passed with the CI interpreter-selection
+  path; an initial relative-path failure cleaned up its cluster before the path
+  handling was corrected.
+- All 177 operational tests, Django/system/schema checks, Python compilation,
+  Bash, ShellCheck and whitespace checks passed. CI now invokes the PostgreSQL
+  suite after its dependency gates and ordinary tests, using installed local
+  server tools and no additional Python dependency. That remote enforcement
+  remains pending an owner-authorized push; this stage performed no push.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261114T191629_635409783` is active at
+  exact commit `2596fd218d1807f53973833badaea0f0d8eae1b0`. Rollback to
+  `3474fc1` and restoration completed in 3/4 seconds; restored PID `2190449`
+  has `NRestarts=0`. Origin/Cloudflare health passed, the protected-config watcher
+  emitted no event, and the monitor completed with empty active state and no new
+  notification/recovery timestamp. No live account, password or factor was
+  modified, and no migration or frontend release was needed.
+- Database atomicity does not guarantee delivery of the final HTTP response or
+  one-time recovery codes. Staff enrollment on a trusted device and the separate
+  admin perimeter remain owner/external gates rather than being claimed complete.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export
