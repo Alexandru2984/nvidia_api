@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import logging
+from functools import partial
 
 from django.conf import settings
 from django.contrib.auth.signals import (
@@ -10,8 +11,18 @@ from django.contrib.auth.signals import (
     user_login_failed,
 )
 from django.dispatch import receiver
+from django.db import transaction
 
 security_log = logging.getLogger('security')
+
+
+def log_committed_security_event(message, *args):
+    """Record successful security mutations only after their outer commit.
+
+    Callers pass fixed format strings and numeric metadata, never credentials.
+    Snapshot those values now; a failed transaction discards the callback.
+    """
+    transaction.on_commit(partial(security_log.warning, message, *args), robust=True)
 
 
 def actor_for_request(request):

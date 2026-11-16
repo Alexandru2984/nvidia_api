@@ -34,6 +34,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import TwoFactor
+from .security_events import log_committed_security_event
 from .recent_auth import (
     confirm_recent_auth,
     recent_auth_seconds_remaining,
@@ -340,8 +341,8 @@ def verify_for_login(user, code: str) -> bool:
                 tf.save(update_fields=[
                     'recovery_codes', 'last_used_at', 'failed_attempts', 'locked_until',
                 ])
-                log.info(
-                    '2FA recovery code consumed for user_id=%s; %d remaining',
+                log_committed_security_event(
+                    'event=recovery_code_used user_id=%s remaining=%s',
                     user.pk, len(tf.recovery_codes),
                 )
                 return True
@@ -508,7 +509,7 @@ def verify_enroll(request):
 
     request.session.pop(ENROLLMENT_AUTH_SESSION_KEY, None)
     revoked = _rotate_and_revoke_other_sessions(request, mark_staff=True)
-    security_log.warning('event=two_factor_enabled user_id=%s', request.user.pk)
+    log_committed_security_event('event=two_factor_enabled user_id=%s', request.user.pk)
     return Response({
         'enabled': True,
         'recovery_codes': plaintexts,  # show once; never returned again
@@ -539,7 +540,7 @@ def disable(request):
     request.session.pop(STAFF_2FA_SESSION_KEY, None)
     request.session.pop(ENROLLMENT_AUTH_SESSION_KEY, None)
     revoked = _rotate_and_revoke_other_sessions(request)
-    security_log.warning('event=two_factor_disabled user_id=%s sessions_revoked=%s',
+    log_committed_security_event('event=two_factor_disabled user_id=%s sessions_revoked=%s',
                          request.user.pk, revoked)
     return Response({'enabled': False, 'sessions_revoked': revoked})
 
@@ -564,5 +565,5 @@ def regenerate_recovery_codes(request):
         plaintexts, hashes = _new_recovery_codes()
         TwoFactor.objects.filter(user=request.user, enabled=True).update(recovery_codes=hashes)
     revoked = _rotate_and_revoke_other_sessions(request, mark_staff=True)
-    security_log.warning('event=recovery_codes_regenerated user_id=%s', request.user.pk)
+    log_committed_security_event('event=recovery_codes_regenerated user_id=%s', request.user.pk)
     return Response({'recovery_codes': plaintexts, 'sessions_revoked': revoked})

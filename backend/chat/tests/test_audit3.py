@@ -352,7 +352,7 @@ class TestHoneypotOrdering:
 class TestAuditLog:
     """Finding #8: 2FA changes are logged."""
 
-    def test_enroll_completion_logged(self, auth_client, user, caplog):
+    def test_enroll_completion_logged(self, auth_client, user, caplog, django_capture_on_commit_callbacks):
         import logging
         caplog.set_level(logging.INFO, logger='security')
         secret = auth_client.post(
@@ -360,14 +360,16 @@ class TestAuditLog:
             {'password': 'Hunter2pass'},
             format='json',
         ).json()['secret']
-        auth_client.post('/api/auth/2fa/verify-enroll/', {'code': pyotp.TOTP(secret).now()}, format='json')
+        with django_capture_on_commit_callbacks(execute=True):
+            auth_client.post('/api/auth/2fa/verify-enroll/', {'code': pyotp.TOTP(secret).now()}, format='json')
         assert any('event=two_factor_enabled' in r.message and str(user.pk) in r.message for r in caplog.records)
 
-    def test_disable_logged(self, auth_client, user, caplog):
+    def test_disable_logged(self, auth_client, user, caplog, django_capture_on_commit_callbacks):
         import logging
         secret = _enable_2fa(auth_client, user)
         caplog.set_level(logging.INFO, logger='security')
-        auth_client.post('/api/auth/2fa/disable/', {
-            'password': 'Hunter2pass', 'code': pyotp.TOTP(secret).now(),
-        }, format='json')
+        with django_capture_on_commit_callbacks(execute=True):
+            auth_client.post('/api/auth/2fa/disable/', {
+                'password': 'Hunter2pass', 'code': pyotp.TOTP(secret).now(),
+            }, format='json')
         assert any('event=two_factor_disabled' in r.message for r in caplog.records)

@@ -48,6 +48,14 @@ restoring affected authentication paths.
 Every permanent account deletion raises `account_deleted` with only an aggregate
 count in the alert. Treat an unexpected event as destructive account takeover,
 even when no active session remains to inspect.
+`account_security_change` groups committed password changes/resets, 2FA
+activation, recovery-code regeneration and successful recovery-code consumption
+into one operator alert key. It contains only a count, never account identifiers
+or credentials, and shares the 24-hour cooldown without recovery notifications.
+These success events are emitted only after the outermost database commit;
+rolled-back mutations must not produce a success alert. The existing
+`two_factor_disabled` key remains separate. This operator notification does not
+constitute individual account-holder email delivery.
 Scheduling, cancellation and committed execution of delayed account deletion
 raise `account_deletion_scheduled`, `account_deletion_canceled` and
 `account_deletion_executed`. Telegram receives only event names/counts; the local

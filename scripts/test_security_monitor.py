@@ -38,6 +38,21 @@ class SecurityMonitorTests(unittest.TestCase):
     def test_clean_state_has_no_issues(self):
         self.assertEqual(monitor.evaluate(self.backups, self.restore_log, ''), {})
 
+    def test_account_security_changes_share_one_private_alert_key(self):
+        events = ('two_factor_enabled', 'recovery_codes_regenerated', 'recovery_code_used',
+                  'password_changed', 'password_reset_completed')
+        for event in events:
+            with self.subTest(event=event):
+                issues = monitor.evaluate(self.backups, self.restore_log, f'event={event} user_id=12345')
+                self.assertEqual(set(issues), {'account_security_change'})
+                self.assertNotIn('user_id', issues['account_security_change'])
+                self.assertNotIn('12345', issues['account_security_change'])
+                notify, resolved = monitor.notification_plan(
+                    issues, {'last_sent': {'account_security_change': 1000}}, 1100, 86400,
+                )
+                self.assertEqual(notify, {})
+                self.assertEqual(resolved, {})
+
     def test_filesystem_capacity_boundaries_alert_without_private_paths(self):
         for resource in ['bytes', 'inodes']:
             with self.subTest(resource=resource):

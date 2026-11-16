@@ -112,7 +112,7 @@ from .recent_auth import (
     require_recent_auth,
     serialized_security_mutation,
 )
-from .security_events import actor_for_request, security_log
+from .security_events import actor_for_request, log_committed_security_event, security_log
 from .serializers import (
     AttachmentSerializer,
     ConversationListSerializer,
@@ -807,7 +807,15 @@ def auth_reset(request):
     # If the account has 2FA enabled, password alone isn't enough — refuse to
     # auto-login. The user must complete /auth/login/ with their TOTP code,
     # which closes the email-controls-account → 2FA-bypass hole.
+    log_committed_security_event(
+        'event=password_reset_completed user_id=%s sessions_revoked=%s', user.pk, revoked,
+    )
     if login_requires_2fa(user):
+        # A reset can arrive with an already-authenticated cookie. Its session
+        # was revoked above; discard the request's cached session as well so
+        # response middleware cannot try to save that deleted row and return
+        # SessionInterrupted/400 after the password successfully changed.
+        django_logout(request)
         return Response({
             'reset': True,
             'username': user.username,
@@ -851,7 +859,7 @@ def auth_change_password(request):
     sync_session_record(request)
     mark_recent_auth(request)
     revoked = _revoke_user_sessions(request.user, except_key=request.session.session_key)
-    security_log.warning('event=password_changed user_id=%s sessions_revoked=%s',
+    log_committed_security_event('event=password_changed user_id=%s sessions_revoked=%s',
                          request.user.pk, revoked)
     return Response({'changed': True, 'sessions_revoked': revoked})
 

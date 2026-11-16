@@ -1001,6 +1001,10 @@ def evaluate(
         journal.count('event=auth_failed')
         + journal.count('event=recent_auth_failed')
     )
+    account_security_changes = sum(journal.count(f'event={event} ') for event in (
+        'two_factor_enabled', 'recovery_codes_regenerated', 'recovery_code_used',
+        'password_changed', 'password_reset_completed',
+    ))
     rate_limits = journal.count('event=rate_limit')
     admin_denied = journal.count('event=admin_access_denied')
     admin_changes = journal.count('event=admin_change')
@@ -1066,6 +1070,11 @@ def evaluate(
         issues['admin_audit_integrity'] = 'The privileged-change audit trail failed integrity checks.'
     if 'event=two_factor_disabled' in journal:
         issues['two_factor_disabled'] = 'Two-factor authentication was disabled for an account.'
+    if account_security_changes:
+        issues['account_security_change'] = (
+            f'{account_security_changes} committed password, factor or recovery-code '
+            'changes were detected in six minutes.'
+        )
     if 'event=ai_budget_blocked scope=global' in journal:
         issues['global_budget'] = 'The service-wide daily AI budget was exhausted.'
     if unmetered_usage >= int(os.environ.get('UNMETERED_USAGE_ALERT_THRESHOLD', '3')):

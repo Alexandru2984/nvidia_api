@@ -65,6 +65,38 @@ def test_password_session_failure_restores_password_and_session(auth_client, use
     assert Session.objects.filter(session_key=original_session).exists()
 
 
+@pytest.mark.parametrize('mutation', ['password', 'enrollment'])
+def test_successful_view_followed_by_outer_rollback_emits_no_success_event(
+    auth_client, user, mutation, caplog, django_capture_on_commit_callbacks,
+):
+    from django.db import transaction
+
+    secret = None
+    if mutation == 'enrollment':
+        setup = auth_client.post('/api/auth/2fa/enroll/', {'password': PASSWORD}, format='json')
+        secret = setup.json()['secret']
+    with caplog.at_level('WARNING', logger='security'):
+        with django_capture_on_commit_callbacks(execute=True):
+            with pytest.raises(RuntimeError):
+                with transaction.atomic():
+                    if mutation == 'password':
+                        response = auth_client.post('/api/auth/password/', {
+                            'current_password': PASSWORD, 'new_password': 'ChangedThenRolledBack1!',
+                        }, format='json')
+                    else:
+                        response = auth_client.post('/api/auth/2fa/verify-enroll/', {
+                            'code': pyotp.TOTP(secret).now(),
+                        }, format='json')
+                    assert response.status_code == 200
+                    raise RuntimeError('outer commit failed')
+    assert 'event=password_changed' not in caplog.text
+    assert 'event=two_factor_enabled' not in caplog.text
+    user.refresh_from_db()
+    assert user.check_password(PASSWORD)
+    if mutation == 'enrollment':
+        assert not TwoFactor.objects.get(user=user).enabled
+
+
 @pytest.mark.parametrize('change', ['inactive', 'password'])
 @pytest.mark.parametrize('endpoint,payload', [
     ('/api/auth/reauthenticate/', {'password': PASSWORD}),
