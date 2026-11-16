@@ -6,6 +6,11 @@ responsive behavior, tests, observable failure modes, and rollback notes.
 
 ## P0 — production safety and control
 
+Use the [current acceptance matrix](SECURITY_ACCEPTANCE_MATRIX_2026-11-16.md)
+to track every audit gate. Owner enrollment/admin perimeter, provider credential
+replacement, coordinated host maintenance and encrypted off-site recovery remain
+open; new local fixes do not constitute program acceptance.
+
 - **Verified rollout:** apply the committed nginx/systemd templates, deny direct
   media access, correct existing backup modes, validate health and rollback, and
   capture evidence in the deployment log. Frontend release builds now refuse

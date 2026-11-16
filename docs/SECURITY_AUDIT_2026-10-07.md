@@ -641,6 +641,22 @@ secret values are reproduced here.
   remain separate. Full evidence is in
   [SECURITY_AUDIT.md](SECURITY_AUDIT.md#physical-attachment-storage-guard--2026-11-16).
   All commits remain local; no push was performed.
+- 2026-11-16: commit `0d6eaa0` adds bounded operator detection for committed
+  factor activation, recovery-code regeneration/consumption and password
+  change/reset. Success events wait for the outer commit and disappear on
+  rollback. A new signed-in reset test also exposed and fixed a real `400`
+  after a successful password change for 2FA users: the revoked current request
+  session is now explicitly logged out while the factor remains required.
+  All 790 PostgreSQL, 781 SQLite (nine native-lock skips) and 181 operational
+  tests passed. Signed release `release-20261116T052331_675350335` is active
+  after a 2/2-second rollback/restoration, zero automatic restarts and healthy
+  origin/edge/monitor checks. No production authentication mutation or new
+  notification was used for validation. Fresh inventory confirms one active
+  staff account with zero enabled factors, registration `open` and a pending
+  host restart. The new
+  [acceptance matrix](SECURITY_ACCEPTANCE_MATRIX_2026-11-16.md) records all
+  gates without treating those external/owner dependencies as complete. No
+  push occurred; detailed rollout evidence remains in the current audit log.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

@@ -3813,6 +3813,60 @@ is required before describing those controls as complete.
   possible crash-time orphan. Shared-host P0, external recovery and owner gates
   remain open; the program's RED verdict is unchanged. No push was performed.
 
+### Committed account-security detection — 2026-11-16
+
+- Commit `0d6eaa0` closes an operator-detection gap: factor activation, recovery
+  code regeneration/consumption and password changes were not ingested by the
+  security monitor, while successful password reset had no structured event.
+  These five event types now share `account_security_change`, containing only
+  an aggregate count and retaining the existing 24-hour per-key cooldown with
+  recovery notifications disabled. The existing factor-disable alert stays
+  separate. This is operator notification, not account-holder email delivery.
+- Successful password/factor/recovery-code mutations, including factor disable,
+  now register immutable numeric metadata through an outer-commit callback.
+  Rolling back the surrounding transaction discards the success event, avoiding
+  misleading incident evidence. This remains local journal delivery: a process
+  crash or log-sink failure can still lose a callback/event, and off-host durable
+  audit delivery remains open.
+- A new authenticated-reset test exposed a separate real bug. For an enabled-
+  factor account, password reset revoked the current session but retained its
+  request-side cache. Response middleware could then raise `SessionInterrupted`
+  and return `400` after the password had changed. The enabled-factor branch now
+  explicitly logs out that cached session, returns the successful reset plus
+  required-factor result, preserves the factor and requires a fresh strong login.
+  Anonymous reset and non-factor auto-login behavior remain tested.
+- All 790 PostgreSQL backend tests passed without skips; SQLite passed 781 with
+  nine native-lock skips. All 181 operational tests passed, including privacy
+  and shared-key cooldown for every new event. Coverage checks outer rollback
+  after real successful password/factor views, deferred commit logging and both
+  reset branches. An initial new fixture omitted mandatory `sent_at`; correcting
+  it separated that fixture failure from the real authenticated-reset bug.
+  Django/schema, compilation, Bash, ShellCheck and whitespace checks passed.
+- Signed backend
+  `/opt/aichat-backend-releases/release-20261116T052331_675350335` contains exact
+  commit `0d6eaa0d6bc65c44444d1bb09c940b828b69c63f`. Rollback/restoration each
+  passed in two seconds, ending at PID `973556`, `NRestarts=0`. The previous
+  storage release remains the immediate rollback; normal retention recoverably
+  archived `release-20261114T192634_207395191`. No migration/frontend rollout
+  or live authentication mutation was needed for verification.
+- Guarded monitor installation/isolated restore passed. The installed monitor
+  matches SHA-256
+  `439597c26a8569aa563e6bbb3ca28ad9140b649e4771652ba4fefa29eeb9b18d`.
+  Monitor/restore services succeeded, timers and config watcher are active,
+  public/origin health returned `200`, private API/dotenv `403` and media `404`.
+  No watcher or warning-level service event appeared; active issues are empty,
+  alert history remains 16 keys with the same latest timestamp and recovery
+  history remains empty. No Telegram test or new notification occurred.
+- CISO review prioritizes account-takeover visibility and truthful committed
+  evidence, with no new vendor, credential disclosure or data category. Incident
+  response uses the existing account-takeover runbook/tabletop; no measured
+  basis supports a new monetary estimate. Fresh read-only inventory still finds
+  one active staff account with zero enabled factors and registration `open`;
+  the host still reports reboot required. These are not closed by this patch.
+  [The acceptance matrix](SECURITY_ACCEPTANCE_MATRIX_2026-11-16.md) indexes all
+  original findings/gates and their remaining dependencies. The program remains
+  RED, and no push was performed.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

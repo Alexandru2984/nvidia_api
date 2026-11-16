@@ -5,6 +5,11 @@ Starting verdict: **RED — security work precedes product features**
 Scope: AI Chat Hub repository and production path, plus only those shared-host
 controls that directly form its trust boundary.
 
+Current requirement/evidence index:
+[SECURITY_ACCEPTANCE_MATRIX_2026-11-16.md](SECURITY_ACCEPTANCE_MATRIX_2026-11-16.md).
+It distinguishes shipped controls, historical evidence and remaining
+owner/external gates; passing local tests alone does not close the program.
+
 ## CISO decision record
 
 - Top STRIDE threats: elevation of privilege through shared service identity;
@@ -16,8 +21,10 @@ controls that directly form its trust boundary.
 - Illustrative baseline ALE: EUR 2,500/year from the audit. This is not an
   accounting forecast and must be recalculated from real provider spend,
   recovery time and all shared-host workloads.
-- Current MTTD: under six minutes for covered application events; unbounded for
-  webroot/script tampering and shared-identity privilege escalation.
+- Current detection target: under six minutes for covered application events,
+  signed release/configuration/identity/socket/storage integrity. Root can still
+  erase local evidence; off-host detection and unmonitored host escalation
+  remain separate open gates.
 - Response: `INCIDENT_RESPONSE.md` exists; the 2026-11-12 timed tabletop passed
   its local technical path and records the remaining external action items.
 - Regulatory: preserve awareness time and obtain privacy/legal review for any
