@@ -38,6 +38,29 @@ class SecurityMonitorTests(unittest.TestCase):
     def test_clean_state_has_no_issues(self):
         self.assertEqual(monitor.evaluate(self.backups, self.restore_log, ''), {})
 
+    def test_auth_mail_failures_and_limits_share_one_private_alert(self):
+        signals = (
+            'event=auth_mail_delivery_failed kind=reset',
+            'event=auth_mail_budget_unavailable',
+            'event=auth_mail_budget_blocked scope=global kind=verification',
+            '\n'.join(['event=auth_mail_budget_blocked scope=recipient kind=reset'] * 5),
+        )
+        for signal in signals:
+            with self.subTest(signal=signal):
+                issues = monitor.evaluate(self.backups, self.restore_log, signal)
+                self.assertEqual(set(issues), {'auth_mail'})
+                self.assertNotIn('user_id', issues['auth_mail'])
+                self.assertNotIn('@', issues['auth_mail'])
+                notify, resolved = monitor.notification_plan(
+                    issues, {'last_sent': {'auth_mail': 1000}}, 1100, 86400,
+                )
+                self.assertEqual(notify, {})
+                self.assertEqual(resolved, {})
+        self.assertNotIn('auth_mail', monitor.evaluate(
+            self.backups, self.restore_log,
+            'event=auth_mail_budget_blocked scope=recipient kind=reset',
+        ))
+
     def test_account_security_changes_share_one_private_alert_key(self):
         events = ('two_factor_enabled', 'recovery_codes_regenerated', 'recovery_code_used',
                   'password_changed', 'password_reset_completed')

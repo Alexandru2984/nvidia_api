@@ -56,6 +56,7 @@ from .attachments import (
 )
 from .file_deletions import discard_uncommitted_file
 from .attachment_limits import attachment_quota_response, upload_attempt_quota_response
+from .auth_mail import AuthMailLimited, AuthMailUnavailable, reserve_auth_mail
 from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
 from .model_status import get_status, unavailable_model_ids
 from .nvidia_client import (
@@ -455,10 +456,13 @@ def _send_verification_email(user, code):
 </body></html>"""
     msg = EmailMultiAlternatives(subject, text, settings.DEFAULT_FROM_EMAIL, [user.email])
     msg.attach_alternative(html, 'text/html')
-    msg.send(fail_silently=False)
+    if msg.send(fail_silently=False) != 1:
+        raise RuntimeError('Authentication email delivery was not accepted.')
 
 
-def _issue_new_code(user):
+def _issue_new_code(user, *, mail_reserved=False):
+    if not mail_reserved:
+        reserve_auth_mail(user.email, 'verification')
     code = _generate_code()
     now = timezone.now()
     EmailVerification.objects.update_or_create(
@@ -551,11 +555,14 @@ def auth_register(request):
                 security_log.info('event=registration_suppressed actor=%s', actor_for_request(request))
                 return _registration_response(email)
 
+            # Reserve before hashing/creating an account. Exhausted delivery
+            # capacity must not leave an anonymous password-hashing loop.
+            reserve_auth_mail(user.email, 'verification')
             # Do the expensive password hash only after invitation and duplicate
             # checks so random invalid codes cannot become a CPU-amplification path.
             user.set_password(password)
             user.save()
-            _issue_new_code(user)
+            _issue_new_code(user, mail_reserved=True)
             if invite is not None:
                 invite.used_at = timezone.now()
                 invite.used_by = user
@@ -564,8 +571,10 @@ def auth_register(request):
     except IntegrityError:
         security_log.info('event=registration_suppressed actor=%s', actor_for_request(request))
         return _registration_response(email)
+    except (AuthMailLimited, AuthMailUnavailable):
+        return _registration_response(email)
     except Exception:
-        log.exception('Failed to send verification email for user_id=%s', user.pk)
+        security_log.error('event=auth_mail_delivery_failed kind=verification')
         # The surrounding transaction rolls back both user and invite usage so
         # the owner can retry after mail delivery recovers.
         return _registration_response(email)
@@ -645,8 +654,10 @@ def auth_resend(request):
     try:
         with transaction.atomic():
             _issue_new_code(user)
+    except (AuthMailLimited, AuthMailUnavailable):
+        return _resend_response()
     except Exception:
-        log.exception('Failed to resend verification email for user_id=%s', user.pk)
+        security_log.error('event=auth_mail_delivery_failed kind=verification')
         return _resend_response()
 
     return _resend_response()
@@ -698,10 +709,12 @@ def _send_password_reset_email(user, code):
 </body></html>"""
     msg = EmailMultiAlternatives(subject, text, settings.DEFAULT_FROM_EMAIL, [user.email])
     msg.attach_alternative(html, 'text/html')
-    msg.send(fail_silently=False)
+    if msg.send(fail_silently=False) != 1:
+        raise RuntimeError('Authentication email delivery was not accepted.')
 
 
 def _issue_password_reset(user):
+    reserve_auth_mail(user.email, 'reset')
     code = _generate_code()
     now = timezone.now()
     PasswordReset.objects.update_or_create(
@@ -748,8 +761,10 @@ def auth_forgot(request):
     try:
         with transaction.atomic():
             _issue_password_reset(user)
+    except (AuthMailLimited, AuthMailUnavailable):
+        return generic
     except Exception:
-        log.exception('Failed to send password reset email for user_id=%s', user.pk)
+        security_log.error('event=auth_mail_delivery_failed kind=reset')
         return generic
     return generic
 

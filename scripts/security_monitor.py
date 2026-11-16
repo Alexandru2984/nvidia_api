@@ -1006,6 +1006,10 @@ def evaluate(
         'password_changed', 'password_reset_completed',
     ))
     rate_limits = journal.count('event=rate_limit')
+    auth_mail_failures = journal.count('event=auth_mail_delivery_failed')
+    auth_mail_unavailable = journal.count('event=auth_mail_budget_unavailable')
+    auth_mail_global_blocks = journal.count('event=auth_mail_budget_blocked scope=global')
+    auth_mail_recipient_blocks = journal.count('event=auth_mail_budget_blocked scope=recipient')
     admin_denied = journal.count('event=admin_access_denied')
     admin_changes = journal.count('event=admin_change')
     unmetered_usage = journal.count('event=ai_usage_unmetered')
@@ -1060,6 +1064,12 @@ def evaluate(
         )
     if rate_limits >= int(os.environ.get('RATE_LIMIT_ALERT_THRESHOLD', '20')):
         issues['rate_limit_burst'] = f'{rate_limits} rate-limit events were detected in six minutes.'
+    if auth_mail_failures or auth_mail_unavailable or auth_mail_global_blocks or auth_mail_recipient_blocks >= 5:
+        issues['auth_mail'] = (
+            f'Authentication email delivery recorded {auth_mail_failures} failures, '
+            f'{auth_mail_unavailable} budget errors, {auth_mail_global_blocks} global '
+            f'and {auth_mail_recipient_blocks} recipient quota blocks in six minutes.'
+        )
     if admin_denied >= int(os.environ.get('ADMIN_DENIED_ALERT_THRESHOLD', '10')):
         issues['admin_probe_burst'] = f'{admin_denied} denied admin requests were detected in six minutes.'
     if 'event=admin_access ' in journal or 'event=admin_login ' in journal:

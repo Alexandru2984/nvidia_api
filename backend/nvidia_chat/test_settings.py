@@ -27,6 +27,7 @@ RATELIMIT_ENABLE = False
 
 # Don't write uploads under prod media dir.
 MEDIA_ROOT = tempfile.mkdtemp(prefix='nvidia_test_media_')
+AUTH_MAIL_BUDGET_DIR = tempfile.mkdtemp(prefix='nvidia_test_auth_mail_')
 
 # locmem mail backend so _send_*_email() doesn't hit SMTP.
 EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'

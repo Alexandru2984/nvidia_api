@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import useThemePreference from './useThemePreference'
 
-export const PRIVACY_NOTICE_VERSION = '2026-10-20.3'
+export const PRIVACY_NOTICE_VERSION = '2026-11-16.1'
 
 const SECURITY_CONTACT = 'https://github.com/Alexandru2984/nvidia_api/security/advisories/new'
 
@@ -48,7 +48,7 @@ export default function PrivacyNotice() {
             that service only for the specific delivery and AI flows described below.
           </p>
           <div className="privacy-version">
-            Version {PRIVACY_NOTICE_VERSION} <span aria-hidden="true">·</span> Effective 20 October 2026
+            Version {PRIVACY_NOTICE_VERSION} <span aria-hidden="true">·</span> Effective 16 November 2026
           </div>
         </section>
 
@@ -104,6 +104,8 @@ export default function PrivacyNotice() {
               <p>
                 Request and token counters, storage totals, generation status, privacy-minimized
                 security events, and bounded session device/network metadata.
+                Account email abuse controls also use daily pseudonymous recipient identifiers
+                and attempt counts; this budget contains no email addresses or codes.
               </p>
             </article>
           </div>
@@ -139,7 +141,7 @@ export default function PrivacyNotice() {
                 <tr>
                   <th scope="row">Self-hosted mailcow</th>
                   <td>Your email address and verification or password-reset message for account delivery.</td>
-                  <td>SMTP uses STARTTLS; provider log retention is not published here.</td>
+                  <td>SMTP uses STARTTLS. Each address has a combined limit of five verification/reset attempts per UTC day, with separate service limits. Failed attempts can remain counted. Provider log retention is not published here.</td>
                 </tr>
                 <tr>
                   <th scope="row">Cloudflare</th>
@@ -191,6 +193,7 @@ export default function PrivacyNotice() {
                 <tr><th scope="row">Invite / privileged audit</th><td>90 days for invitation audit; 365 days for privileged admin audit.</td></tr>
                 <tr><th scope="row">Upload-attempt metadata</th><td>24 hours.</td></tr>
                 <tr><th scope="row">Verification/reset codes</th><td>Codes expire after 30 minutes and are removed by scheduled cleanup.</td></tr>
+                <tr><th scope="row">Account email abuse counters</th><td>Current UTC-day counts and keyed recipient fingerprints. Replaced by the next successful daily cleanup or first next-day delivery attempt; fingerprints differ each day.</td></tr>
                 <tr><th scope="row">Scheduled account deletion</th><td>7-day grace period before live account data is deleted.</td></tr>
                 <tr><th scope="row">Database backups</th><td>The newest 7 daily local backups are kept by default.</td></tr>
               </tbody>

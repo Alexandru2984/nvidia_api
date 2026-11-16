@@ -8,6 +8,13 @@ from chat.models_catalog import DEFAULT_MODEL_ID
 from chat.provider_disclosure import CURRENT_PROVIDER_DISCLOSURE_VERSION
 
 
+@pytest.fixture(autouse=True)
+def isolated_auth_mail_budget(settings, tmp_path):
+    # SMTP reservations deliberately survive database rollback. Give every test
+    # its own private filesystem boundary as well as its normal database reset.
+    settings.AUTH_MAIL_BUDGET_DIR = tmp_path / 'auth-mail'
+
+
 @pytest.fixture
 def user(db):
     User = get_user_model()

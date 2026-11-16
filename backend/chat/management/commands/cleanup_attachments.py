@@ -13,6 +13,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from chat.admin_audit import audit_event_is_valid, security_log
+from chat.auth_mail import expire_auth_mail_budget
 from chat.file_deletions import retry_pending_file_deletion
 from chat.models import (
     AccountDeletionRequest,
@@ -225,6 +226,7 @@ class Command(BaseCommand):
             )
             return
 
+        expire_auth_mail_budget()
         file_deletions_retried = 0
         file_deletion_failures = 0
         for pending_id in pending_file_deletion_ids:

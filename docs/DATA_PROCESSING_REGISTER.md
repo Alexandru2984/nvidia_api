@@ -1,6 +1,6 @@
 # AI Chat Hub technical data-processing register
 
-Version: `2026-10-20.3`
+Version: `2026-11-16.1`
 Public notice: `/privacy/`  
 Scope: AI Chat Hub in `/home/micu/nvidia`
 
@@ -16,6 +16,7 @@ an answer.
 |---|---|---|---|---|---|
 | Username, email, password hash | Registration, authentication, recovery | PostgreSQL on the self-hosted service | Account lifetime; deletion with account | Password validation/hash, anti-enumeration responses, CSRF, quotas, rate limits | Controller identity, lawful basis, age/jurisdiction policy |
 | Verification/reset state and codes | Verify address or reset password | PostgreSQL; email delivered through self-hosted mailcow | Codes expire after 30 minutes and scheduled maintenance removes expired rows | Hashed codes, transactional state, bounded attempts, generic responses, STARTTLS | Mail log retention, mail DPA/incident terms |
+| Daily authentication-email attempt counts and keyed recipient fingerprints | Bound distributed signup/recovery email abuse | Private local budget file; never sent to mailcow or Telegram | Current UTC day; replaced at next successful daily cleanup or first next-day reservation. Keyed recipient fingerprints include the UTC day and cannot be correlated directly across days | Process-shared lock, bounded canonical JSON, exact owner/modes, atomic fsync/replace, no plaintext address/code, durable charge before SMTP even if SQL rolls back | Single-host only; select a shared durable store before horizontal scaling. Operator action must not reset current-day allowances to hide abuse |
 | 2FA secret and recovery-code hashes | Strong authentication | PostgreSQL; enrollment QR is displayed to the owner | Account lifetime or until disabled/regenerated | Recent password confirmation, encrypted 2FA secret, one-use recovery hashes | User-rights procedure and controller contact |
 | Authenticated-session metadata | Session management, owner review, abuse/security response | PostgreSQL and session store | 14-day sliding cookie, absolute maximum 30 days; expired rows cleaned daily | Opaque owner-scoped handles, secure/HTTP-only cookies, revocation, maximum active sessions | Exact journal/off-host security retention |
 | Prompts, assistant responses, titles and conversation settings | Provide and preserve chat functionality | PostgreSQL on the self-hosted service | Active chats until owner deletion; archived-chat choice is manual or 30/90/180/365 inactive days | Owner scoping, CSRF, object/byte quotas, export/delete controls, transaction boundaries | Lawful basis; formal rights-response process |

@@ -235,6 +235,8 @@ test('public privacy center is responsive and performs no API bootstrap', async 
     await expect(page.getByRole('heading', { name: 'Know where your data goes.' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Important governance gaps' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Retention in the application' })).toBeVisible()
+    await expect(page.getByRole('rowheader', { name: 'Account email abuse counters' })).toBeVisible()
+    await expect(page.getByText(/Effective 16 November 2026/)).toBeVisible()
     await expect(page.getByText('90 days; global aggregate usage is retained 400 days.')).toBeVisible()
     await expect(page.getByText(/No dedicated privacy contact is currently published/)).toBeVisible()
     await expect(page.getByRole('link', { name: 'GitHub security advisory form' })).toHaveAttribute(

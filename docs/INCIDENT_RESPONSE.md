@@ -56,6 +56,24 @@ These success events are emitted only after the outermost database commit;
 rolled-back mutations must not produce a success alert. The existing
 `two_factor_disabled` key remains separate. This operator notification does not
 constitute individual account-holder email delivery.
+`auth_mail` combines authentication-email delivery failures, unavailable budget
+state, global quota blocks, or five recipient-quota blocks in six minutes. A
+single recipient block does not page. The alert contains aggregate counts only
+and keeps the same 24-hour cooldown with recovery messages disabled. Registration
+and verification resend share 60 attempts per UTC day; reset has a separate
+40-attempt allowance, and each normalized recipient address has five combined
+attempts. Existing IP throttles and cooldowns still apply.
+Reservations are durable before SMTP and survive SQL rollback, worker restart
+and Django cache eviction. An SMTP exception may occur after remote acceptance;
+do not refund attempts or automatically retry an ambiguous send. Preserve the
+private budget state, inspect only aggregate counts and fixed event types, and
+repair SMTP or file ownership/mode/integrity before running
+`manage.py check_auth_mail_budget` as `aichat`. This checker sends no email and
+does not consume allowance. Never paste addresses, codes, HMAC keys or recipient
+fingerprints into an incident channel, and never clear current-day state to
+silence the signal. Day rollover/normal maintenance expires prior-day hashes.
+This file-backed budget requires one application host and its shared private
+runtime; select a shared durable store before horizontal scaling.
 Scheduling, cancellation and committed execution of delayed account deletion
 raise `account_deletion_scheduled`, `account_deletion_canceled` and
 `account_deletion_executed`. Telegram receives only event names/counts; the local
