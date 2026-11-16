@@ -657,6 +657,24 @@ secret values are reproduced here.
   [acceptance matrix](SECURITY_ACCEPTANCE_MATRIX_2026-11-16.md) records all
   gates without treating those external/owner dependencies as complete. No
   push occurred; detailed rollout evidence remains in the current audit log.
+- 2026-11-16: commit `91cc793` adds independent, process-serialized durable
+  authentication-email reservations: 60 verification and 40 reset attempts per
+  UTC day, with five combined attempts per address. SQL rollback, SMTP failure
+  and cache eviction cannot refund an attempt. Exhausted signup is rejected
+  before hashing; opaque responses and invitation/OTP rollback remain intact.
+  All three SMTP failure paths redact exception/traceback content, including a
+  zero-message result. The private bounded ledger stores only day-bound keyed
+  recipient hashes/counts, expires old data through normal maintenance and is
+  checked before backend activation without delivery. The public technical
+  notice/register are now `2026-11-16.1`. All 814 PostgreSQL, 805 SQLite (nine
+  native-lock skips), 182 operational and 60 browser tests passed, plus final
+  notice checks. Both signed releases are deployed at the full commit; backend
+  rollback/restoration passed in 2/3 seconds and frontend in 1/0 seconds. The
+  ledger stayed at zero across live checks, origin/edge/browser/monitor probes
+  passed and no email or Telegram test was sent. The owner explicitly retained
+  public signup with limits; this supersedes the earlier invite-only operational
+  recommendation without closing shared-credential or other P0 gates. No push
+  occurred. Full rollout evidence is in the current audit log.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path

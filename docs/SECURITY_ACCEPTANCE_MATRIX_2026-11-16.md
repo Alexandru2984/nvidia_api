@@ -27,7 +27,7 @@ historical check was independently rerun today. **Overall verdict remains RED.**
 | S-09 / P1.1: origin trust | Backend Unix socket, exact permissions, direct TCP denial and identity checks are monitored | Shared cloudflared-to-nginx authentication/isolation requires a separate authorized ingress window |
 | S-10: session/strong authentication | Absolute session lifetime, indexed registry/cap, recent-auth and account/factor/session serialization are deployed | Preserve the policy for future identity changes; staff-device and edge gates remain P0.3 |
 | S-11: concurrency | Durable leases/idempotency/cancellation, attachment claims and native PostgreSQL concurrency tests pass | NVIDIA cannot share the local transaction; indeterminate provider work requires operator reconciliation before a new-key retry |
-| S-12 / P1.2: storage/egress/retention | Object/message/file/metadata quotas, physical admission reserves, deletion outbox, bounded exports, archived-history options and usage retention are deployed | Operator-wide legal/default retention schedule remains undefined. Fresh runtime inspection reports registration `open`; invite capability alone does not prove invite-only production policy. Shared-host writers and crash-orphan reconciliation remain separate from admission reserves |
+| S-12 / P1.2: storage/egress/retention | Object/message/file/metadata quotas, physical admission reserves, deletion outbox, bounded exports, archived-history options, usage retention and durable SMTP/recipient attempt budgets are deployed | Owner explicitly selected public registration with limits on 2026-11-16; `open` is intentional, not an invitation-deployment claim. Preserve the limits and review additional human verification if abuse persists. Operator-wide legal/default retention remains undefined; shared-host writers and crash-orphan reconciliation remain separate |
 | S-13 / P1.5: detection/response | Signed release/config/socket/identity/storage health, privacy-minimized security events, guarded containment and local tabletop evidence exist | Off-host append-only retention, host sudo signals and provider/mail monetary anomaly evidence remain open; local journals/callbacks are not a durable external audit sink |
 | S-14 / P1.4, P1.6: supply chain | Local signed manifests/SBOMs, pinned Actions/hash locks and partial upstream attestations are recorded; full backend PostgreSQL CI gate is committed | The new PostgreSQL gate still needs authorized push. The older Dependabot file is already present at remote `d137c50`; updater/branch-protection settings remain unverified. Remaining upstream attestations and encrypted off-host archive/key lifecycle are open; no new push was made |
 | S-15: governance | Public technical notice and processing register are published | Operator identity/privacy contact, legal/default schedules and vendor/DPA/entitlement/region/retention/training decisions require owner and professional review; do not invent them in code |
@@ -36,15 +36,17 @@ historical check was independently rerun today. **Overall verdict remains RED.**
 
 ## Current bounded verification
 
-- Backend: all 790 PostgreSQL tests passed; SQLite passed 781 with nine explicit
-  PostgreSQL-only lock skips. All 181 operational checks passed. Django/schema,
-  compilation and shell checks passed. No schema/frontend change was required
-  by the current account-security stage; prior browser evidence is separate.
+- Backend: all 814 PostgreSQL tests passed; SQLite passed 805 with nine explicit
+  PostgreSQL-only lock skips. All 182 operational and 60 browser checks passed,
+  plus a focused final privacy-copy/date rerun. Django/schema, frontend lint/
+  build, compilation and shell checks passed. No schema change was required.
 - Production backend is the signed exact commit
-  `0d6eaa0d6bc65c44444d1bb09c940b828b69c63f`, PID `973556`, zero automatic
-  restarts after a 2/2-second rollback/restoration. Public/origin boundary probes
-  and monitor/isolated restore passed. The frontend retains its earlier signed
-  `2a0f38b` release.
+  `91cc793f5dba3c7bbc4260e82b32860a64596d98`, PID `2808881`, zero automatic
+  restarts after a 2/3-second rollback/restoration. Frontend at the same commit
+  passed a 1/0-second drill and publishes notice `2026-11-16.1`. Public/origin
+  boundary probes, 320/1440 px real privacy browsers and monitor/isolated restore
+  passed; the private ledger stayed at zero reserved attempts/recipient hashes
+  during checks.
 - No production password/factor mutation or synthetic notification was used for
   validation. Active monitor issues are empty; the last notification timestamp
   remains the investigated Certbot event and recovery-notification history is

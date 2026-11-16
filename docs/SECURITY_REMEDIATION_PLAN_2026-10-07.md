@@ -45,6 +45,14 @@ systemd filesystem/process/network restrictions appropriate to their function.
 Interactive automation under `micu` remains fully trusted. The verdict cannot be
 green while remotely reachable services still inherit that identity.
 
+Owner registration decision — 2026-11-16: keep signup public with limits.
+`REGISTRATION_MODE=open` remains the intended production policy; do not silently
+replace it with invite-only mode. Deployed compensating controls include IP
+throttles/cooldowns, opaque responses and independent durable verification/reset/
+recipient mail allowances. This product-policy choice does not accept or close
+the separate staff-factor, admin-perimeter, host, credential, recovery or legal
+gates. Review additional human verification if measured distributed abuse remains.
+
 Changes to unrelated projects require their own inventory, backup, health probe
 and rollback. This program will not silently rewrite them merely because they
 share the host.
@@ -461,6 +469,13 @@ untrusted processes cannot bypass the origin boundary; parallel requests cannot
 duplicate attachment consumption or destructive regeneration.
 
 ## Wave 8 — abuse, retention, detection and supply chain (P1/P2)
+
+- Authentication email now has durable single-host UTC-day attempt reservations
+  independent of SQL rollback, plus per-recipient caps, opaque responses and
+  private error/detection handling (`91cc793`). Publication of the daily keyed
+  counters and their replacement schedule is complete in notice/register
+  `2026-11-16.1`; no real delivery was used for verification. Public signup is the
+  owner's explicit choice and remains enabled with these controls.
 
 - Fixed absolute session lifetime and a uniform, password-hash-bound recent-auth
   policy are deployed; sensitive 2FA/password/account actions confirm credentials

@@ -51,9 +51,13 @@ open; new local fixes do not constitute program acceptance.
   per user and globally, actual provider token accounting, fail-closed concurrent
   token reservations, and a configuration kill-switch are shipped. Add a
   contract/GPU-based monetary spend budget and an admin override/audit trail;
-  invite-only registration with one-time HMAC-stored codes is shipped. Add a
-  human-verification challenge only if public registration returns, and move
-  burst throttles to Redis/PostgreSQL before scaling.
+  invitation support with one-time HMAC-stored codes is shipped. The owner
+  explicitly keeps signup public with limits (2026-11-16): verification/reset
+  mail now has independent durable UTC-day/service/recipient allowances, SMTP
+  error redaction and bounded detection without changing opaque responses.
+  Signup reserves before hashing, and failures cannot refund mail attempts.
+  Review human verification if measured abuse persists; move burst throttles
+  and the single-host mail ledger to shared durable stores before scaling.
 - **Provider entitlement:** confirm and record the NVIDIA production license or
   restrict the service to private evaluation use. Map the contractual/GPU cost
   model into alerts and a hard monetary circuit breaker.

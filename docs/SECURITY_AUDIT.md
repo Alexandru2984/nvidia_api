@@ -74,7 +74,7 @@ Upstream responses are logged server-side while clients receive generic text.
 | A-08 | Medium | File-cache increments were not safe under concurrency | `flock`-serialized cache add/increment with multiprocess test | Replace with Redis/PostgreSQL counters before horizontal scaling |
 | A-09 | Medium | Declared MIME/extension or model capability could be misleading | Local fail-closed ClamAV scanning before parsing/dedup/storage, isolated document parsing, file signatures, safe stored names, PNG validation, download headers, and server-side per-model MIME/size/count enforcement | Keep official signatures current; signature scanning cannot establish that novel content is benign |
 | A-10 | Medium | Model history, repeated calls or malformed provider responses could multiply payload, memory and cost | Per-message/history caps; model-specific image-count caps and incompatible-history filtering; PostgreSQL daily request and actual-token budgets per-user/globally; pre-call token reservations reconciled from terminal provider usage; exact NVIDIA endpoint validation; no redirects; bounded/shape-validated SSE and image JSON; kill-switch | Map the actual contract/GPU cost into a hard monetary limit and add administrative override audit |
-| A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; uniform duplicate/recovery responses; case-insensitive database uniqueness | Keep production invite-only; add Turnstile only before reopening public signup; assess timing side channels under load |
+| A-11 | Medium | Registration and recovery can be automated or used for account enumeration | Invite/open/closed modes; 100-bit one-time invitation codes stored only as HMAC; atomic consumption/mail rollback; expiry and 90-day audit retention; IP throttles; durable UTC-day SMTP attempt budgets and recipient caps; uniform duplicate/recovery responses; case-insensitive database uniqueness | Owner explicitly retains public registration with limits on 2026-11-16; preserve those controls, assess timing side channels and review human verification if distributed abuse persists |
 | A-12 | Medium | Security event detection was incomplete | Structured events and five-minute alerts cover auth/rate/admin-denial bursts, valid admin access, privileged changes and audit-integrity failures, 2FA disable/key failures, invite rejection/consumption and verified signup, completed/bound-breaking account exports, every authorized conversation export, immediate and scheduled/canceled/executed account deletion, invalid proxy/socket client identity, incompatible attachment/model bursts, malware detections, scanner outage/health/signature freshness, parser outage/health/failure correlation, failed/degraded/unauthorized model probes and independent signed-state health, committed attachment-file deletion failures, chat-object quota blocks, generation interruptions/mismatched idempotency reuse, session registry mismatches/cap pressure, global budget, missing/malformed provider usage, token reservation overruns, errors, scheduled-maintenance or restore-drill failure, protected dotenv/vhost/unit/monitor changes, all three active release manifests, executable-release retention, backup and restore freshness | Add external retention and contract-spend correlation; tabletop the alert path |
 | A-13 | Medium | TOTP secrets and recovery hashes depended directly on `DJANGO_SECRET_KEY`, and invalid ciphertext could fall through as plaintext | Independent bounded keyring; purpose-separated derivation; versioned TOTP/recovery envelopes; strict base32/digest validation; fail-closed unknown/corrupt artifacts; transactional and lazy secret rewrap; inventory/audit gate; five-minute key-error alert | Move root keys from dotenv to systemd credentials or KMS/HSM; retain an old key until every recovery hash dependency is consumed or regenerated |
 | A-14 | Low | No public coordinated disclosure path | `SECURITY.md` and `/.well-known/security.txt` added | Test after every frontend deploy |
@@ -3866,6 +3866,85 @@ is required before describing those controls as complete.
   [The acceptance matrix](SECURITY_ACCEPTANCE_MATRIX_2026-11-16.md) indexes all
   original findings/gates and their remaining dependencies. The program remains
   RED, and no push was performed.
+
+### Durable authentication-email budgets — 2026-11-16
+
+- Commit `91cc793` bounds distributed registration/resend/recovery SMTP abuse
+  without changing their opaque public responses. Verification/registration
+  share 60 attempts per UTC day; reset has a separate 40-attempt allowance so
+  signup exhaustion cannot consume reset capacity. Each normalized address has
+  five combined attempts. Forgot/resend requests for unknown accounts, duplicate
+  signup and cooldown-suppressed requests do not reserve. Registration reserves after invitation/
+  duplicate validation but before password hashing/account creation, preventing
+  a depleted mail allowance from becoming a hashing loop. Existing IP throttles
+  and cooldowns remain in force.
+- A dedicated single-host ledger is independent of the authentication SQL
+  transaction: an SMTP timeout can occur after remote acceptance, so failed or
+  rolled-back authentication operations must not refund attempted delivery.
+  Process-shared locking, exact owner/`0700` directory and `0600` regular-file
+  checks, no-follow/nonblocking opens, bounded strict JSON, atomic replace and
+  file/directory fsync preserve admission across workers and restarts. Cache
+  culling/clear does not touch the ledger. Corrupt/future/oversized/link/FIFO or
+  unsafe state fails closed without printing private exception details. This
+  store requires the existing single-host shared runtime; select a shared
+  durable budget backend before horizontal scaling.
+- The ledger contains only day, counts and day-bound keyed recipient hashes,
+  never addresses, codes or mail bodies. First next-day reservation or successful
+  daily maintenance expires prior-day hashes; dry-run is read-only. Reclaimable
+  writer snapshots left by a crash are removed under the same lock with bounded,
+  no-follow checks. `check_auth_mail_budget` bootstraps/validates this boundary
+  without consuming allowance or sending email and now gates backend activation.
+  No migration or new credential/vendor was introduced.
+- SMTP exception text/tracebacks are suppressed for registration, resend and
+  reset. A backend reporting zero accepted messages is treated as failure,
+  preserving existing OTP state and rolling back new accounts/invite use while
+  retaining the budget charge. `auth_mail` aggregates delivery errors, unavailable
+  budget state, any global block or five recipient blocks in six minutes. It
+  sends no identities/fingerprints and retains the 24-hour cooldown with recovery
+  messages disabled. The runbook explains preservation and repair without
+  clearing current-day allowances or retrying ambiguous SMTP outcomes blindly.
+- All 814 PostgreSQL tests passed without skips; SQLite passed 805 with nine
+  native-lock skips. All 182 operational and 60 browser tests passed; the final
+  notice copy/date received an additional focused 320/1440 px rerun. Tests cover
+  four competing processes (exactly seven admissions at a seven-attempt cap),
+  SQL-failure durability, cache eviction, recipient normalization, separate
+  allowances, invitation/OTP preservation, pre-hash rejection, redaction of all
+  three send paths, zero-message acceptance, unsafe state, daily expiry/dry-run
+  and crash snapshots. The sole early failure was a test payload using the wrong
+  invitation field; correcting it retained the real API and budget assertions.
+  Django/schema, frontend lint/build, compilation, Bash, ShellCheck and diff
+  validation passed.
+- Public technical notice and processing register are version `2026-11-16.1`,
+  effective 16 November. They disclose pseudonymous counters, their purpose,
+  daily replacement and delivery limits; NVIDIA egress and its disclosure flow
+  are unchanged. Real origin/edge browser probes observed the new notice at
+  320/1440 px with zero API bootstrap, inline styles or horizontal overflow.
+- Signed backend
+  `/opt/aichat-backend-releases/release-20261116T132453_639953482` and frontend
+  `/var/www/aichat-releases/release-20261116T132809_790081557` both contain exact
+  commit `91cc793f5dba3c7bbc4260e82b32860a64596d98`. Backend rollback/restoration
+  passed in 2/3 seconds, ending at PID `2808881`, zero automatic restarts.
+  Frontend rollback/restoration passed in 1/0 seconds. Normal retention
+  recoverably archived one older release of each family. The production checker
+  passed before activation and afterward; the private ledger remained at zero
+  attempts/recipients across the drills. No real email or authentication mutation
+  was used for testing, and no provider/mail credential was changed.
+- Guarded monitor installation/isolated restore passed. Installed monitor SHA-256
+  is `9231ca2c4e9f76fd6f25c62359282ea6379e71c6eefe2406be3240afc7635b3d`.
+  Services/timers/watcher are healthy, origin/edge health is `200`, media `404`,
+  private API/dotenv and the direct budget-state URI `403`. No warning-level
+  service or watcher event appeared; monitor issues are empty, the 16-key alert
+  history/latest timestamp is unchanged and recovery history remains empty.
+  No Telegram test or new notification occurred, and no push was performed.
+- CISO review prioritizes distributed mail/cost denial of service, private SMTP
+  failure disclosure and unsafe counter state. Availability affects all
+  registrants/recovery users; conservative reservations intentionally do not
+  guarantee delivery or a monetary/provider-wide budget. Shared SMTP credential
+  rotation/revocation and other P0/external gates remain open. There is no
+  measured basis for a new financial estimate; existing incident/privacy
+  escalation applies. The owner explicitly selected public signup with limits;
+  `REGISTRATION_MODE=open` is preserved. This policy choice does not waive the
+  remaining security program gates or change the RED verdict.
 
 ### Timed incident tabletop — 2026-11-12
 
