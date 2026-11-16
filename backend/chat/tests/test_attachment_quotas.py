@@ -1,13 +1,18 @@
 """Attachment inode, total-byte and upload-coordination admission boundaries."""
 import base64
 import uuid
+from types import SimpleNamespace
+from io import StringIO
 from unittest.mock import patch
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.files.storage import default_storage
+from django.core.management import call_command
 from rest_framework.response import Response
 
-from chat.models import Attachment, AttachmentUploadAttempt
+from chat.file_deletions import retry_pending_file_deletion
+from chat.models import Attachment, AttachmentUploadAttempt, PendingFileDeletion
 from chat.tests.test_images import PNG_1PX
 
 
@@ -195,3 +200,102 @@ def test_quota_event_does_not_include_private_file_content(auth_client, settings
     assert 'event=attachment_quota_blocked scope=user resource=files' in caplog.text
     assert private_marker not in caplog.text
     assert 'note.txt' not in caplog.text
+
+
+@pytest.mark.parametrize('resource', ['files', 'bytes'])
+def test_pending_deletion_still_consumes_global_capacity(auth_client, settings, resource):
+    if resource == 'files':
+        settings.MAX_GLOBAL_ATTACHMENTS = 1
+    else:
+        settings.MAX_GLOBAL_STORAGE = settings.MAX_ATTACHMENT_SIZE
+    pending = PendingFileDeletion.objects.create(file_name='attachments/1/0123456789abcdef/pending.txt')
+
+    blocked = _upload(auth_client, 'new')
+
+    assert blocked.status_code == 503
+    assert blocked.json()['code'] == 'attachment_capacity_unavailable'
+    assert 'used' not in blocked.json()
+    assert not Attachment.objects.exists()
+    assert retry_pending_file_deletion(pending.pk)
+    assert _upload(auth_client, 'new').status_code == 201
+
+
+@pytest.mark.parametrize('resource', ['bytes', 'inodes', 'unavailable'])
+def test_low_filesystem_capacity_fails_privately_before_parsing(
+    auth_client, settings, caplog, resource,
+):
+    stats = SimpleNamespace(f_bavail=100, f_frsize=1, f_favail=100)
+    settings.ATTACHMENT_MIN_FREE_BYTES = 10
+    settings.ATTACHMENT_MIN_FREE_INODES = 10
+    if resource == 'bytes':
+        stats.f_bavail = 10
+    elif resource == 'inodes':
+        stats.f_favail = 10
+    failure = OSError('private-storage-path-marker') if resource == 'unavailable' else None
+    with patch('chat.attachment_limits.os.statvfs', return_value=stats, side_effect=failure):
+        with patch('chat.views.extract_text') as parse:
+            with caplog.at_level('WARNING', logger='security'):
+                blocked = _upload(auth_client, 'new')
+
+    assert blocked.status_code == 503
+    assert blocked['Retry-After'] == '60'
+    parse.assert_not_called()
+    assert not Attachment.objects.exists()
+    assert 'event=attachment_quota_blocked scope=global' in caplog.text
+    assert 'private-storage-path-marker' not in caplog.text
+    assert 'used' not in blocked.json()
+
+
+def test_exact_filesystem_reserve_allows_upload(auth_client, settings):
+    settings.ATTACHMENT_MIN_FREE_BYTES = 10
+    settings.ATTACHMENT_MIN_FREE_INODES = 10
+    stats = SimpleNamespace(f_bavail=16, f_frsize=1, f_favail=14)
+    with patch('chat.attachment_limits.os.statvfs', return_value=stats):
+        assert _upload(auth_client, 'new').status_code == 201
+
+
+@pytest.mark.parametrize('flow', ['upload', 'image'])
+def test_physical_capacity_is_rechecked_after_parser_or_provider(auth_client, settings, flow):
+    settings.ATTACHMENT_MIN_FREE_BYTES = 10
+    settings.ATTACHMENT_MIN_FREE_INODES = 10
+    enough = SimpleNamespace(f_bavail=1000, f_frsize=1, f_favail=100)
+    low = SimpleNamespace(f_bavail=10, f_frsize=1, f_favail=10)
+    generated = ({'image': base64.b64encode(PNG_1PX).decode()}, None)
+    with patch('chat.attachment_limits.os.statvfs', side_effect=[enough, low]):
+        with patch('chat.views._nvcf_generate', return_value=generated) as provider:
+            if flow == 'upload':
+                blocked = _upload(auth_client, 'new')
+                provider.assert_not_called()
+            else:
+                blocked = auth_client.post('/api/images/generate/', {'prompt': 'example'}, format='json')
+                provider.assert_called_once()
+
+    assert blocked.status_code == 503
+    assert not Attachment.objects.exists()
+
+
+def test_storage_failure_recovery_drill_retains_capacity_until_cleanup(
+    auth_client, settings, django_capture_on_commit_callbacks,
+):
+    settings.MAX_GLOBAL_ATTACHMENTS = 1
+    first = _upload(auth_client, 'private fixture')
+    assert first.status_code == 201
+    stored = Attachment.objects.get(pk=first.json()['id'])
+    name = stored.file.name
+
+    with patch.object(default_storage, 'delete', side_effect=OSError('synthetic storage outage')):
+        with django_capture_on_commit_callbacks(execute=True):
+            assert auth_client.delete(f'/api/attachments/{stored.pk}/').status_code == 204
+
+    assert default_storage.exists(name)
+    assert PendingFileDeletion.objects.count() == 1
+    assert _upload(auth_client, 'replacement').status_code == 503
+    call_command('cleanup_attachments', '--dry-run', stdout=StringIO())
+    assert default_storage.exists(name)
+    assert PendingFileDeletion.objects.count() == 1
+
+    call_command('cleanup_attachments', stdout=StringIO())
+
+    assert not default_storage.exists(name)
+    assert not PendingFileDeletion.objects.exists()
+    assert _upload(auth_client, 'replacement').status_code == 201

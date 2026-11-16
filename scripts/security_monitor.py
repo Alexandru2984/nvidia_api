@@ -65,6 +65,22 @@ MODEL_STATUS_CHECK_TIMEOUT_SECONDS = 15
 RELEASE_PROVENANCE_CHECK_PATH = Path('/usr/local/libexec/aichat-release-provenance')
 RELEASE_PROVENANCE_TIMEOUT_SECONDS = 20
 RELEASE_OPERATION_LOCK = Path('/run/aichat-release-operation.lock')
+STORAGE_MIN_FREE_BYTES = 512 * 1024 * 1024
+STORAGE_MIN_FREE_INODES = 10_000
+
+
+def evaluate_filesystem_capacity(path):
+    """Use existing backup-metadata access; never open private media or dumps."""
+    try:
+        info = os.statvfs(path)
+        if (
+            info.f_bavail * info.f_frsize < STORAGE_MIN_FREE_BYTES
+            or info.f_favail < STORAGE_MIN_FREE_INODES
+        ):
+            return {'storage_capacity': 'The application backup filesystem is below its free-space or inode reserve.'}
+    except OSError:
+        return {'storage_capacity': 'The application backup filesystem capacity could not be checked.'}
+    return {}
 
 
 def _hash_file(path):
@@ -898,6 +914,7 @@ def evaluate(
     if not backup_dir.is_dir() or backup_dir.is_symlink():
         issues['backup_missing'] = 'Backup directory is missing or unsafe.'
     else:
+        issues.update(evaluate_filesystem_capacity(backup_dir))
         backup_info = backup_dir.stat()
         if backup_monitor_uid is None:
             if stat.S_IMODE(backup_info.st_mode) & 0o077:
@@ -1094,7 +1111,7 @@ def evaluate(
         )
     if file_delete_failures:
         issues['attachment_file_delete_failed'] = (
-            f'{file_delete_failures} committed attachment files could not be deleted '
+            f'{file_delete_failures} attachment storage objects could not be fully reclaimed '
             'and remain queued for retry.'
         )
     if parser_unavailable:

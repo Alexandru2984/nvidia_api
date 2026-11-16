@@ -67,6 +67,13 @@ if ! git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" diff --quiet -- \
   echo 'ERROR: tracked repository changes must be committed before installation' >&2
   exit 1
 fi
+# Capacity monitoring uses the existing backup-only metadata access. It covers
+# application media only while both paths share a filesystem; moving either
+# path requires a separately reviewed monitor mount/permission boundary.
+if [[ "$(stat -c '%d' -- "$RUNTIME_DIR/media")" != "$(stat -c '%d' -- "$BACKUP_DIR")" ]]; then
+  echo 'ERROR: media and backup capacity require separate filesystem monitoring' >&2
+  exit 1
+fi
 legacy_restore_count="$(
   crontab -u "$CRONTAB_USER" -l 2>/dev/null \
     | grep -Fxc -- "$LEGACY_RESTORE_CRON" || true

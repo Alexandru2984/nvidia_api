@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
+from django.core.files.storage import FileSystemStorage, default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 
@@ -111,3 +111,112 @@ def test_uncommitted_file_delete_failure_enters_private_outbox(caplog):
     messages = '\n'.join(record.getMessage() for record in caplog.records)
     assert messages == 'event=attachment_file_delete_failed'
     assert name not in messages
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('operation', ['committed', 'rolled_back'])
+def test_file_cleanup_reclaims_only_its_empty_random_directory(
+    user, django_capture_on_commit_callbacks, operation,
+):
+    attachment = Attachment(
+        user=user, original_name='private.txt', mime_type='text/plain', size=7,
+        kind=Attachment.KIND_DOCUMENT,
+    )
+    attachment.file.save('private.txt', ContentFile(b'private'), save=operation == 'committed')
+    path = Path(attachment.file.path)
+    owner_dir = path.parent.parent
+    other = owner_dir / 'fedcba9876543210'
+    other.mkdir(exist_ok=True)
+    marker = other / 'keep.txt'
+    marker.write_bytes(b'keep')
+
+    if operation == 'committed':
+        with django_capture_on_commit_callbacks(execute=True):
+            attachment.delete()
+    else:
+        assert discard_uncommitted_file(attachment.file)
+
+    assert not path.exists()
+    assert not path.parent.exists()
+    assert marker.read_bytes() == b'keep'
+    assert owner_dir.is_dir()
+    assert not PendingFileDeletion.objects.exists()
+
+
+@pytest.mark.parametrize('symlink_level', ['root', 'attachments', 'owner'])
+def test_directory_pruning_never_follows_symlinks(tmp_path, symlink_level):
+    from chat.file_deletions import _prune_empty_upload_directory
+
+    root = tmp_path / 'media'
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    random_name = '0123456789abcdef'
+    if symlink_level == 'root':
+        root.symlink_to(outside, target_is_directory=True)
+        leaf = outside / 'attachments' / '1' / random_name
+    elif symlink_level == 'attachments':
+        root.mkdir()
+        (root / 'attachments').symlink_to(outside, target_is_directory=True)
+        leaf = outside / '1' / random_name
+    else:
+        (root / 'attachments').mkdir(parents=True)
+        (root / 'attachments' / '1').symlink_to(outside, target_is_directory=True)
+        leaf = outside / random_name
+    leaf.mkdir(parents=True)
+    storage = FileSystemStorage(location=str(root))
+
+    with pytest.raises(OSError):
+        _prune_empty_upload_directory(storage, f'attachments/1/{random_name}/gone.txt')
+
+    assert leaf.is_dir()
+
+
+@pytest.mark.django_db
+def test_retry_removes_empty_directory_left_after_file_was_already_deleted(user):
+    from chat.file_deletions import retry_pending_file_deletion
+
+    attachment = Attachment(user=user)
+    attachment.file.save('private.txt', ContentFile(b'private'), save=False)
+    path = Path(attachment.file.path)
+    name = attachment.file.name
+    path.unlink()
+    pending = PendingFileDeletion.objects.create(file_name=name)
+
+    assert retry_pending_file_deletion(pending.pk)
+    assert not path.parent.exists()
+    assert not PendingFileDeletion.objects.exists()
+
+
+@pytest.mark.django_db
+def test_failed_directory_cleanup_stays_queued_without_private_paths(user, caplog):
+    from chat.file_deletions import retry_pending_file_deletion
+
+    attachment = Attachment(user=user)
+    attachment.file.save('private.txt', ContentFile(b'private'), save=False)
+    path = Path(attachment.file.path)
+    pending = PendingFileDeletion.objects.create(file_name=attachment.file.name)
+    with mock.patch('chat.file_deletions.os.rmdir', side_effect=PermissionError('private-path-marker')):
+        with caplog.at_level('ERROR', logger='security'):
+            assert not retry_pending_file_deletion(pending.pk)
+
+    assert not path.exists()
+    assert path.parent.is_dir()
+    assert PendingFileDeletion.objects.filter(pk=pending.pk).exists()
+    assert 'private-path-marker' not in caplog.text
+    assert retry_pending_file_deletion(pending.pk)
+    assert not path.parent.exists()
+    assert not PendingFileDeletion.objects.exists()
+
+
+def test_directory_cleanup_preserves_nonempty_upload_directory(tmp_path):
+    from chat.file_deletions import _prune_empty_upload_directory
+
+    storage = FileSystemStorage(location=str(tmp_path))
+    leaf = tmp_path / 'attachments' / '1' / '0123456789abcdef'
+    leaf.mkdir(parents=True)
+    marker = leaf / 'keep.txt'
+    marker.write_bytes(b'keep')
+
+    _prune_empty_upload_directory(storage, 'attachments/1/0123456789abcdef/gone.txt')
+
+    assert marker.read_bytes() == b'keep'

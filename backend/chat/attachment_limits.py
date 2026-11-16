@@ -4,12 +4,14 @@ Callers may use these as a coarse preflight. The authoritative create must hold
 ChatStorageGate followed by the owner row until capacity is checked and saved.
 """
 import logging
+import os
 
 from django.conf import settings
+from django.core.files.storage import default_storage
 from django.db.models import Count, Q, Sum
 from rest_framework.response import Response
 
-from .models import Attachment, AttachmentUploadAttempt
+from .models import Attachment, AttachmentUploadAttempt, PendingFileDeletion
 
 
 security_log = logging.getLogger('security')
@@ -44,14 +46,36 @@ def attachment_quota_response(user_id, incoming_bytes):
         files=Count('pk'), bytes=Sum('size'),
         owner_files=Count('pk', filter=owner), owner_bytes=Sum('size', filter=owner),
     )
+    # A committed row deletion must not make an undeleted storage object free.
+    # Read this after live usage: concurrent deletion can overcount safely,
+    # rather than miss both sides of the live-row -> outbox transition. The
+    # outbox deliberately has no content/owner metadata, so reserve a whole
+    # maximum-sized file per entry until physical cleanup succeeds.
+    pending_files = PendingFileDeletion.objects.count()
     for scope, resource, used, added, limit in (
         ('user', 'files', usage['owner_files'], 1, settings.MAX_USER_ATTACHMENTS),
         ('user', 'bytes', usage['owner_bytes'] or 0, incoming_bytes, settings.MAX_USER_STORAGE),
-        ('global', 'files', usage['files'], 1, settings.MAX_GLOBAL_ATTACHMENTS),
-        ('global', 'bytes', usage['bytes'] or 0, incoming_bytes, settings.MAX_GLOBAL_STORAGE),
+        ('global', 'files', usage['files'] + pending_files, 1, settings.MAX_GLOBAL_ATTACHMENTS),
+        ('global', 'bytes', (usage['bytes'] or 0) + pending_files * settings.MAX_ATTACHMENT_SIZE,
+         incoming_bytes, settings.MAX_GLOBAL_STORAGE),
     ):
         if used + added > limit:
             return _blocked(user_id, scope, resource, used, limit)
+    try:
+        filesystem = os.statvfs(default_storage.path(''))
+        available_bytes = filesystem.f_bavail * filesystem.f_frsize
+        if filesystem.f_frsize <= 0:
+            raise OSError('invalid storage allocation unit')
+        # Round file data to allocation units and allow for attachments/owner/
+        # random directories on a first save. This remains an admission guard,
+        # not a filesystem project quota against unrelated writers.
+        blocks = (incoming_bytes + filesystem.f_frsize - 1) // filesystem.f_frsize + 3
+        if available_bytes - blocks * filesystem.f_frsize < settings.ATTACHMENT_MIN_FREE_BYTES:
+            return _blocked(user_id, 'global', 'disk_bytes', 0, 0)
+        if filesystem.f_favail - 4 < settings.ATTACHMENT_MIN_FREE_INODES:
+            return _blocked(user_id, 'global', 'disk_inodes', 0, 0)
+    except (OSError, NotImplementedError):
+        return _blocked(user_id, 'global', 'storage_state', 0, 0)
     return None
 
 

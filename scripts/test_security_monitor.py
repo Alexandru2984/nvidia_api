@@ -38,6 +38,26 @@ class SecurityMonitorTests(unittest.TestCase):
     def test_clean_state_has_no_issues(self):
         self.assertEqual(monitor.evaluate(self.backups, self.restore_log, ''), {})
 
+    def test_filesystem_capacity_boundaries_alert_without_private_paths(self):
+        for resource in ['bytes', 'inodes']:
+            with self.subTest(resource=resource):
+                info = SimpleNamespace(f_bavail=512 * 1024 * 1024, f_frsize=1, f_favail=10_000)
+                with mock.patch.object(monitor.os, 'statvfs', return_value=info):
+                    self.assertEqual(monitor.evaluate(self.backups, self.restore_log, ''), {})
+                    if resource == 'bytes':
+                        info.f_bavail -= 1
+                    else:
+                        info.f_favail -= 1
+                    issues = monitor.evaluate(self.backups, self.restore_log, '')
+                self.assertEqual(set(issues), {'storage_capacity'})
+                self.assertNotIn(str(self.backups), issues['storage_capacity'])
+
+    def test_filesystem_capacity_stat_failure_is_private(self):
+        with mock.patch.object(monitor.os, 'statvfs', side_effect=OSError('private-path-marker')):
+            issues = monitor.evaluate(self.backups, self.restore_log, '')
+        self.assertEqual(set(issues), {'storage_capacity'})
+        self.assertNotIn('private-path-marker', issues['storage_capacity'])
+
     def test_attachment_capacity_alert_threshold_and_privacy(self):
         owner_event = 'event=attachment_quota_blocked scope=user resource=attempts user_id=12345'
         self.assertNotIn('attachment_quota', monitor.evaluate(

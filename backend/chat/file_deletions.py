@@ -1,14 +1,56 @@
 """Transactional, retryable deletion of private attachment storage objects."""
 import logging
+import errno
+import os
+import re
+from contextlib import ExitStack
 from functools import partial
 
-from django.core.files.storage import default_storage
+from django.core.files.storage import FileSystemStorage, default_storage
 from django.db import models, transaction
 from django.utils import timezone
 
 from .models import PendingFileDeletion
 
 security_log = logging.getLogger('security')
+
+
+def _prune_empty_upload_directory(storage, file_name):
+    """Reclaim only this local upload's empty random directory, without links.
+
+    Owner/media roots and nonempty directories are never removed. Non-local or
+    legacy storage names keep their existing deletion behavior.
+    """
+    parts = file_name.split('/')
+    if (
+        not isinstance(storage, FileSystemStorage)
+        or len(parts) != 4 or parts[0] != 'attachments'
+        or not re.fullmatch(r'[1-9][0-9]*', parts[1])
+        or not re.fullmatch(r'[0-9a-f]{16}', parts[2])
+        or parts[3] in ('', '.', '..')
+    ):
+        return
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        with ExitStack() as descriptors:
+            parent = os.open(storage.location, flags)
+            descriptors.callback(os.close, parent)
+            for part in parts[:2]:
+                parent = os.open(part, flags, dir_fd=parent)
+                descriptors.callback(os.close, parent)
+            try:
+                os.rmdir(parts[2], dir_fd=parent)
+            except OSError as error:
+                if error.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                    raise
+    except FileNotFoundError:
+        # Repeated cleanup after the file/directory already disappeared is safe.
+        pass
+
+
+def _delete_stored_file(storage, file_name):
+    storage.delete(file_name)
+    _prune_empty_upload_directory(storage, file_name)
 
 
 def retry_pending_file_deletion(pending_id, *, storage=None, using='default'):
@@ -22,7 +64,7 @@ def retry_pending_file_deletion(pending_id, *, storage=None, using='default'):
         )
         if pending is None:
             return True
-        (storage or default_storage).delete(pending.file_name)
+        _delete_stored_file(storage or default_storage, pending.file_name)
         PendingFileDeletion.objects.using(using).filter(pk=pending_id).delete()
         return True
     except Exception:
@@ -65,7 +107,7 @@ def discard_uncommitted_file(file_field, *, using='default'):
     if not file_name or storage is None:
         return True
     try:
-        storage.delete(file_name)
+        _delete_stored_file(storage, file_name)
         return True
     except Exception:
         # The database transaction that owned the Attachment has already rolled
