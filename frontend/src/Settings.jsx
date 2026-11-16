@@ -831,6 +831,19 @@ function StoragePanel() {
         <span>{usage.messages} messages</span>
         <span>{usage.attachments} files</span>
       </div>
+      {usage.attachment_limit > 0 && <div className="object-usage-card">
+        <h3>Saved files</h3>
+        <label>
+          <span>Files</span>
+          <strong>{usage.attachments.toLocaleString()} / {usage.attachment_limit.toLocaleString()}</strong>
+          <progress aria-label="File storage used" value={usage.attachments}
+            max={usage.attachment_limit} />
+          <small className="muted">
+            Includes uploads linked to chats and generated images.
+            Delete unused files or older chats to free space.
+          </small>
+        </label>
+      </div>}
       {usage.conversation_limit && usage.message_limit
         && usage.message_limit_per_conversation && <div className="object-usage-card">
         <h3>Saved chat data</h3>

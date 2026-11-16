@@ -38,6 +38,21 @@ class SecurityMonitorTests(unittest.TestCase):
     def test_clean_state_has_no_issues(self):
         self.assertEqual(monitor.evaluate(self.backups, self.restore_log, ''), {})
 
+    def test_attachment_capacity_alert_threshold_and_privacy(self):
+        owner_event = 'event=attachment_quota_blocked scope=user resource=attempts user_id=12345'
+        self.assertNotIn('attachment_quota', monitor.evaluate(
+            self.backups, self.restore_log, '\n'.join([owner_event] * 4),
+        ))
+        for journal in [
+            '\n'.join([owner_event] * 5),
+            'event=attachment_quota_blocked scope=global resource=bytes user_id=12345',
+        ]:
+            with self.subTest(journal=journal):
+                issues = monitor.evaluate(self.backups, self.restore_log, journal)
+                self.assertEqual(set(issues), {'attachment_quota'})
+                self.assertNotIn('user_id', issues['attachment_quota'])
+                self.assertNotIn('12345', issues['attachment_quota'])
+
     def test_detects_auth_rate_admin_budget_and_error_signals(self):
         journal = '\n'.join(
             ['event=auth_failed'] * 5

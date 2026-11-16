@@ -186,6 +186,7 @@ async function mockAPI(
       },
       '/api/account/usage/': {
         storage_bytes: 5242880, storage_limit_bytes: 104857600, attachments: 0,
+        attachment_limit: 1000,
         conversations: 1, conversation_limit: 500, messages: 2, message_limit: 10000,
         message_limit_per_conversation: 2000,
         ai_today: {
@@ -781,6 +782,12 @@ for (const width of [320, 390, 768, 1440]) {
     await page.getByTitle('Settings', { exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Storage & files' })).toBeVisible()
     await expect(page.getByText('5.0 MB of 100 MB used')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Saved files', exact: true })).toBeVisible()
+    await expect(page.getByLabel('File storage used')).toHaveAttribute('value', '0')
+    await expect(page.getByLabel('File storage used')).toHaveAttribute('max', '1000')
+    await page.getByRole('heading', { name: 'Saved files', exact: true }).locator('..').screenshot({
+      path: `test-results/file-storage-${width}.png`,
+    })
     await expect(page.getByRole('heading', { name: 'Saved chat data' })).toBeVisible()
     await expect(page.getByLabel('Conversation storage used')).toHaveAttribute('value', '1')
     await expect(page.getByLabel('Message storage used')).toHaveAttribute('value', '2')

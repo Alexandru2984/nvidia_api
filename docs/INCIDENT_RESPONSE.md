@@ -59,6 +59,9 @@ Any saved-chat object or byte quota block raises `chat_object_quota`. A failed
 `aichat-maintenance.service` run raises `maintenance_failed`; this includes a
 failed archived-history or scheduled-account cleanup and must not be dismissed
 as routine expiry.
+`attachment_quota` means a service-wide attachment byte/file/upload-attempt
+ceiling was reached, or at least five owner-quota blocks occurred in six minutes.
+The alert contains aggregate counts only. A single owner block does not page.
 Any failed weekly isolated restore raises `restore_drill_failed` immediately;
 `restore_missing`, `restore_failed`, or `restore_stale` also remain active until
 the private success log is valid and newer than eight days. Never test recovery
@@ -74,6 +77,13 @@ boundary and installed verifier. Treat an unplanned event as possible credential
 tampering: preserve the journal timestamp, compare the root-owned installed file
 to its committed source without copying secret contents, and contain before
 acknowledging the alert.
+The systemd path watcher also reports metadata/replacement operations that leave
+content unchanged. On 2026-11-16 at 04:37:36 UTC, Certbot's automatic nginx
+certificate-renewal operation triggered this signal. The vhost still matched
+`ops/nginx/aichat.micutu.com.conf` byte for byte, nginx validation passed and
+origin/public health were normal. Correlate a future event with the exact unit
+timestamps and verify content, owner and mode before concluding it is routine;
+the fixed event alone does not identify the changed file or prove compromise.
 
 For `model_probe_failed`, `model_probe_degraded`, `model_probe_authorization`,
 `model_status_invalid` or `model_status_health`, preserve the unit journal and
@@ -189,6 +199,13 @@ and restores and re-probes the exact initial configuration automatically.
   check database/disk growth. Do not export message content for triage. Keep the
   global gate fail-closed; deleting confirmed owner data requires the normal
   owner/account workflow, not direct counter or generated-column edits.
+- For attachment capacity blocks, preserve the local event's scope and resource
+  (`files`, `bytes` or `attempts`), and check aggregate counts, storage health and
+  maintenance completion. Upload attempts include active, completed and canceled
+  records; the existing 24-hour expiry plus daily maintenance frees metadata
+  capacity. Do not raise limits or delete arbitrary files to bypass the gate.
+  Owners can remove unused files/chats through the normal authenticated flow;
+  replay, deduplication and cancellation of existing attempts remain available.
 - For failed or disputed lifecycle cleanup, stop the maintenance timer, preserve
   its journal and any affected owner's retention preference, and run `manage.py
   cleanup_attachments --dry-run` before any retry. Validate both archived-chat

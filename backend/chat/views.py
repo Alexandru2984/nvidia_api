@@ -55,6 +55,7 @@ from .attachments import (
     kind_for_mime,
 )
 from .file_deletions import discard_uncommitted_file
+from .attachment_limits import attachment_quota_response, upload_attempt_quota_response
 from .malware import INFECTED, MalwareScanError, ping_scanner, scan_attachment
 from .model_status import get_status, unavailable_model_ids
 from .nvidia_client import (
@@ -1492,6 +1493,7 @@ def account_usage(request):
         'storage_bytes': files['bytes'] or 0,
         'storage_limit_bytes': settings.MAX_USER_STORAGE,
         'attachments': files['count'],
+        'attachment_limit': settings.MAX_USER_ATTACHMENTS,
         'conversations': conversation_count,
         'conversation_limit': settings.CHAT_MAX_CONVERSATIONS_PER_USER,
         'messages': message_usage['count'],
@@ -1856,9 +1858,12 @@ def _prepare_upload_attempt(user, attempt_id):
         return None
     User = get_user_model()
     with transaction.atomic():
+        ChatStorageGate.objects.select_for_update().get(pk=1)
         User.objects.select_for_update().get(pk=user.pk)
         attempt = AttachmentUploadAttempt.objects.select_for_update().filter(pk=attempt_id).first()
         if attempt is None:
+            if (response := upload_attempt_quota_response(user.pk)) is not None:
+                return response
             attempt = AttachmentUploadAttempt.objects.create(id=attempt_id, user=user)
         elif attempt.user_id != user.pk:
             return _upload_attempt_error(
@@ -2003,9 +2008,8 @@ def upload_attachment(request):
                 response_status=status.HTTP_200_OK,
             )
 
-    used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
-    if used + f.size > settings.MAX_USER_STORAGE:
-        return Response({'error': 'Storage quota exceeded.'}, status=413)
+    if (response := attachment_quota_response(request.user.pk, f.size)) is not None:
+        return response
     try:
         extracted = extract_text(f, mime) if kind == 'document' else ''
     except DocumentParserError:
@@ -2028,11 +2032,12 @@ def upload_attachment(request):
     # The storage path has a 100-character limit; keep user-facing names separate.
     f.name = secrets.token_hex(12) + Path(safe_name).suffix.lower()
 
-    # Race-free quota: lock the user row, recompute usage inside the lock, then
-    # commit the new attachment. Two parallel uploads serialise here.
+    # Serialize global admission before the owner/attempt locks; concurrent
+    # owners must not both consume the last service-wide file or byte slot.
     att = None
     try:
         with transaction.atomic():
+            ChatStorageGate.objects.select_for_update().get(pk=1)
             User.objects.select_for_update().get(pk=request.user.pk)
             attempt = None
             if attempt_id is not None:
@@ -2054,12 +2059,8 @@ def upload_attachment(request):
                     deduplicated=True,
                     response_status=status.HTTP_200_OK,
                 )
-            used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
-            if used + f.size > settings.MAX_USER_STORAGE:
-                return Response({
-                    'error': f'Storage quota exceeded. Limit {settings.MAX_USER_STORAGE // (1024 * 1024)}MB per user.',
-                    'used': used, 'limit': settings.MAX_USER_STORAGE,
-                }, status=413)
+            if (response := attachment_quota_response(request.user.pk, f.size)) is not None:
+                return response
             att = Attachment(
                 user=request.user,
                 file=f,
@@ -2088,9 +2089,12 @@ def cancel_attachment_upload(request, attempt_id):
     if (r := _rate_limited(request)): return r
     User = get_user_model()
     with transaction.atomic():
+        ChatStorageGate.objects.select_for_update().get(pk=1)
         User.objects.select_for_update().get(pk=request.user.pk)
         attempt = AttachmentUploadAttempt.objects.select_for_update().filter(pk=attempt_id).first()
         if attempt is None:
+            if (response := upload_attempt_quota_response(request.user.pk)) is not None:
+                return response
             AttachmentUploadAttempt.objects.create(
                 id=attempt_id,
                 user=request.user,
@@ -4569,9 +4573,8 @@ def generate_image(request):
         return response
 
     # Coarse pre-check before paying for an NVIDIA call. Atomic check happens after.
-    used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
-    if used >= settings.MAX_USER_STORAGE:
-        return Response({'error': 'Storage quota exceeded; delete some attachments first.'}, status=413)
+    if (response := attachment_quota_response(request.user.pk, 1)) is not None:
+        return response
     if (r := _reserve_provider_call(request, 'image', len(prompt))): return r
 
     payload = {
@@ -4620,10 +4623,10 @@ def generate_image(request):
     att = None
     try:
         with transaction.atomic():
+            ChatStorageGate.objects.select_for_update().get(pk=1)
             User.objects.select_for_update().filter(pk=request.user.pk).first()
-            used = Attachment.objects.filter(user=request.user).aggregate(total=Sum('size'))['total'] or 0
-            if used + len(raw) > settings.MAX_USER_STORAGE:
-                return Response({'error': 'Storage quota exceeded; delete some attachments first.'}, status=413)
+            if (response := attachment_quota_response(request.user.pk, len(raw))) is not None:
+                return response
             att = Attachment(
                 user=request.user,
                 original_name=filename,

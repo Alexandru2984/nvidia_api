@@ -151,7 +151,7 @@ class ProviderDisclosureAcceptance(models.Model):
 
 
 class ChatStorageGate(models.Model):
-    """Singleton row serializing service-wide saved-message byte quotas."""
+    """Singleton admission lock for saved messages, files and upload attempts."""
 
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
 

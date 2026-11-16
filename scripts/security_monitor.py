@@ -990,6 +990,8 @@ def evaluate(
     unmetered_usage = journal.count('event=ai_usage_unmetered')
     token_overruns = journal.count('event=ai_token_reservation_exceeded')
     object_quota_blocks = journal.count('event=chat_object_quota_blocked')
+    attachment_quota_blocks = journal.count('event=attachment_quota_blocked')
+    global_attachment_quota_blocks = journal.count('event=attachment_quota_blocked scope=global')
     session_registry_mismatches = journal.count('event=session_registry_mismatch')
     session_limit_enforcements = journal.count('event=session_limit_enforced')
     invite_rejections = journal.count('event=registration_invite_rejected')
@@ -1060,6 +1062,11 @@ def evaluate(
     if object_quota_blocks >= int(os.environ.get('OBJECT_QUOTA_ALERT_THRESHOLD', '1')):
         issues['chat_object_quota'] = (
             f'{object_quota_blocks} chat object quota blocks were detected in six minutes.'
+        )
+    if global_attachment_quota_blocks or attachment_quota_blocks >= 5:
+        issues['attachment_quota'] = (
+            f'{attachment_quota_blocks} attachment capacity blocks, including '
+            f'{global_attachment_quota_blocks} service-wide blocks, were detected in six minutes.'
         )
     if session_registry_mismatches:
         issues['session_registry_mismatch'] = (
