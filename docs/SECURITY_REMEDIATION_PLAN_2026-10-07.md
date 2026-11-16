@@ -469,9 +469,11 @@ duplicate attachment consumption or destructive regeneration.
 - Attachment live-object/global-byte and upload-attempt quotas are deployed as
   of 2026-11-16 (`2a0f38b`), with shared admission locking, owner-only usage UI,
   native PostgreSQL concurrency tests and bounded privacy-minimized alerts.
-  Physical allocation, empty-directory lifecycle and failed-deletion backlog
-  need separate capacity controls; do not treat logical file bytes as a hard
-  filesystem ceiling. Rollout/rollback evidence is in the current audit log.
+  Follow-up `9d00647` retains failed deletions in global capacity accounting,
+  reclaims empty random upload directories and adds independent media free-
+  byte/inode guards plus proactive filesystem monitoring. These are admission
+  reserves, not project quotas against unrelated writers or a crash-orphan
+  reconciler. Rollout/rollback evidence is in the current audit log.
 - Stream bounded exports and rate-limit session inventory/download endpoints.
 - Send security/audit evidence off-host; monitor release hashes, identity/sudo
   events, environment/config changes, provider/mail anomalies and database/disk

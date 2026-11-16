@@ -3741,6 +3741,78 @@ is required before describing those controls as complete.
   still need separate capacity controls. Owner/external P0 gates remain open.
   All commits remain local; no push was performed.
 
+### Physical attachment storage guard — 2026-11-16
+
+- Commit `9d00647` closes two gaps left by logical file quotas: deleting an
+  attachment left its random directory behind, and failed physical deletions
+  freed logical capacity while storage remained allocated. Pending deletion
+  entries now reserve one global file slot and a conservative full 10 MiB each
+  until cleanup succeeds. Live usage is read before the pending count so a
+  concurrent live-row -> outbox transition can overcount safely rather than
+  miss both sides. No new owner/content metadata or schema was added.
+- Admission independently checks available media bytes/inodes before expensive
+  parsing/provider work and again inside the existing final admission lock.
+  The save must leave a 512 MiB/10,000-inode reserve, rounding file data to
+  allocation units and allowing three directory blocks/four inodes for a first
+  save. Missing/unavailable storage fails closed. Responses remain generic
+  `503` with `Retry-After: 60`; local structured events identify only numeric
+  owner, scope and resource. Existing replay/deduplication does not allocate
+  new files and remains available.
+- Successful deletion and rollback cleanup reclaim only the file's empty
+  random directory. Descriptor-relative traversal uses `O_NOFOLLOW` for the
+  media, attachment and owner directories; owner/media roots and nonempty
+  leaves are retained. Cleanup failure remains queued and charged, including
+  when the file is gone but its directory still needs removal. Retrying a
+  missing file/directory is idempotent. This does not bulk-sweep private files
+  or establish a new storage backend.
+- The five-minute monitor proactively checks free bytes/inodes using its
+  existing backup-metadata access, without gaining media/file access. The
+  guarded installer proves backups and media share a filesystem and refuses a
+  split; a future split requires separate reviewed coverage. `storage_capacity`
+  alerts contain no paths or usage measurements. Request-side failures also
+  use the existing global `attachment_quota` detection. Daily per-key cooldown
+  and disabled recovery notifications are unchanged.
+- Before implementation, all 12 new boundary/regression cases failed against
+  the preceding code. The final complete PostgreSQL run passed 784 tests with
+  no skips; SQLite passed 775 with nine explicit native-lock skips. All 180
+  operational tests passed, as did Django/schema checks, compilation, Bash,
+  ShellCheck and whitespace validation. Coverage includes exhausted space/
+  inodes, unavailable storage, exact admission boundaries, final rechecks after
+  parser/provider work, outbox charging, three symlink-parent levels, nonempty
+  directory preservation and retry after directory-removal failure. An isolated
+  storage-outage exercise proved quota blocking, safe dry-run, maintenance
+  repair and resumed uploads without a live alert or provider request.
+- Signed backend
+  `/opt/aichat-backend-releases/release-20261116T050541_264113457` is active at
+  exact commit `9d0064731db5fbfa94e7296b114f52dd2ea93174`. Rollback to the
+  previous quota release and restoration both passed in two seconds. The
+  restored PID is `880884`, `NRestarts=0`. Normal retention recoverably archived
+  backend `release-20261114T191629_635409783`. The frontend was unchanged and
+  retained `release-20261116T045006_121610713`; no redundant rebuild was needed.
+- Guarded monitor installation and its isolated backup restore passed. Installed
+  SHA-256 is
+  `ea325ef9f4ceb785dd122707f7139cabfeaa8c92d7569be7667808c8810ceca1`.
+  Services returned success; monitor/restore timers and config watcher are
+  active. Origin/edge health returned `200`, media `404`, private API and dotenv
+  `403`. No warning-level service or watcher event appeared after rollout;
+  monitor issues are empty, with no new notification/recovery timestamp.
+- Production inventory found one historical empty upload directory, zero live
+  attachments and zero queued deletions. A one-time bounded reclamation held
+  the same global gate, rechecked the empty inventory and reference prefix,
+  and used the tested descriptor-relative prune helper on that discovered
+  empty leaf. Exactly one directory was reclaimed; no file or database row
+  was deleted. A fresh inventory confirms zero empty upload directories/files/
+  pending deletions, the configured reserves, and healthy free space/inodes.
+- The CISO review prioritizes availability loss through inode exhaustion,
+  persistent failed-deletion allocation and unsafe directory cleanup. All
+  application users share the availability risk; no new vendor or data category
+  is introduced, and there is no measured basis for a new financial estimate.
+  The runbook and isolated recovery exercise cover detection, preservation,
+  dependency repair and normal maintenance. These checks do not enforce a
+  filesystem project quota against unrelated writers or reconcile every
+  possible crash-time orphan. Shared-host P0, external recovery and owner gates
+  remain open; the program's RED verdict is unchanged. No push was performed.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

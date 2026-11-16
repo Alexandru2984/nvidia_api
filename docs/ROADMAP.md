@@ -275,8 +275,12 @@ timed evidence.
   cancellation remain available. The mobile Storage panel shows the owner's
   file limit; global failures expose no service usage. Native PostgreSQL races
   cover the final file/byte/attempt slot and bounded alerts cover quota pressure.
-  Follow up with physical-filesystem allocation/backlog controls; logical row
-  quotas do not account for empty directories or failed physical deletions.
+  Failed deletion entries now retain conservative global file/byte reservations;
+  file cleanup also reclaims empty random directories without following parent
+  links. Independent media admission and backup-filesystem monitoring protect
+  a 512 MiB/10,000-inode free reserve; installation requires both paths on the
+  same filesystem. This does not enforce project quotas against unrelated host
+  writers or reconcile arbitrary crash-time orphans.
 - **Bounded chat storage and egress are shipped:** owner-row serialization makes
   conversation limits and cross-conversation message reservations durable across
   workers; regeneration reserves only projected growth. Assistant output and

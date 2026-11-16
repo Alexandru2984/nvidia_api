@@ -623,6 +623,24 @@ secret values are reproduced here.
   capacity and existing owner/external P0 gates remain open. Detailed evidence
   is in [SECURITY_AUDIT.md](SECURITY_AUDIT.md#attachment-resource-admission--2026-11-16).
   No push or production content mutation was performed.
+- 2026-11-16: follow-up `9d00647` adds physical media free-space/inode admission
+  reserves and retains failed deletion objects in global file/byte accounting.
+  Successful file/rollback cleanup now reclaims only the empty random upload
+  leaf, refusing symlink parents and preserving nonempty/owner/media directories.
+  The monitor independently alerts on low filesystem capacity through existing
+  backup-only access; installation refuses media/backup filesystem separation.
+  All 784 PostgreSQL, 775 SQLite (nine native-lock skips) and 180 operational
+  tests passed, including a synthetic outage/dry-run/maintenance/recovery flow.
+  Signed backend `release-20261116T050541_264113457` is active at the full
+  commit after a 2/2-second rollback/restoration with zero automatic restarts.
+  Monitor installation/isolated restore, origin/edge probes and empty monitor
+  state passed with no new notification. One inventoried historical empty
+  directory was safely reclaimed; no live file or database row was deleted.
+  This is an admission reserve, not a filesystem quota against unrelated host
+  writers; crash-orphan reconciliation and existing owner/external P0 gates
+  remain separate. Full evidence is in
+  [SECURITY_AUDIT.md](SECURITY_AUDIT.md#physical-attachment-storage-guard--2026-11-16).
+  All commits remain local; no push was performed.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
