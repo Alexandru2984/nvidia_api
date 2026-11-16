@@ -267,6 +267,16 @@ timed evidence.
   has bounded retention. A future horizontal queue must preserve this protocol;
   do not automatically retry `failed`/`interrupted` jobs because NVIDIA does not
   share an atomic transaction with PostgreSQL.
+- **Bounded attachment admission is shipped:** the existing global gate now
+  serializes live file counts/bytes and upload-attempt allocation across owners.
+  Per-owner limits are 1,000 files and 1,000 recent attempts; service-wide limits
+  are 10,000 each plus 1 GiB of live attachment bytes. Linked and generated files
+  count too. File deduplication at the file limit and existing attempt replay/
+  cancellation remain available. The mobile Storage panel shows the owner's
+  file limit; global failures expose no service usage. Native PostgreSQL races
+  cover the final file/byte/attempt slot and bounded alerts cover quota pressure.
+  Follow up with physical-filesystem allocation/backlog controls; logical row
+  quotas do not account for empty directories or failed physical deletions.
 - **Bounded chat storage and egress are shipped:** owner-row serialization makes
   conversation limits and cross-conversation message reservations durable across
   workers; regeneration reserves only projected growth. Assistant output and

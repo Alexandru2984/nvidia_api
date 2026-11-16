@@ -3677,6 +3677,70 @@ is required before describing those controls as complete.
   push; no push occurred. Passing both database suites strengthens regression
   evidence but does not close the remaining operational/owner audit gates.
 
+### Attachment resource admission — 2026-11-16
+
+- Byte-only owner limits allowed many tiny files and unbounded upload-attempt
+  UUIDs, including cancellation tombstones. Commit `2a0f38b` adds 1,000 files
+  and 1,000 recent upload attempts per owner, 10,000 of each service-wide, and
+  a 1 GiB aggregate attachment-byte ceiling. The existing 10 MiB/file and
+  100 MiB/owner limits remain. Linked uploads and generated images count too;
+  all active/completed/canceled attempts count until existing 24-hour expiry
+  and daily maintenance remove them. A read-only production aggregate confirmed
+  zero files, bytes, attempts and pending file deletions before activation.
+- Final admission reuses the existing singleton `ChatStorageGate`, followed by
+  the owner and attempt/attachment locks. Two owners cannot both consume the
+  last global file/byte slot. Upload preflight avoids unnecessary parsing;
+  image preflight avoids an already-full provider request, and final admission
+  rechecks the exact returned size. A race during generation can still consume
+  the existing provider budget before storage is rejected; this is not a new
+  provider-side reservation or monetary guarantee. Existing deduplication,
+  upload replay and cancellation remain available at capacity. No migration
+  or retention-policy change was required.
+- Owner-limit failures return `413` with only that owner's limit/usage. Global
+  failures return a generic `503`, `Retry-After: 60` and no service-wide counts.
+  The authenticated usage response adds only the owner's file ceiling; the
+  responsive Storage panel displays it using static CSS and native progress.
+  Five owner blocks or any global block in six minutes raise `attachment_quota`
+  with aggregate-only text. The existing daily per-key notification cooldown
+  and disabled recovery messages are unchanged.
+- All 767 PostgreSQL 18 backend cases passed without skips, including three
+  real last-slot upload races and two blocked attempt-admission interleavings.
+  The first run had two new fixture failures because the synthetic attempt
+  omitted its mandatory UUID; adding the UUID fixed the fixture without
+  weakening the lock assertions. SQLite passed 758 cases with nine explicit
+  PostgreSQL-only skips. All 178 operational checks and 60 Playwright cases
+  passed, plus a focused four-width capture rerun. The 320 px file card was
+  visually reviewed. Django/schema checks, frontend lint/build, compilation,
+  Bash, ShellCheck and whitespace checks passed.
+- Signed backend release
+  `/opt/aichat-backend-releases/release-20261116T044911_776574011` and frontend
+  `/var/www/aichat-releases/release-20261116T045006_121610713` both contain exact
+  commit `2a0f38b5011a607498e487a6482e9f13d371d022`. Backend rollback/restoration
+  passed in 3/2 seconds and frontend in 0/1 seconds. The restored backend is
+  PID `799151`, `NRestarts=0`. Normal retention recoverably archived one retired
+  release of each family. Public/origin health and real sign-in browser smoke
+  passed at 320/1440 px, with no overflow or inline style attributes. No live
+  account, upload, provider generation or data deletion was used for testing.
+- The guarded monitor install also passed its isolated database restore gate.
+  Installed SHA-256 is
+  `96e59477194790dacd2a1352133730edea49db146dd6f5114ed0ac08835f2781`.
+  Monitor/restore services returned success; their timers and the config watcher
+  are active. No watcher event or warning-level service event appeared after
+  rollout began, active issues are empty, and notification/recovery timestamps
+  did not change from the pre-rollout baseline. The earlier 04:39 UTC Telegram
+  message was independently traced to Certbot's 04:37:36 UTC nginx operation;
+  the vhost remained byte-identical to its committed template. The runbook now
+  records that metadata/replacement events can fire this generic path signal.
+- The scoped CISO review ranks storage/metadata denial of service, concurrent
+  admission bypass and cross-owner usage disclosure highest for this change.
+  Availability affects all application users; the global response and alert
+  deliberately omit their data. There is no new vendor or data category, and
+  no measured basis for a new monetary-loss estimate. The existing incident
+  runbook/tabletop and privacy escalation apply. These are logical live-object
+  quotas: filesystem allocation, empty directories and failed-deletion backlog
+  still need separate capacity controls. Owner/external P0 gates remain open.
+  All commits remain local; no push was performed.
+
 ### Timed incident tabletop — 2026-11-12
 
 - A SEV-1 signed-release compromise, NVIDIA cost-abuse and unauthorized-export

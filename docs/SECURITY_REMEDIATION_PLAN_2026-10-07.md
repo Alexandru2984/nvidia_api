@@ -466,6 +466,12 @@ duplicate attachment consumption or destructive regeneration.
   maintenance-failure detection. User-linked AI usage rows now expire after 90
   days and non-identifying global aggregates after 400 days in bounded batches.
   Define and publish the operator-wide legal/default schedule.
+- Attachment live-object/global-byte and upload-attempt quotas are deployed as
+  of 2026-11-16 (`2a0f38b`), with shared admission locking, owner-only usage UI,
+  native PostgreSQL concurrency tests and bounded privacy-minimized alerts.
+  Physical allocation, empty-directory lifecycle and failed-deletion backlog
+  need separate capacity controls; do not treat logical file bytes as a hard
+  filesystem ceiling. Rollout/rollback evidence is in the current audit log.
 - Stream bounded exports and rate-limit session inventory/download endpoints.
 - Send security/audit evidence off-host; monitor release hashes, identity/sudo
   events, environment/config changes, provider/mail anomalies and database/disk

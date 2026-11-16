@@ -605,6 +605,24 @@ secret values are reproduced here.
   Backend commit `9527593`, PID `2229750` and zero restarts were unchanged;
   origin/edge health and the empty monitor state passed with no notification.
   Disposable clusters were stopped/removed, and no push was performed.
+- 2026-11-16: commit `2a0f38b` extends S-12 admission to attachment objects,
+  global bytes and upload-attempt metadata. Limits are 1,000 files/attempts per
+  owner, 10,000 each globally and 1 GiB of live attachment bytes; the existing
+  100 MiB/owner and 10 MiB/file limits remain. Global-gate -> owner locking
+  prevents concurrent over-admission, including canceled UUID tombstones;
+  existing replay/dedup/cancellation still work at capacity. Owner-only usage
+  is visible in the responsive settings UI; generic global failures disclose
+  no aggregate storage data. A bounded `attachment_quota` alert covers pressure.
+  All 767 PostgreSQL, 758 SQLite (nine native-lock skips), 178 operational and
+  60 browser tests passed, with no migration required. Both signed releases
+  are deployed at the full commit; backend rollback/restoration passed in 3/2
+  seconds and frontend in 0/1 seconds. Origin/edge health and mobile/desktop
+  browser smoke passed; the monitor returned empty active state with no new
+  notification after rollout. A prior config alert was traced to automatic
+  Certbot activity with byte-identical nginx content. Physical disk/backlog
+  capacity and existing owner/external P0 gates remain open. Detailed evidence
+  is in [SECURITY_AUDIT.md](SECURITY_AUDIT.md#attachment-resource-admission--2026-11-16).
+  No push or production content mutation was performed.
 - 2026-11-12: a timed SEV-1 tabletop exercised suspected signed-release
   compromise, NVIDIA cost abuse and possible unauthorized export. After an
   ambient-Python command failed closed without mutation, the exact runtime path
